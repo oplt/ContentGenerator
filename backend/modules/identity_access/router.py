@@ -54,7 +54,12 @@ def _build_user(user: User) -> AuthUserResponse:
 @router.post("/sign-up", response_model=AuthUserResponse, status_code=201)
 async def sign_up(payload: SignUpRequest, db: AsyncSession = Depends(get_db)):
     service = IdentityService(db)
-    user = await service.sign_up(payload.email, payload.password, payload.full_name)
+    user = await service.sign_up(
+        payload.email,
+        payload.password,
+        payload.full_name,
+        payload.admin_invite_code,
+    )
     return _build_user(user)
 
 

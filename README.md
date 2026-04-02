@@ -65,6 +65,7 @@ npm run dev
 - Set `CELERY_TASK_ALWAYS_EAGER=true` in `backend/.env` if you want queued email work to execute inline without a worker process.
 - Avatar uploads are stored in the configured S3-compatible bucket instead of a placeholder path.
 - `/admin/platform` lets you rename the app, rename the core domain labels, pick a module pack, and manage plans, flags, and email templates.
+- Set `ADMIN_SIGNUP_INVITE_CODE` in `backend/.env` to allow invite-only admin registration during sign-up.
 - Module packs are intended for clone-time reuse:
   - `lean_saas`
   - `automation_suite`

@@ -5,6 +5,7 @@ class SignUpRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
     full_name: str | None = None
+    admin_invite_code: str | None = None
 
 
 class SignInRequest(BaseModel):

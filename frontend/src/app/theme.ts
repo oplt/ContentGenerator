@@ -41,7 +41,7 @@ function buildTheme(mode: PaletteMode) {
             divider: isDark ? alpha(mist, 0.14) : mist,
         },
         shape: {
-            borderRadius: 18,
+            borderRadius: 2,
         },
         typography: {
             fontFamily: '"Manrope", "Segoe UI", sans-serif',
@@ -176,7 +176,7 @@ function buildTheme(mode: PaletteMode) {
                 },
                 styleOverrides: {
                     root: {
-                        borderRadius: Number(theme.shape.borderRadius) + 4,
+                        borderRadius: Number(theme.shape.borderRadius) + 1,
                         border: `1px solid ${theme.palette.divider}`,
                         backgroundColor: alpha(theme.palette.background.paper, isDark ? 0.8 : 0.92),
                         boxShadow: isDark
@@ -227,7 +227,7 @@ function buildTheme(mode: PaletteMode) {
             MuiOutlinedInput: {
                 styleOverrides: {
                     root: {
-                        borderRadius: 16,
+                        borderRadius: 3,
                         backgroundColor: isDark
                             ? alpha(canvas, 0.04)
                             : alpha("#FFFFFF", 0.9),
@@ -310,7 +310,7 @@ function buildTheme(mode: PaletteMode) {
             MuiTooltip: {
                 styleOverrides: {
                     tooltip: {
-                        borderRadius: 12,
+                        borderRadius: 3,
                         backgroundColor: alpha(theme.palette.text.primary, 0.9),
                         color: theme.palette.background.paper,
                         fontSize: "0.78rem",

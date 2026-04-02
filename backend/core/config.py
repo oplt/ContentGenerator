@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     FRONTEND_URL: str = "http://localhost:5173"
     COOKIE_SECURE: bool = False
+    ADMIN_SIGNUP_INVITE_CODE: str = ""
 
     # Email verification / password reset token TTLs (seconds)
     VERIFICATION_TOKEN_TTL: int = 86400   # 24 h

@@ -19,6 +19,7 @@ export async function signUp(payload: {
     email: string;
     password: string;
     full_name?: string;
+    admin_invite_code?: string;
 }) {
     return apiFetch("/auth/sign-up", {
         method: "POST",

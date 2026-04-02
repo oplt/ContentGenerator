@@ -13,6 +13,7 @@ export const signUpSchema = z.object({
     full_name: z.string().optional(),
     email: z.string().email("Enter a valid email"),
     password: z.string().min(8, "Password must be at least 8 characters"),
+    admin_invite_code: z.string().optional(),
 });
 
 export type SignInValues = z.infer<typeof signInSchema>;

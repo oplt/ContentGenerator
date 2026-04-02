@@ -27,7 +27,7 @@ export function StatCard({
         <Paper
             sx={{
                 p: 2.5,
-                borderRadius: 4,
+                borderRadius: 2,
                 minHeight: "100%",
                 background: `linear-gradient(180deg, ${alpha(accent, theme.palette.mode === "dark" ? 0.16 : 0.08)} 0%, ${alpha(
                     theme.palette.background.paper,

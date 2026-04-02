@@ -37,15 +37,30 @@ class IdentityService:
 
     # ------------------------------------------------------------------ sign up / sign in
 
-    async def sign_up(self, email: str, password: str, full_name: str | None) -> User:
+    async def sign_up(
+        self,
+        email: str,
+        password: str,
+        full_name: str | None,
+        admin_invite_code: str | None = None,
+    ) -> User:
         existing = await self.repo.get_user_by_email(email)
         if existing:
             raise HTTPException(status_code=409, detail="Email already registered")
+
+        invite_code = (admin_invite_code or "").strip()
+        configured_invite_code = settings.ADMIN_SIGNUP_INVITE_CODE.strip()
+        is_admin = False
+        if invite_code:
+            if not configured_invite_code or not secrets.compare_digest(invite_code, configured_invite_code):
+                raise HTTPException(status_code=403, detail="Invalid admin invite code")
+            is_admin = True
 
         user = await self.repo.create_user(
             email=email,
             password_hash=hash_password(password),
             full_name=full_name,
+            is_admin=is_admin,
         )
         await self.db.commit()
         await self.db.refresh(user)

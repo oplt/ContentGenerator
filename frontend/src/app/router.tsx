@@ -21,11 +21,11 @@ function PageLoader() {
     return (
         <Box sx={{ px: { xs: 2, md: 3 }, py: { xs: 3, md: 4 } }}>
             <Stack spacing={3}>
-                <Skeleton variant="rounded" height={170} sx={{ borderRadius: 6 }} />
+                <Skeleton variant="rounded" height={170} sx={{ borderRadius: 2 }} />
                 <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-                    <Skeleton variant="rounded" height={168} sx={{ borderRadius: 5, flex: 1 }} />
-                    <Skeleton variant="rounded" height={168} sx={{ borderRadius: 5, flex: 1 }} />
-                    <Skeleton variant="rounded" height={168} sx={{ borderRadius: 5, flex: 1 }} />
+                    <Skeleton variant="rounded" height={168} sx={{ borderRadius: 2, flex: 1 }} />
+                    <Skeleton variant="rounded" height={168} sx={{ borderRadius: 2, flex: 1 }} />
+                    <Skeleton variant="rounded" height={168} sx={{ borderRadius: 2, flex: 1 }} />
                 </Stack>
                 <Skeleton variant="rounded" height={260} sx={{ borderRadius: 5 }} />
             </Stack>

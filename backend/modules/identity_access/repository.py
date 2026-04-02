@@ -16,8 +16,19 @@ class IdentityRepository:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
 
-    async def create_user(self, email: str, password_hash: str, full_name: str | None) -> User:
-        user = User(email=email, password_hash=password_hash, full_name=full_name)
+    async def create_user(
+        self,
+        email: str,
+        password_hash: str,
+        full_name: str | None,
+        is_admin: bool = False,
+    ) -> User:
+        user = User(
+            email=email,
+            password_hash=password_hash,
+            full_name=full_name,
+            is_admin=is_admin,
+        )
         self.db.add(user)
         await self.db.flush()
         return user

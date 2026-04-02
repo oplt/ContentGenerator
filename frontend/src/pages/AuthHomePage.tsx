@@ -186,7 +186,11 @@ function SignUpForm({ onSuccess }: { onSuccess: (email: string) => void }) {
     async function onSubmit(values: SignUpValues) {
         setServerError("");
         try {
-            await signUp(values);
+            const adminInviteCode = values.admin_invite_code?.trim();
+            await signUp({
+                ...values,
+                admin_invite_code: adminInviteCode || undefined,
+            });
             onSuccess(values.email);
         } catch (error) {
             setServerError(error instanceof Error ? error.message : "Sign up failed.");
@@ -221,6 +225,14 @@ function SignUpForm({ onSuccess }: { onSuccess: (email: string) => void }) {
                         {...register("password")}
                         error={!!errors.password}
                         helperText={errors.password?.message}
+                        fullWidth
+                    />
+                    <PasswordField
+                        label="Admin invite code"
+                        autoComplete="one-time-code"
+                        {...register("admin_invite_code")}
+                        error={!!errors.admin_invite_code}
+                        helperText={errors.admin_invite_code?.message || "Optional. Required only for admin registrations."}
                         fullWidth
                     />
                     <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>

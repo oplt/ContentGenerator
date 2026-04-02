@@ -233,7 +233,11 @@ export default function PlatformPage() {
                             sx={{
                                 display: "grid",
                                 gap: 1.5,
-                                gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+                                gridTemplateColumns: {
+                                    xs: "1fr",
+                                    sm: "repeat(2, minmax(0, 1fr))",
+                                    lg: "repeat(3, minmax(0, 1fr))",
+                                },
                             }}
                         >
                             {Array.from({ length: 3 }).map((_, index) => (
@@ -249,7 +253,11 @@ export default function PlatformPage() {
                                 sx={{
                                     display: "grid",
                                     gap: 1.5,
-                                    gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+                                    gridTemplateColumns: {
+                                        xs: "1fr",
+                                        sm: "repeat(2, minmax(0, 1fr))",
+                                        lg: "repeat(3, minmax(0, 1fr))",
+                                    },
                                 }}
                             >
                                 {plans?.map((plan) => {
@@ -264,10 +272,15 @@ export default function PlatformPage() {
                                                 backgroundColor: isCurrentPlan
                                                     ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.06)
                                                     : theme.palette.background.paper,
+                                                height: "100%",
                                             })}
                                         >
                                             <Stack spacing={1.5}>
-                                                <Stack direction="row" justifyContent="space-between" spacing={2}>
+                                                <Stack
+                                                    direction={{ xs: "column", xl: "row" }}
+                                                    justifyContent="space-between"
+                                                    spacing={1.5}
+                                                >
                                                     <Box>
                                                         <Typography variant="h6">{plan.name}</Typography>
                                                         <Typography variant="body2" color="text.secondary">
