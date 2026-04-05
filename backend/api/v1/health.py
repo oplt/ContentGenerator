@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
 from fastapi import APIRouter
 from sqlalchemy import text
 
@@ -9,12 +13,12 @@ health_router = APIRouter(prefix="/health", tags=["health"])
 
 
 @health_router.get("/live")
-async def live():
+async def live() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @health_router.get("/ready")
-async def ready():
+async def ready() -> dict[str, object]:
     checks: dict[str, str] = {}
 
     try:
@@ -30,17 +34,17 @@ async def ready():
     except Exception:
         checks["redis"] = "error"
 
-    if settings.celery_broker_url.startswith(("redis://", "rediss://")):
-        checks["queue"] = checks["redis"]
-    else:
-        checks["queue"] = "unknown"
-
-    all_ok = all(v == "ok" for v in checks.values())
-    return {"status": "ok" if all_ok else "degraded", "checks": checks}
+    checks["queues"] = "ok" if settings.celery_broker_url else "error"
+    all_ok = all(value == "ok" for value in checks.values())
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+    }
 
 
 @health_router.get("/version")
-async def version():
+async def version() -> dict[str, str]:
     return {
         "app": settings.APP_NAME,
         "env": settings.APP_ENV,

@@ -1,11 +1,11 @@
-import logging
 from time import perf_counter
 
+from backend.core.logging import get_logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-logger = logging.getLogger("backend.request")
+logger = get_logger("backend.request")
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -16,21 +16,21 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         except Exception:
             duration_ms = (perf_counter() - started_at) * 1000
             logger.exception(
-                "request_failed method=%s path=%s duration_ms=%.2f correlation_id=%s",
-                request.method,
-                request.url.path,
-                duration_ms,
-                getattr(request.state, "correlation_id", "n/a"),
+                "request_failed",
+                method=request.method,
+                path=request.url.path,
+                duration_ms=round(duration_ms, 2),
+                correlation_id=getattr(request.state, "correlation_id", "n/a"),
             )
             raise
 
         duration_ms = (perf_counter() - started_at) * 1000
         logger.info(
-            "request_complete method=%s path=%s status=%s duration_ms=%.2f correlation_id=%s",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-            getattr(request.state, "correlation_id", "n/a"),
+            "request_complete",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=round(duration_ms, 2),
+            correlation_id=getattr(request.state, "correlation_id", "n/a"),
         )
         return response

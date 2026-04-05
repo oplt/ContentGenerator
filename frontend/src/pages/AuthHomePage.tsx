@@ -1,340 +1,310 @@
-import { useState } from "react";
+import { type InputHTMLAttributes, useId, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Eye, EyeOff } from "lucide-react";
+import { forgotPassword } from "../api/auth";
+import { useAuth } from "../features/auth/AuthContext";
 import {
-    Alert,
-    Box,
-    Button,
-    Collapse,
-    IconButton,
-    InputAdornment,
-    Stack,
-    TextField,
-    type TextFieldProps,
-    Typography,
-} from "@mui/material";
-import { Visibility, VisibilityOff } from "@mui/icons-material";
-import { alpha } from "@mui/material/styles";
-import { useNavigate } from "react-router-dom";
-import { forgotPassword, signIn, signUp } from "../api/auth";
-import { AuthMarketingPanel } from "../components/auth/AuthMarketingPanel";
-import { AuthShell } from "../components/auth/AuthShell";
-import { useAuth } from "../hooks/useAuth";
-import {
-    forgotPasswordSchema,
-    signInSchema,
-    signUpSchema,
-    type ForgotPasswordValues,
-    type SignInValues,
-    type SignUpValues,
+  forgotPasswordSchema,
+  signInSchema,
+  signUpSchema,
+  type ForgotPasswordValues,
+  type SignInValues,
+  type SignUpValues,
 } from "../features/auth/schemas";
-import { usePlatformMetadata } from "../hooks/usePlatformMetadata";
+import { Button } from "../components/ui/button";
+import { Card } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { cn } from "../lib/utils";
 
-type Mode = "signIn" | "signUp";
+type AuthTab = "sign-in" | "sign-up";
 
-function PasswordField(props: TextFieldProps) {
-    const [showPassword, setShowPassword] = useState(false);
+type FormFieldProps = InputHTMLAttributes<HTMLInputElement> & {
+  label: string;
+  error?: string;
+};
 
-    return (
-        <TextField
-            {...props}
-            type={showPassword ? "text" : "password"}
-            InputProps={{
-                endAdornment: (
-                    <InputAdornment position="end">
-                        <IconButton
-                            edge="end"
-                            aria-label={showPassword ? "Hide password" : "Show password"}
-                            onClick={() => setShowPassword((value) => !value)}
-                            onMouseDown={(event) => event.preventDefault()}
-                        >
-                            {showPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                    </InputAdornment>
-                ),
-            }}
+function FormField({ label, error, className, ...props }: FormFieldProps) {
+  const id = useId();
+
+  return (
+    <label className="grid gap-2 text-sm font-medium text-foreground" htmlFor={id}>
+      <span>{label}</span>
+      <Input
+        {...props}
+        id={id}
+        className={cn(error && "border-destructive/60 focus-visible:ring-destructive", className)}
+      />
+      {error ? <span className="text-xs font-normal text-destructive">{error}</span> : null}
+    </label>
+  );
+}
+
+function PasswordField({ label, error, className, ...props }: FormFieldProps) {
+  const id = useId();
+  const [showPassword, setShowPassword] = useState(false);
+
+  return (
+    <label className="grid gap-2 text-sm font-medium text-foreground" htmlFor={id}>
+      <span>{label}</span>
+      <div className="relative">
+        <Input
+          {...props}
+          id={id}
+          type={showPassword ? "text" : "password"}
+          className={cn(
+            "pr-12",
+            error && "border-destructive/60 focus-visible:ring-destructive",
+            className
+          )}
         />
-    );
+        <button
+          type="button"
+          aria-label={showPassword ? "Hide password" : "Show password"}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition hover:text-foreground"
+          onClick={() => setShowPassword((value) => !value)}
+        >
+          {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </div>
+      {error ? <span className="text-xs font-normal text-destructive">{error}</span> : null}
+    </label>
+  );
 }
 
-function SignInForm({ onSuccess }: { onSuccess: () => void }) {
-    const navigate = useNavigate();
-    const { setAuthenticated } = useAuth();
-    const {
-        register,
-        handleSubmit,
-        getValues,
-        formState: { errors, isSubmitting },
-    } = useForm<SignInValues>({ resolver: zodResolver(signInSchema) });
-    const {
-        register: registerForgot,
-        handleSubmit: handleForgotSubmit,
-        reset: resetForgot,
-        formState: {
-            errors: forgotErrors,
-            isSubmitting: isSubmittingForgot,
-        },
-    } = useForm<ForgotPasswordValues>({ resolver: zodResolver(forgotPasswordSchema) });
-
-    const [serverError, setServerError] = useState("");
-    const [forgotOpen, setForgotOpen] = useState(false);
-    const [forgotDone, setForgotDone] = useState(false);
-    const [forgotError, setForgotError] = useState("");
-
-    async function onSubmit(values: SignInValues) {
-        setServerError("");
-        try {
-            const data = await signIn(values);
-            setAuthenticated(data.access_token, data.user);
-            onSuccess();
-            navigate("/dashboard");
-        } catch (error) {
-            setServerError(error instanceof Error ? error.message : "Sign in failed.");
-        }
-    }
-
-    async function onForgotPasswordSubmit(values: ForgotPasswordValues) {
-        setForgotError("");
-        try {
-            await forgotPassword(values);
-            setForgotDone(true);
-        } catch (error) {
-            setForgotError(error instanceof Error ? error.message : "Request failed.");
-        }
-    }
-
-    function toggleForgotPassword() {
-        const nextVisible = !forgotOpen;
-        setForgotOpen(nextVisible);
-        setForgotError("");
-        setForgotDone(false);
-        if (nextVisible) {
-            resetForgot({ email: getValues("email") });
-        }
-    }
-
-    return (
-        <Stack spacing={2}>
-            {serverError && <Alert severity="error">{serverError}</Alert>}
-            <Box component="form" onSubmit={handleSubmit(onSubmit)}>
-                <Stack spacing={2}>
-                    <TextField
-                        label="Email"
-                        type="email"
-                        autoComplete="email"
-                        {...register("email")}
-                        error={!!errors.email}
-                        helperText={errors.email?.message}
-                        fullWidth
-                    />
-                    <PasswordField
-                        label="Password"
-                        autoComplete="current-password"
-                        {...register("password")}
-                        error={!!errors.password}
-                        helperText={errors.password?.message}
-                        fullWidth
-                    />
-                    <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-                        {isSubmitting ? "Signing in..." : "Sign in"}
-                    </Button>
-                </Stack>
-            </Box>
-            <Button variant="text" onClick={toggleForgotPassword} sx={{ alignSelf: "flex-start", px: 0 }}>
-                {forgotOpen ? "Hide password reset" : "Forgot password?"}
-            </Button>
-            <Collapse in={forgotOpen} unmountOnExit>
-                <Stack spacing={2}>
-                    <Typography variant="body2" color="text.secondary">
-                        Enter your email and we will send a reset link if an account exists.
-                    </Typography>
-                    {forgotDone && (
-                        <Alert severity="success">
-                            If that email exists, a reset link has been sent. Check your inbox.
-                        </Alert>
-                    )}
-                    {forgotError && <Alert severity="error">{forgotError}</Alert>}
-                    <Box component="form" onSubmit={handleForgotSubmit(onForgotPasswordSubmit)}>
-                        <Stack spacing={2}>
-                            <TextField
-                                label="Email"
-                                type="email"
-                                {...registerForgot("email")}
-                                error={!!forgotErrors.email}
-                                helperText={forgotErrors.email?.message}
-                                fullWidth
-                            />
-                            <Button type="submit" variant="outlined" disabled={isSubmittingForgot}>
-                                {isSubmittingForgot ? "Sending..." : "Send reset link"}
-                            </Button>
-                        </Stack>
-                    </Box>
-                </Stack>
-            </Collapse>
-        </Stack>
-    );
-}
-
-function SignUpForm({ onSuccess }: { onSuccess: (email: string) => void }) {
-    const {
-        register,
-        handleSubmit,
-        formState: { errors, isSubmitting },
-    } = useForm<SignUpValues>({ resolver: zodResolver(signUpSchema) });
-    const [serverError, setServerError] = useState("");
-
-    async function onSubmit(values: SignUpValues) {
-        setServerError("");
-        try {
-            const adminInviteCode = values.admin_invite_code?.trim();
-            await signUp({
-                ...values,
-                admin_invite_code: adminInviteCode || undefined,
-            });
-            onSuccess(values.email);
-        } catch (error) {
-            setServerError(error instanceof Error ? error.message : "Sign up failed.");
-        }
-    }
-
-    return (
-        <Stack spacing={2}>
-            {serverError && <Alert severity="error">{serverError}</Alert>}
-            <Box component="form" onSubmit={handleSubmit(onSubmit)}>
-                <Stack spacing={2}>
-                    <TextField
-                        label="Full name"
-                        autoComplete="name"
-                        {...register("full_name")}
-                        error={!!errors.full_name}
-                        helperText={errors.full_name?.message}
-                        fullWidth
-                    />
-                    <TextField
-                        label="Email"
-                        type="email"
-                        autoComplete="email"
-                        {...register("email")}
-                        error={!!errors.email}
-                        helperText={errors.email?.message}
-                        fullWidth
-                    />
-                    <PasswordField
-                        label="Password"
-                        autoComplete="new-password"
-                        {...register("password")}
-                        error={!!errors.password}
-                        helperText={errors.password?.message}
-                        fullWidth
-                    />
-                    <PasswordField
-                        label="Admin invite code"
-                        autoComplete="one-time-code"
-                        {...register("admin_invite_code")}
-                        error={!!errors.admin_invite_code}
-                        helperText={errors.admin_invite_code?.message || "Optional. Required only for admin registrations."}
-                        fullWidth
-                    />
-                    <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-                        {isSubmitting ? "Creating account..." : "Create account"}
-                    </Button>
-                </Stack>
-            </Box>
-        </Stack>
-    );
+function StatusMessage({
+  variant,
+  message,
+}: {
+  variant: "error" | "success";
+  message: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-4 py-3 text-sm",
+        variant === "error"
+          ? "border-destructive/30 bg-destructive/5 text-destructive"
+          : "border-primary/20 bg-primary/5 text-primary"
+      )}
+    >
+      {message}
+    </div>
+  );
 }
 
 export default function AuthHomePage() {
-    const { data: platformMetadata } = usePlatformMetadata();
-    const [mode, setMode] = useState<Mode>("signIn");
-    const [successMsg, setSuccessMsg] = useState("");
+  const navigate = useNavigate();
+  const { signInWithPassword, signUpWithPassword } = useAuth();
+  const [activeTab, setActiveTab] = useState<AuthTab>("sign-in");
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [signUpError, setSignUpError] = useState<string | null>(null);
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [forgotPasswordError, setForgotPasswordError] = useState<string | null>(null);
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState<string | null>(null);
+  const signInForm = useForm<SignInValues>({
+    resolver: zodResolver(signInSchema),
+    defaultValues: { email: "", password: "" },
+  });
+  const signUpForm = useForm<SignUpValues>({
+    resolver: zodResolver(signUpSchema),
+    defaultValues: { full_name: "", email: "", password: "" },
+  });
+  const forgotPasswordForm = useForm<ForgotPasswordValues>({
+    resolver: zodResolver(forgotPasswordSchema),
+    defaultValues: { email: "" },
+  });
 
-    const appName = platformMetadata?.app_name ?? "Your App";
-    const coreDomainPlural = platformMetadata?.core_domain_plural ?? "projects";
+  function resetPanelState(nextTab: AuthTab) {
+    setActiveTab(nextTab);
+    setSignInError(null);
+    setSignUpError(null);
+    setForgotPasswordOpen(false);
+    setForgotPasswordError(null);
+    setForgotPasswordSuccess(null);
+  }
 
-    return (
-        <AuthShell
-            sideContent={
-                <AuthMarketingPanel
-                    appName={appName}
-                    eyebrow="Launch-ready workspace"
-                    title={`A premium way to manage your ${coreDomainPlural.toLowerCase()}.`}
-                    description="The product is now framed around clarity, confidence, and modern SaaS polish, with cleaner navigation, stronger hierarchy, and better flow from first sign-in."
-                    highlights={[
-                        { value: "Fast", label: "Cleaner onboarding and reduced friction" },
-                        { value: "Focused", label: "A calmer surface for daily operations" },
-                        { value: "Secure", label: "Built around stronger trust signals" },
-                    ]}
-                    points={[
-                        "Sign in to continue your existing workflow with a sharper interface.",
-                        "Create an account to access the full platform experience and dashboard.",
-                    ]}
+  return (
+    <div className="grid min-h-screen bg-aurora lg:grid-cols-[1.1fr,0.9fr]">
+      <div className="hidden px-10 py-12 text-white lg:flex lg:flex-col lg:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-cyan-200">SignalForge</p>
+          <h1 className="mt-6 max-w-xl text-5xl font-semibold leading-tight">
+            Turn live news signals into approved multi-platform content operations.
+          </h1>
+          <p className="mt-6 max-w-xl text-lg text-slate-300">
+            Scrape, score, draft, approve on WhatsApp, publish, and track analytics from one tenant-aware control center.
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {["Signal ingestion", "AI generation", "Approval + publish"].map((item) => (
+            <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 backdrop-blur">
+              <p className="text-sm text-slate-200">{item}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-center px-4 py-10">
+        <Card className="w-full max-w-md p-6">
+          <p className="text-xs uppercase tracking-[0.16em] text-primary">Workspace access</p>
+          <h2 className="mt-3 text-2xl font-semibold">Authenticate to your dashboard</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Sign in to continue, or create a new workspace account.
+          </p>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => resetPanelState(value as AuthTab)}
+            className="mt-6"
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="sign-in">Sign In</TabsTrigger>
+              <TabsTrigger value="sign-up">Sign Up</TabsTrigger>
+            </TabsList>
+            <TabsContent value="sign-in" className="mt-4">
+              {signInError ? <StatusMessage variant="error" message={signInError} /> : null}
+              <form
+                className="mt-4 grid gap-4"
+                onSubmit={signInForm.handleSubmit(async (values) => {
+                  try {
+                    setSignInError(null);
+                    await signInWithPassword(values);
+                    navigate("/dashboard");
+                  } catch (submitError) {
+                    setSignInError((submitError as Error).message);
+                  }
+                })}
+              >
+                <FormField
+                  label="Email"
+                  type="email"
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  error={signInForm.formState.errors.email?.message}
+                  {...signInForm.register("email")}
                 />
-            }
-        >
-            <Stack spacing={3}>
-                <Box>
-                    <Typography variant="overline" color="primary.main">
-                        {appName}
-                    </Typography>
-                    <Typography variant="h4" sx={{ mt: 0.5 }}>
-                        {mode === "signIn" ? "Welcome back" : "Create your account"}
-                    </Typography>
-                    <Typography color="text.secondary" sx={{ mt: 1 }}>
-                        {mode === "signIn"
-                            ? `Sign in to manage your ${coreDomainPlural.toLowerCase()} and account activity.`
-                            : `Create an account to start managing your ${coreDomainPlural.toLowerCase()} with the new workspace experience.`}
-                    </Typography>
-                </Box>
-
-                <Box
-                    sx={(theme) => ({
-                        p: 0.5,
-                        borderRadius: 999,
-                        display: "grid",
-                        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                        gap: 0.75,
-                        backgroundColor:
-                            alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.05),
+                <PasswordField
+                  label="Password"
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                  error={signInForm.formState.errors.password?.message}
+                  {...signInForm.register("password")}
+                />
+                <Button type="submit" className="w-full" disabled={signInForm.formState.isSubmitting}>
+                  {signInForm.formState.isSubmitting ? "Signing In..." : "Sign In"}
+                </Button>
+              </form>
+              <button
+                type="button"
+                className="mt-4 text-sm font-medium text-primary transition hover:text-primary/80"
+                onClick={() => {
+                  const nextOpen = !forgotPasswordOpen;
+                  setForgotPasswordOpen(nextOpen);
+                  setForgotPasswordError(null);
+                  setForgotPasswordSuccess(null);
+                  if (nextOpen) {
+                    forgotPasswordForm.reset({ email: signInForm.getValues("email") });
+                  }
+                }}
+              >
+                {forgotPasswordOpen ? "Hide password reset" : "Forgot password?"}
+              </button>
+              {forgotPasswordOpen ? (
+                <div className="mt-4 rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">
+                    Enter the email for your account and we&apos;ll send a reset link.
+                  </p>
+                  {forgotPasswordError ? (
+                    <div className="mt-3">
+                      <StatusMessage variant="error" message={forgotPasswordError} />
+                    </div>
+                  ) : null}
+                  {forgotPasswordSuccess ? (
+                    <div className="mt-3">
+                      <StatusMessage variant="success" message={forgotPasswordSuccess} />
+                    </div>
+                  ) : null}
+                  <form
+                    className="mt-4 grid gap-4"
+                    onSubmit={forgotPasswordForm.handleSubmit(async (values) => {
+                      try {
+                        setForgotPasswordError(null);
+                        setForgotPasswordSuccess(null);
+                        await forgotPassword(values);
+                        setForgotPasswordSuccess(
+                          "If that email exists, a reset link has been sent. Check your inbox."
+                        );
+                      } catch (submitError) {
+                        setForgotPasswordError((submitError as Error).message);
+                      }
                     })}
-                >
-                    <Button
-                        variant={mode === "signIn" ? "contained" : "text"}
-                        onClick={() => {
-                            setMode("signIn");
-                            setSuccessMsg("");
-                        }}
-                    >
-                        Sign in
-                    </Button>
-                    <Button
-                        variant={mode === "signUp" ? "contained" : "text"}
-                        onClick={() => {
-                            setMode("signUp");
-                            setSuccessMsg("");
-                        }}
-                    >
-                        Create account
-                    </Button>
-                </Box>
-
-                {successMsg && <Alert severity="success">{successMsg}</Alert>}
-
-                {mode === "signIn" ? (
-                    <SignInForm onSuccess={() => undefined} />
-                ) : (
-                    <SignUpForm
-                        onSuccess={(email) => {
-                            setSuccessMsg(`Account created for ${email}. You can sign in now.`);
-                            setMode("signIn");
-                        }}
+                  >
+                    <FormField
+                      label="Reset email"
+                      type="email"
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                      error={forgotPasswordForm.formState.errors.email?.message}
+                      {...forgotPasswordForm.register("email")}
                     />
-                )}
-
-                <Typography variant="body2" color="text.secondary">
-                    By continuing, you are entering a cleaner product experience with improved navigation, readability, and trust cues.
-                </Typography>
-            </Stack>
-        </AuthShell>
-    );
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      className="w-full"
+                      disabled={forgotPasswordForm.formState.isSubmitting}
+                    >
+                      {forgotPasswordForm.formState.isSubmitting ? "Sending..." : "Send reset link"}
+                    </Button>
+                  </form>
+                </div>
+              ) : null}
+            </TabsContent>
+            <TabsContent value="sign-up" className="mt-4">
+              {signUpError ? <StatusMessage variant="error" message={signUpError} /> : null}
+              <form
+                className="mt-4 grid gap-4"
+                onSubmit={signUpForm.handleSubmit(async (values) => {
+                  try {
+                    setSignUpError(null);
+                    await signUpWithPassword(values);
+                    navigate("/dashboard");
+                  } catch (submitError) {
+                    setSignUpError((submitError as Error).message);
+                  }
+                })}
+              >
+                <FormField
+                  label="Full name"
+                  placeholder="Jane Smith"
+                  autoComplete="name"
+                  error={signUpForm.formState.errors.full_name?.message}
+                  {...signUpForm.register("full_name")}
+                />
+                <FormField
+                  label="Email"
+                  type="email"
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  error={signUpForm.formState.errors.email?.message}
+                  {...signUpForm.register("email")}
+                />
+                <PasswordField
+                  label="Password"
+                  placeholder="Create a password"
+                  autoComplete="new-password"
+                  error={signUpForm.formState.errors.password?.message}
+                  {...signUpForm.register("password")}
+                />
+                <Button type="submit" className="w-full" disabled={signUpForm.formState.isSubmitting}>
+                  {signUpForm.formState.isSubmitting ? "Creating Account..." : "Create Account"}
+                </Button>
+              </form>
+            </TabsContent>
+          </Tabs>
+        </Card>
+      </div>
+    </div>
+  );
 }

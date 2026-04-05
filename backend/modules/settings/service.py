@@ -1,74 +1,28 @@
-from collections.abc import Iterable
-from typing import Any
+from __future__ import annotations
+
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.config import ENV_FILE, Settings, settings
-from backend.modules.settings.models import AppSetting
+from backend.core.config import settings
+from backend.core.security import decrypt_secret, encrypt_secret
+from backend.modules.approvals.providers import WhatsAppRuntimeConfig
 from backend.modules.settings.repository import SettingsRepository
-from backend.modules.settings.schemas import ConfigEntryResponse, ConfigEntryUpdate, ConfigSettingsResponse
-
-
-CONFIG_NOTICE = (
-    "Config values are saved to backend/.env. Values read directly from `settings` update immediately, "
-    "but infrastructure-bound changes may still require a backend restart."
+from backend.modules.settings.schemas import (
+    TenantSettingsRequest,
+    WhatsAppSettingsRequest,
+    WhatsAppSettingsResponse,
 )
 
-CONFIG_FIELD_METADATA: dict[str, dict[str, Any]] = {
-    "APP_NAME": {"description": "Application name used by FastAPI metadata.", "requires_restart": True},
-    "APP_ENV": {"description": "Application environment name.", "requires_restart": True},
-    "APP_HOST": {"description": "Backend bind host.", "requires_restart": True},
-    "APP_PORT": {"description": "Backend bind port.", "requires_restart": True},
-    "LOG_LEVEL": {"description": "Application log level.", "requires_restart": True},
-    "CORE_DOMAIN_SINGULAR": {"description": "Default singular label for the core domain.", "requires_restart": True},
-    "CORE_DOMAIN_PLURAL": {"description": "Default plural label for the core domain.", "requires_restart": True},
-    "PLATFORM_DEFAULT_MODULE_PACK": {"description": "Default module pack applied to cloned apps.", "requires_restart": True},
-    "DATABASE_URL": {"description": "Primary PostgreSQL connection string.", "requires_restart": True},
-    "REDIS_URL": {"description": "Primary Redis connection string.", "requires_restart": True},
-    "CELERY_BROKER_URL": {"description": "Optional Celery broker URL override.", "requires_restart": True},
-    "CELERY_RESULT_BACKEND": {"description": "Optional Celery result backend override.", "requires_restart": True},
-    "CELERY_TASK_ALWAYS_EAGER": {"description": "Execute Celery tasks inline instead of queueing them.", "requires_restart": True},
-    "CELERY_TASK_DEFAULT_QUEUE": {"description": "Default queue name for asynchronous jobs.", "requires_restart": True},
-    "CELERY_EMAIL_QUEUE": {"description": "Queue name used for outbound email jobs.", "requires_restart": True},
-    "CELERY_RESULT_EXPIRES_SECONDS": {"description": "How long Celery task results are retained in seconds.", "requires_restart": True},
-    "JWT_SECRET": {"description": "JWT signing secret.", "requires_restart": False},
-    "JWT_ALGORITHM": {"description": "JWT signing algorithm.", "requires_restart": False},
-    "ACCESS_TOKEN_EXPIRE_MINUTES": {"description": "Access token TTL in minutes.", "requires_restart": False},
-    "REFRESH_TOKEN_EXPIRE_DAYS": {"description": "Refresh token TTL in days.", "requires_restart": False},
-    "FRONTEND_URL": {"description": "Frontend base URL.", "requires_restart": True},
-    "COOKIE_SECURE": {"description": "Whether auth cookies require HTTPS.", "requires_restart": True},
-    "ADMIN_SIGNUP_INVITE_CODE": {"description": "Invite code required for admin registration during sign-up.", "requires_restart": False},
-    "VERIFICATION_TOKEN_TTL": {"description": "Email verification token TTL in seconds.", "requires_restart": False},
-    "PASSWORD_RESET_TOKEN_TTL": {"description": "Password reset token TTL in seconds.", "requires_restart": False},
-    "SMTP_HOST": {"description": "SMTP hostname.", "requires_restart": False},
-    "SMTP_PORT": {"description": "SMTP port.", "requires_restart": False},
-    "SMTP_USER": {"description": "SMTP username.", "requires_restart": False},
-    "SMTP_PASSWORD": {"description": "SMTP password.", "requires_restart": False},
-    "SMTP_FROM": {"description": "Email sender address.", "requires_restart": False},
-    "SMTP_TLS": {"description": "Use TLS for outbound SMTP.", "requires_restart": False},
-    "SENTRY_DSN": {"description": "Sentry DSN.", "requires_restart": True},
-    "SENTRY_TRACES_SAMPLE_RATE": {"description": "Fraction of requests to trace in Sentry.", "requires_restart": True},
-    "OTLP_ENDPOINT": {"description": "OpenTelemetry collector endpoint.", "requires_restart": True},
-    "OTLP_INSECURE": {"description": "Allow insecure gRPC OTLP transport.", "requires_restart": True},
-    "STORAGE_BUCKET": {"description": "Object storage bucket for uploaded assets.", "requires_restart": True},
-    "STORAGE_REGION": {"description": "Object storage region.", "requires_restart": True},
-    "STORAGE_ENDPOINT_URL": {"description": "Custom S3-compatible endpoint URL, e.g. MinIO.", "requires_restart": True},
-    "STORAGE_ACCESS_KEY": {"description": "Object storage access key.", "requires_restart": True},
-    "STORAGE_SECRET_KEY": {"description": "Object storage secret key.", "requires_restart": True},
-    "STORAGE_USE_SSL": {"description": "Use HTTPS for object storage traffic.", "requires_restart": True},
-    "STORAGE_FORCE_PATH_STYLE": {"description": "Force path-style S3 URLs; useful for MinIO.", "requires_restart": True},
-    "STORAGE_PUBLIC_BASE_URL": {"description": "Optional public base URL used to build asset URLs.", "requires_restart": True},
-    "STORAGE_AUTO_CREATE_BUCKET": {"description": "Create the storage bucket automatically on startup.", "requires_restart": True},
-    "STORAGE_PUBLIC_READ": {"description": "Apply a public-read policy to the storage bucket.", "requires_restart": True},
-    "STORAGE_AVATAR_MAX_BYTES": {"description": "Maximum avatar upload size in bytes.", "requires_restart": False},
-}
 
-TYPE_LABELS = {
-    str: "string",
-    int: "integer",
-    bool: "boolean",
-}
+WHATSAPP_RECIPIENT_KEY = "approval.whatsapp_recipient"
+WHATSAPP_PROVIDER_KEY = "approval.whatsapp_provider"
+WHATSAPP_PHONE_NUMBER_ID_KEY = "approval.whatsapp_phone_number_id"
+WHATSAPP_BUSINESS_ACCOUNT_ID_KEY = "approval.whatsapp_business_account_id"
+WHATSAPP_VERIFY_TOKEN_KEY = "approval.whatsapp_verify_token"
+WHATSAPP_ACCESS_TOKEN_KEY = "approval.whatsapp_access_token_encrypted"
+WHATSAPP_APP_SECRET_KEY = "approval.whatsapp_app_secret_encrypted"
 
 
 class SettingsService:
@@ -76,171 +30,160 @@ class SettingsService:
         self.db = db
         self.repo = SettingsRepository(db)
 
-    async def list_database_settings(self) -> list[AppSetting]:
-        return await self.repo.list_all()
+    async def get_tenant_settings(self, tenant_id: UUID):
+        tenant = await self.repo.get_tenant(tenant_id)
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        return tenant
 
-    async def create_database_setting(
-        self, key: str, value: str, description: str | None
-    ) -> AppSetting:
-        existing = await self.repo.get_by_key(key)
-        if existing:
-            raise HTTPException(status_code=409, detail="A database setting with this key already exists")
+    async def update_tenant_settings(self, tenant_id: UUID, payload: TenantSettingsRequest):
+        tenant = await self.get_tenant_settings(tenant_id)
+        if payload.name is not None:
+            tenant.name = payload.name
+        if payload.timezone is not None:
+            tenant.timezone = payload.timezone
+        tenant.settings = tenant.settings | payload.settings
+        await self.db.flush()
+        return tenant
 
-        setting = await self.repo.create(key=key, value=value, description=description)
-        await self.db.commit()
-        await self.db.refresh(setting)
-        return setting
+    @staticmethod
+    def _global_whatsapp_runtime_config() -> WhatsAppRuntimeConfig:
+        return WhatsAppRuntimeConfig(
+            recipient=settings.WHATSAPP_DEFAULT_RECIPIENT,
+            provider=settings.WHATSAPP_PROVIDER,
+            phone_number_id=settings.WHATSAPP_PHONE_NUMBER_ID,
+            business_account_id=settings.WHATSAPP_BUSINESS_ACCOUNT_ID,
+            verify_token=settings.WHATSAPP_VERIFY_TOKEN,
+            access_token=settings.WHATSAPP_ACCESS_TOKEN,
+            app_secret=settings.WHATSAPP_APP_SECRET,
+        )
 
-    async def update_database_setting(self, setting_id: str, updates: dict[str, Any]) -> AppSetting:
-        setting = await self.repo.get_by_id(setting_id)
-        if not setting:
-            raise HTTPException(status_code=404, detail="Database setting not found")
+    @staticmethod
+    def _normalize_setting_value(value: str | None) -> str:
+        return value.strip() if value else ""
 
-        for field, value in updates.items():
-            setattr(setting, field, value)
-
-        await self.db.commit()
-        await self.db.refresh(setting)
-        return setting
-
-    async def delete_database_setting(self, setting_id: str) -> None:
-        setting = await self.repo.get_by_id(setting_id)
-        if not setting:
-            raise HTTPException(status_code=404, detail="Database setting not found")
-
-        await self.repo.delete(setting)
-        await self.db.commit()
-
-    @classmethod
-    def list_config_entries(cls) -> ConfigSettingsResponse:
-        env_entries = cls._read_env_entries()
-        items: list[ConfigEntryResponse] = []
-        known_fields = Settings.model_fields
-        ordered_keys = list(env_entries)
-
-        for key in known_fields:
-            if key not in env_entries:
-                ordered_keys.append(key)
-
-        for key in ordered_keys:
-            if key in env_entries:
-                value = env_entries[key]
-            elif key in known_fields:
-                value = cls._serialize_value(getattr(settings, key))
-            else:
-                value = ""
-
-            items.append(
-                ConfigEntryResponse(
-                    key=key,
-                    value=value,
-                    value_type=cls._get_value_type(key),
-                    description=CONFIG_FIELD_METADATA.get(key, {}).get("description"),
-                    requires_restart=CONFIG_FIELD_METADATA.get(key, {}).get("requires_restart", True),
-                    is_custom=key not in known_fields,
+    async def get_whatsapp_settings(self, tenant_id: UUID) -> WhatsAppSettingsResponse:
+        tenant = await self.get_tenant_settings(tenant_id)
+        current_settings = tenant.settings or {}
+        runtime = await self.resolve_whatsapp_runtime_config(tenant_id)
+        return WhatsAppSettingsResponse(
+            recipient=runtime.recipient,
+            provider=runtime.provider,
+            phone_number_id=runtime.phone_number_id,
+            business_account_id=runtime.business_account_id,
+            verify_token=runtime.verify_token,
+            access_token_configured=bool(runtime.access_token),
+            app_secret_configured=bool(runtime.app_secret),
+            using_tenant_recipient=WHATSAPP_RECIPIENT_KEY in current_settings,
+            using_tenant_credentials=any(
+                key in current_settings
+                for key in (
+                    WHATSAPP_PROVIDER_KEY,
+                    WHATSAPP_PHONE_NUMBER_ID_KEY,
+                    WHATSAPP_BUSINESS_ACCOUNT_ID_KEY,
+                    WHATSAPP_VERIFY_TOKEN_KEY,
+                    WHATSAPP_ACCESS_TOKEN_KEY,
+                    WHATSAPP_APP_SECRET_KEY,
                 )
-            )
+            ),
+        )
 
-        return ConfigSettingsResponse(items=items, notice=CONFIG_NOTICE)
+    async def update_whatsapp_settings(
+        self,
+        tenant_id: UUID,
+        payload: WhatsAppSettingsRequest,
+    ) -> WhatsAppSettingsResponse:
+        tenant = await self.get_tenant_settings(tenant_id)
+        current_settings = dict(tenant.settings or {})
+        fields_set = payload.model_fields_set
 
-    @classmethod
-    def update_config_entries(cls, updates: Iterable[ConfigEntryUpdate]) -> ConfigSettingsResponse:
-        update_items = list(updates)
-        seen_keys: set[str] = set()
-        raw_updates: dict[str, str] = {}
+        plain_field_map = {
+            "recipient": WHATSAPP_RECIPIENT_KEY,
+            "provider": WHATSAPP_PROVIDER_KEY,
+            "phone_number_id": WHATSAPP_PHONE_NUMBER_ID_KEY,
+            "business_account_id": WHATSAPP_BUSINESS_ACCOUNT_ID_KEY,
+            "verify_token": WHATSAPP_VERIFY_TOKEN_KEY,
+        }
+        secret_field_map = {
+            "access_token": WHATSAPP_ACCESS_TOKEN_KEY,
+            "app_secret": WHATSAPP_APP_SECRET_KEY,
+        }
 
-        for item in update_items:
-            if item.key in seen_keys:
-                raise HTTPException(status_code=400, detail=f"Duplicate config key: {item.key}")
-            seen_keys.add(item.key)
-            raw_updates[item.key] = item.value
-
-        merged_known_values = {key: getattr(settings, key) for key in Settings.model_fields}
-        for key, value in raw_updates.items():
-            if key in merged_known_values:
-                merged_known_values[key] = value
-
-        try:
-            validated = Settings.model_validate(merged_known_values)
-        except Exception as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-        normalized_updates = raw_updates.copy()
-        for key in Settings.model_fields:
-            if key in normalized_updates:
-                normalized_updates[key] = cls._serialize_value(getattr(validated, key))
-
-        cls._write_env_entries(normalized_updates)
-
-        for key in Settings.model_fields:
-            setattr(settings, key, getattr(validated, key))
-
-        return cls.list_config_entries()
-
-    @staticmethod
-    def _get_value_type(key: str) -> str:
-        field = Settings.model_fields.get(key)
-        if not field:
-            return "string"
-        return TYPE_LABELS.get(field.annotation, "string")
-
-    @staticmethod
-    def _serialize_value(value: Any) -> str:
-        if isinstance(value, bool):
-            return "true" if value else "false"
-        return str(value)
-
-    @staticmethod
-    def _parse_env_line(line: str) -> tuple[str, str] | None:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in line:
-            return None
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not key:
-            return None
-        return key, value.strip()
-
-    @classmethod
-    def _read_env_entries(cls) -> dict[str, str]:
-        if not ENV_FILE.exists():
-            return {}
-
-        entries: dict[str, str] = {}
-        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-            parsed = cls._parse_env_line(line)
-            if parsed:
-                key, value = parsed
-                entries[key] = value
-        return entries
-
-    @classmethod
-    def _write_env_entries(cls, updates: dict[str, str]) -> None:
-        existing_lines = []
-        if ENV_FILE.exists():
-            existing_lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
-
-        remaining = dict(updates)
-        rendered_lines: list[str] = []
-        for line in existing_lines:
-            parsed = cls._parse_env_line(line)
-            if not parsed:
-                rendered_lines.append(line)
+        for field_name, setting_key in plain_field_map.items():
+            if field_name not in fields_set:
                 continue
-
-            key, _ = parsed
-            if key in updates:
-                rendered_lines.append(f"{key}={updates[key]}")
-                remaining.pop(key, None)
+            normalized = self._normalize_setting_value(getattr(payload, field_name))
+            if normalized:
+                current_settings[setting_key] = normalized
             else:
-                rendered_lines.append(line)
+                current_settings.pop(setting_key, None)
 
-        if remaining and rendered_lines and rendered_lines[-1].strip():
-            rendered_lines.append("")
+        for field_name, setting_key in secret_field_map.items():
+            if field_name not in fields_set:
+                continue
+            normalized = self._normalize_setting_value(getattr(payload, field_name))
+            if normalized:
+                current_settings[setting_key] = encrypt_secret(normalized)
+            else:
+                current_settings.pop(setting_key, None)
 
-        for key, value in remaining.items():
-            rendered_lines.append(f"{key}={value}")
+        tenant.settings = current_settings
+        await self.db.flush()
+        return await self.get_whatsapp_settings(tenant_id)
 
-        contents = "\n".join(rendered_lines).rstrip()
-        ENV_FILE.write_text(f"{contents}\n" if contents else "", encoding="utf-8")
+    async def resolve_whatsapp_runtime_config(self, tenant_id: UUID) -> WhatsAppRuntimeConfig:
+        tenant = await self.get_tenant_settings(tenant_id)
+        current_settings = tenant.settings or {}
+        base = self._global_whatsapp_runtime_config()
+
+        recipient = current_settings.get(WHATSAPP_RECIPIENT_KEY) or base.recipient
+        provider = current_settings.get(WHATSAPP_PROVIDER_KEY) or base.provider
+        phone_number_id = current_settings.get(WHATSAPP_PHONE_NUMBER_ID_KEY) or base.phone_number_id
+        business_account_id = (
+            current_settings.get(WHATSAPP_BUSINESS_ACCOUNT_ID_KEY) or base.business_account_id
+        )
+        verify_token = current_settings.get(WHATSAPP_VERIFY_TOKEN_KEY) or base.verify_token
+
+        encrypted_access_token = current_settings.get(WHATSAPP_ACCESS_TOKEN_KEY)
+        encrypted_app_secret = current_settings.get(WHATSAPP_APP_SECRET_KEY)
+        access_token = (
+            decrypt_secret(encrypted_access_token)
+            if encrypted_access_token
+            else base.access_token
+        )
+        app_secret = (
+            decrypt_secret(encrypted_app_secret)
+            if encrypted_app_secret
+            else base.app_secret
+        )
+
+        return WhatsAppRuntimeConfig(
+            recipient=recipient,
+            provider=provider,
+            phone_number_id=phone_number_id,
+            business_account_id=business_account_id,
+            verify_token=verify_token,
+            access_token=access_token,
+            app_secret=app_secret,
+        )
+
+    async def find_tenant_id_by_whatsapp_phone_number_id(self, phone_number_id: str) -> UUID | None:
+        normalized = self._normalize_setting_value(phone_number_id)
+        if not normalized:
+            return None
+        for tenant in await self.repo.list_tenants():
+            settings_map = tenant.settings or {}
+            if settings_map.get(WHATSAPP_PHONE_NUMBER_ID_KEY) == normalized:
+                return tenant.id
+        return None
+
+    async def verify_whatsapp_verify_token(self, verify_token: str) -> bool:
+        if verify_token == settings.WHATSAPP_VERIFY_TOKEN:
+            return True
+        normalized = self._normalize_setting_value(verify_token)
+        if not normalized:
+            return False
+        for tenant in await self.repo.list_tenants():
+            if (tenant.settings or {}).get(WHATSAPP_VERIFY_TOKEN_KEY) == normalized:
+                return True
+        return False

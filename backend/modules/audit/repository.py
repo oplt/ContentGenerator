@@ -1,4 +1,7 @@
-import json
+from __future__ import annotations
+
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,41 +12,14 @@ class AuditRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def log(
-        self,
-        action: str,
-        *,
-        user_id: str | None = None,
-        resource_type: str | None = None,
-        resource_id: str | None = None,
-        ip_address: str | None = None,
-        user_agent: str | None = None,
-        metadata: dict | None = None,
-    ) -> AuditLog:
-        entry = AuditLog(
-            action=action,
-            user_id=user_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            metadata_json=json.dumps(metadata) if metadata else None,
-        )
-        self.db.add(entry)
+    async def create(self, log: AuditLog) -> AuditLog:
+        self.db.add(log)
         await self.db.flush()
-        return entry
+        return log
 
-    async def list_recent(self, limit: int = 100) -> list[AuditLog]:
-        result = await self.db.execute(
-            select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
-        )
-        return list(result.scalars().all())
-
-    async def list_for_user(self, user_id: str, limit: int = 50) -> list[AuditLog]:
-        result = await self.db.execute(
-            select(AuditLog)
-            .where(AuditLog.user_id == user_id)
-            .order_by(AuditLog.created_at.desc())
-            .limit(limit)
-        )
+    async def list_logs(self, *, tenant_id: UUID | None, limit: int = 50) -> list[AuditLog]:
+        query = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
+        if tenant_id:
+            query = query.where(AuditLog.tenant_id == tenant_id)
+        result = await self.db.execute(query)
         return list(result.scalars().all())
