@@ -1,33 +1,48 @@
-# SignalForge
+# Generic App
 
-SignalForge is a modular-monolith SaaS for multi-tenant AI social content operations. It ingests live sources, clusters and scores stories, generates text and video drafts, routes approvals through WhatsApp, publishes to connected channels, and normalizes analytics back into the dashboard.
+Generic full-stack starter with:
 
-## Stack
+- FastAPI backend
+- React + Vite frontend
+- PostgreSQL, Redis, and MinIO for local infrastructure
+- Celery workers for asynchronous jobs, using Redis as broker/result backend
+- JWT auth with refresh rotation
+- Admin settings, notifications, profile, and project modules
+- Optional platform modules for billing, API keys, webhooks, feature flags, and email templates
+- Sentry/OpenTelemetry hooks and S3-compatible avatar storage
 
-- Backend: FastAPI, SQLAlchemy 2, Alembic, PostgreSQL, Redis, Celery, Pydantic v2, OpenTelemetry, structlog
-- Content pipeline: feedparser, trafilatura, Playwright-ready adapters, ffmpeg, faster-whisper-compatible interfaces
-- Frontend: React, Vite, TypeScript, React Router, TanStack Query, Zustand, React Hook Form, Zod, Tailwind, shadcn-style components, Recharts
-- Dev tooling: Docker Compose, MinIO, Makefile, pre-commit, GitHub Actions
+## Local Setup
 
-## Local startup
-
-1. Start infra:
+1. Start infrastructure:
 
 ```bash
-make infra-up
+docker compose -f infra/docker-compose.yml up -d
 ```
 
-2. Install backend dependencies and migrate:
+2. Configure the backend:
 
 ```bash
 cd backend
 cp .env.example .env
-python -m venv .venv
-.venv/bin/pip install -r requirements.txt
+uv sync
 .venv/bin/alembic upgrade head
 ```
 
-3. Install frontend dependencies:
+3. Start the backend:
+
+```bash
+cd backend
+.venv/bin/uvicorn backend.api.main:app --reload
+```
+
+4. Start the Celery worker:
+
+```bash
+cd backend
+.venv/bin/celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --queues=default,email
+```
+
+5. Configure the frontend:
 
 ```bash
 cd frontend
@@ -35,44 +50,29 @@ cp .env.example .env
 npm install
 ```
 
-4. Seed the demo tenant:
+6. Start the frontend:
 
 ```bash
-make seed
+cd frontend
+npm run dev
 ```
 
-5. Run the app:
+## Notes
 
-```bash
-make backend-dev
-make worker-dev
-make frontend-dev
-```
-
-The seeded login is `demo@example.com` / `password1234`.
-
-## Product flow
-
-1. Add or edit sources in `/dashboard/sources`.
-2. Trigger ingestion to create raw articles and story clusters.
-3. Create a content plan from a cluster.
-4. Generate drafts and open the content job detail.
-5. Send the draft for approval.
-6. In local mode, simulate WhatsApp approval with the stub webhook or approve from tests.
-7. Publish via stub providers or manual fallback providers.
-8. Sync analytics and inspect dashboard charts.
-
-## Architecture notes
-
-- The repo uses a modular monolith with internal bounded contexts and Celery-backed async seams.
-- Local dev defaults to stub providers for WhatsApp and social publishing; real provider wiring is capability-gated.
-- The initial migration uses SQLAlchemy metadata creation for speed. Future migrations can refine table-level DDL incrementally.
-
-## Commands
-
-- `make dev`
-- `make lint`
-- `make test`
-- `make e2e`
-- `make seed`
-- `docker compose up --build`
+- Local object storage uses MinIO on `http://localhost:9000` and its console on `http://localhost:9001`.
+- Redis now serves both app-level caching/token storage and the Celery broker/result backend.
+- The first Celery-backed workflow is outbound email delivery for verification and password reset flows.
+- Set `CELERY_TASK_ALWAYS_EAGER=true` in `backend/.env` if you want queued email work to execute inline without a worker process.
+- Avatar uploads are stored in the configured S3-compatible bucket instead of a placeholder path.
+- `/admin/platform` lets you rename the app, rename the core domain labels, pick a module pack, and manage plans, flags, and email templates.
+- Set `ADMIN_SIGNUP_INVITE_CODE` in `backend/.env` to allow invite-only admin registration during sign-up.
+- Module packs are intended for clone-time reuse:
+  - `lean_saas`
+  - `automation_suite`
+  - `client_portal`
+  - `full_platform`
+- Observability is enabled through backend config:
+  - `SENTRY_DSN`
+  - `SENTRY_TRACES_SAMPLE_RATE`
+  - `OTLP_ENDPOINT`
+  - `OTLP_INSECURE`

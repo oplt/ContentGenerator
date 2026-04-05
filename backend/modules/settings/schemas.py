@@ -1,45 +1,52 @@
-from __future__ import annotations
+from datetime import datetime
 
-from uuid import UUID
-
-from pydantic import BaseModel, Field
-
-from backend.modules.shared.schemas import ORMModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class TenantSettingsRequest(BaseModel):
-    name: str | None = None
-    timezone: str | None = None
-    settings: dict[str, str] = Field(default_factory=dict)
+ENV_KEY_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]*$"
+SETTING_KEY_PATTERN = r"^[A-Za-z0-9_.:-]+$"
 
 
-class TenantSettingsResponse(ORMModel):
-    id: UUID
-    name: str
-    slug: str
-    plan_tier: str
-    timezone: str
-    status: str
-    settings: dict[str, str]
+class ConfigEntryResponse(BaseModel):
+    key: str
+    value: str
+    value_type: str
+    description: str | None = None
+    requires_restart: bool = False
+    is_custom: bool = False
 
 
-class WhatsAppSettingsRequest(BaseModel):
-    recipient: str | None = None
-    provider: str | None = None
-    phone_number_id: str | None = None
-    business_account_id: str | None = None
-    verify_token: str | None = None
-    access_token: str | None = None
-    app_secret: str | None = None
+class ConfigSettingsResponse(BaseModel):
+    items: list[ConfigEntryResponse]
+    notice: str
 
 
-class WhatsAppSettingsResponse(BaseModel):
-    recipient: str
-    provider: str
-    phone_number_id: str
-    business_account_id: str
-    verify_token: str
-    access_token_configured: bool
-    app_secret_configured: bool
-    using_tenant_recipient: bool
-    using_tenant_credentials: bool
+class ConfigEntryUpdate(BaseModel):
+    key: str = Field(min_length=1, max_length=128, pattern=ENV_KEY_PATTERN)
+    value: str = ""
+
+
+class ConfigSettingsUpdateRequest(BaseModel):
+    items: list[ConfigEntryUpdate]
+
+
+class DatabaseSettingCreate(BaseModel):
+    key: str = Field(min_length=1, max_length=128, pattern=SETTING_KEY_PATTERN)
+    value: str = ""
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class DatabaseSettingUpdate(BaseModel):
+    value: str | None = None
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class DatabaseSettingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    key: str
+    value: str
+    description: str | None
+    updated_at: datetime
+

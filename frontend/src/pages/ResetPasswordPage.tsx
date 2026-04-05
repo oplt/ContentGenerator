@@ -1,128 +1,126 @@
-import { type InputHTMLAttributes, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
+import { Link as RouterLink, useSearchParams } from "react-router-dom";
 import { resetPassword } from "../api/auth";
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
-import { Input } from "../components/ui/input";
-import { cn } from "../lib/utils";
+import { AuthMarketingPanel } from "../components/auth/AuthMarketingPanel";
+import { AuthShell } from "../components/auth/AuthShell";
+import { usePlatformMetadata } from "../hooks/usePlatformMetadata";
 
 const schema = z
-  .object({
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirm_password: z.string(),
-  })
-  .refine((data) => data.password === data.confirm_password, {
-    message: "Passwords do not match",
-    path: ["confirm_password"],
-  });
+    .object({
+        password: z.string().min(8, "At least 8 characters"),
+        confirm_password: z.string(),
+    })
+    .refine((data) => data.password === data.confirm_password, {
+        message: "Passwords do not match",
+        path: ["confirm_password"],
+    });
 
 type Values = z.infer<typeof schema>;
 
-function Field({
-  label,
-  error,
-  ...props
-}: InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string }) {
-  return (
-    <label className="grid gap-2 text-sm font-medium text-foreground">
-      <span>{label}</span>
-      <Input
-        {...props}
-        className={cn(error && "border-destructive/60 focus-visible:ring-destructive", props.className)}
-      />
-      {error ? <span className="text-xs font-normal text-destructive">{error}</span> : null}
-    </label>
-  );
-}
-
-function Message({ kind, children }: { kind: "error" | "success" | "info"; children: string }) {
-  return (
-    <div
-      className={cn(
-        "rounded-xl border px-4 py-3 text-sm",
-        kind === "error" && "border-destructive/30 bg-destructive/5 text-destructive",
-        kind === "success" && "border-primary/20 bg-primary/5 text-primary",
-        kind === "info" && "border-border bg-muted/40 text-muted-foreground"
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
 export default function ResetPasswordPage() {
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get("token") ?? "";
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const form = useForm<Values>({
-    resolver: zodResolver(schema),
-    defaultValues: { password: "", confirm_password: "" },
-  });
+    const [searchParams] = useSearchParams();
+    const token = searchParams.get("token") ?? "";
+    const [done, setDone] = useState(false);
+    const [serverError, setServerError] = useState("");
+    const { data: platformMetadata } = usePlatformMetadata();
+    const appName = platformMetadata?.app_name ?? "Your App";
 
-  return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-lg p-8">
-        <p className="text-xs uppercase tracking-[0.16em] text-primary">Account recovery</p>
-        <h1 className="mt-3 text-2xl font-semibold">Reset your password</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Choose a new password, then return to sign in with the updated credentials.
-        </p>
+    const {
+        register,
+        handleSubmit,
+        formState: { errors, isSubmitting },
+    } = useForm<Values>({ resolver: zodResolver(schema) });
 
-        <div className="mt-6 grid gap-4">
-          {!token ? <Message kind="info">No reset token was found. Use the link sent to your email.</Message> : null}
-          {serverError ? <Message kind="error">{serverError}</Message> : null}
-          {done ? (
-            <>
-              <Message kind="success">Password reset successfully. You can sign in now.</Message>
-              <Button asChild className="w-full">
-                <Link to="/">Return to sign in</Link>
-              </Button>
-            </>
-          ) : (
-            <form
-              className="grid gap-4"
-              onSubmit={form.handleSubmit(async (values) => {
-                if (!token) {
-                  setServerError("Missing reset token.");
-                  return;
-                }
+    async function onSubmit(values: Values) {
+        if (!token) {
+            setServerError("Invalid or missing reset token.");
+            return;
+        }
+        setServerError("");
+        try {
+            await resetPassword({ token, new_password: values.password });
+            setDone(true);
+        } catch (error) {
+            setServerError(error instanceof Error ? error.message : "Reset failed.");
+        }
+    }
 
-                try {
-                  setServerError(null);
-                  await resetPassword({ token, new_password: values.password });
-                  setDone(true);
-                } catch (submitError) {
-                  setServerError((submitError as Error).message);
-                }
-              })}
-            >
-              <Field
-                label="New password"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Create a new password"
-                error={form.formState.errors.password?.message}
-                {...form.register("password")}
-              />
-              <Field
-                label="Confirm new password"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Repeat the new password"
-                error={form.formState.errors.confirm_password?.message}
-                {...form.register("confirm_password")}
-              />
-              <Button type="submit" className="w-full" disabled={form.formState.isSubmitting || !token}>
-                {form.formState.isSubmitting ? "Resetting..." : "Reset password"}
-              </Button>
-            </form>
-          )}
-        </div>
-      </Card>
-    </div>
-  );
+    return (
+        <AuthShell
+            sideContent={
+                <AuthMarketingPanel
+                    appName={appName}
+                    eyebrow="Account recovery"
+                    title="Reset access with confidence."
+                    description="The recovery flow now matches the rest of the product: calmer layout, clearer feedback, and less ambiguity about what happens next."
+                    highlights={[
+                        { value: "1", label: "Secure token-based reset" },
+                        { value: "2", label: "Clear validation feedback" },
+                        { value: "3", label: "Fast path back to sign-in" },
+                    ]}
+                    points={[
+                        "Choose a new password that is strong and memorable.",
+                        "Once complete, you can return directly to sign in.",
+                    ]}
+                />
+            }
+        >
+            <Stack spacing={3}>
+                <Box>
+                    <Typography variant="overline" color="primary.main">
+                        Reset password
+                    </Typography>
+                    <Typography variant="h4" sx={{ mt: 0.5 }}>
+                        Choose a new password
+                    </Typography>
+                    <Typography color="text.secondary" sx={{ mt: 1 }}>
+                        Use a secure password that you have not used elsewhere.
+                    </Typography>
+                </Box>
+
+                {done ? (
+                    <Stack spacing={2}>
+                        <Alert severity="success">Password reset successfully.</Alert>
+                        <Button component={RouterLink} to="/" variant="contained">
+                            Return to sign in
+                        </Button>
+                    </Stack>
+                ) : (
+                    <Box component="form" onSubmit={handleSubmit(onSubmit)}>
+                        <Stack spacing={2}>
+                            {serverError && <Alert severity="error">{serverError}</Alert>}
+                            {!token && (
+                                <Alert severity="warning">
+                                    No reset token found. Please use the link from your email.
+                                </Alert>
+                            )}
+                            <TextField
+                                label="New password"
+                                type="password"
+                                {...register("password")}
+                                error={!!errors.password}
+                                helperText={errors.password?.message}
+                                fullWidth
+                            />
+                            <TextField
+                                label="Confirm new password"
+                                type="password"
+                                {...register("confirm_password")}
+                                error={!!errors.confirm_password}
+                                helperText={errors.confirm_password?.message}
+                                fullWidth
+                            />
+                            <Button type="submit" variant="contained" disabled={isSubmitting || !token}>
+                                {isSubmitting ? "Resetting..." : "Reset password"}
+                            </Button>
+                        </Stack>
+                    </Box>
+                )}
+            </Stack>
+        </AuthShell>
+    );
 }

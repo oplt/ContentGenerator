@@ -1,8 +1,4 @@
-from __future__ import annotations
-
-from uuid import UUID
-
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class SignUpRequest(BaseModel):
@@ -17,32 +13,13 @@ class SignInRequest(BaseModel):
     password: str
 
 
-class MembershipRoleResponse(BaseModel):
-    id: UUID | None = None
-    name: str | None = None
-    slug: str | None = None
-    permission_codes: list[str] = []
-
-
-class MembershipResponse(BaseModel):
-    tenant_id: UUID
-    tenant_name: str
-    tenant_slug: str
-    role: MembershipRoleResponse | None = None
-    status: str
-
-
 class AuthUserResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
+    id: str
     email: EmailStr
     full_name: str | None
     is_verified: bool
     is_admin: bool = False
     mfa_enabled: bool = False
-    default_tenant_id: UUID | None = None
-    memberships: list[MembershipResponse] = []
 
 
 class AuthTokensResponse(BaseModel):
@@ -51,6 +28,7 @@ class AuthTokensResponse(BaseModel):
     user: AuthUserResponse
 
 
+# Email verification
 class VerifyEmailRequest(BaseModel):
     token: str
 
@@ -59,6 +37,7 @@ class ResendVerificationRequest(BaseModel):
     email: EmailStr
 
 
+# Password reset
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
@@ -68,6 +47,7 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+# MFA
 class MfaEnableResponse(BaseModel):
     secret: str
     provisioning_uri: str
@@ -79,7 +59,3 @@ class MfaVerifyRequest(BaseModel):
 
 class MfaDisableRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6)
-
-
-class TenantSwitchResponse(BaseModel):
-    tenant_id: UUID

@@ -385,7 +385,7 @@ class PlatformService:
 
         for field, value in payload.items():
             if field == "features":
-                plan.features_json = value
+                setattr(plan, "features_json", value)
             else:
                 setattr(plan, field, value)
 

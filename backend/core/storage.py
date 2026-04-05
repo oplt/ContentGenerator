@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import logging
 from functools import cached_property
@@ -61,6 +59,21 @@ class ObjectStorage:
                     }
                 self._client.create_bucket(**create_kwargs)
 
+                if settings.STORAGE_PUBLIC_READ:
+                    self._client.put_bucket_policy(
+                        Bucket=settings.STORAGE_BUCKET,
+                        Policy=(
+                            "{"
+                            '"Version":"2012-10-17",'
+                            '"Statement":[{'
+                            '"Effect":"Allow",'
+                            '"Principal":"*",'
+                            '"Action":["s3:GetObject"],'
+                            f'"Resource":["arn:aws:s3:::{settings.STORAGE_BUCKET}/*"]'
+                            "}]}"
+                        ),
+                    )
+
         try:
             await asyncio.to_thread(_ensure_bucket)
         except Exception as exc:
@@ -68,7 +81,9 @@ class ObjectStorage:
 
     async def upload_bytes(self, *, object_key: str, body: bytes, content_type: str) -> str:
         if not self.is_configured:
-            raise StorageNotConfiguredError("Object storage is not configured")
+            raise StorageNotConfiguredError(
+                "Object storage is not configured. Set STORAGE_BUCKET and storage credentials."
+            )
 
         def _upload() -> None:
             self._client.put_object(
@@ -76,9 +91,14 @@ class ObjectStorage:
                 Key=object_key,
                 Body=body,
                 ContentType=content_type,
+                CacheControl="public, max-age=31536000, immutable",
             )
 
-        await asyncio.to_thread(_upload)
+        try:
+            await asyncio.to_thread(_upload)
+        except Exception as exc:
+            raise ObjectStorageError("Failed to upload avatar to object storage") from exc
+
         return self.public_url_for(object_key)
 
     async def delete_object(self, object_key: str | None) -> None:
@@ -96,19 +116,16 @@ class ObjectStorage:
     def public_url_for(self, object_key: str) -> str:
         if settings.STORAGE_PUBLIC_BASE_URL:
             return f"{settings.STORAGE_PUBLIC_BASE_URL.rstrip('/')}/{object_key}"
-        if settings.STORAGE_ENDPOINT_URL:
-            return (
-                f"{settings.STORAGE_ENDPOINT_URL.rstrip('/')}/{settings.STORAGE_BUCKET}/{object_key}"
-            )
-        return f"https://{settings.STORAGE_BUCKET}.s3.amazonaws.com/{object_key}"
 
-    def signed_url_for(self, object_key: str, expires_in: int | None = None) -> str:
-        if not self.is_configured:
-            raise StorageNotConfiguredError("Object storage is not configured")
-        return self._client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": settings.STORAGE_BUCKET, "Key": object_key},
-            ExpiresIn=expires_in or settings.STORAGE_SIGNED_URL_EXPIRES_SECONDS,
+        if settings.STORAGE_ENDPOINT_URL:
+            return f"{settings.STORAGE_ENDPOINT_URL.rstrip('/')}/{settings.STORAGE_BUCKET}/{object_key}"
+
+        if settings.STORAGE_REGION == "us-east-1":
+            return f"https://{settings.STORAGE_BUCKET}.s3.amazonaws.com/{object_key}"
+
+        return (
+            f"https://{settings.STORAGE_BUCKET}.s3.{settings.STORAGE_REGION}.amazonaws.com/"
+            f"{object_key}"
         )
 
 
