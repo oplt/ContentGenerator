@@ -72,7 +72,7 @@ def queue_email(*, to: str, subject: str, html_body: str, text_body: str | None 
 
     from backend.workers.tasks import send_email_task
 
-    send_email_task.apply_async(kwargs=payload, queue=settings.CELERY_EMAIL_QUEUE)
+    send_email_task.apply_async(kwargs=payload, queue=settings.CELERY_QUEUE_EMAIL)
 
 
 async def send_verification_email(to: str, token: str) -> None:

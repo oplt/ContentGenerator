@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.9
+    hooks:
+      - id: ruff
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.0
+    hooks:
+      - id: mypy
+        files: ^backend/
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: frontend-lint
+        entry: bash -lc 'cd frontend && npm run lint'
+        language: system
+        pass_filenames: false

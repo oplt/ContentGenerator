@@ -1,23 +1,28 @@
 from fastapi import APIRouter
 
-from backend.modules.calendar.router import router as calendar_router
-from backend.modules.admin.router import router as admin_router
+from backend.modules.analytics.router import router as analytics_router
+from backend.modules.approvals.router import router as approvals_router
+from backend.modules.audit.router import router as audit_router
+from backend.modules.content_generation.router import router as content_generation_router
+from backend.modules.content_strategy.router import router as content_strategy_router
 from backend.modules.identity_access.router import router as auth_router
-from backend.modules.notifications.router import router as notifications_router
-from backend.modules.platform.router import router as platform_router
-from backend.modules.profile.router import router as profile_router
-from backend.modules.projects.router import router as projects_router
+from backend.modules.publishing.router import router as publishing_router
 from backend.modules.settings.router import router as settings_router
+from backend.modules.source_ingestion.router import router as source_router
+from backend.modules.story_intelligence.router import router as story_router
 from backend.modules.users.router import router as users_router
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
-api_router.include_router(calendar_router, prefix="/calendar", tags=["calendar"])
 api_router.include_router(users_router, prefix="/users", tags=["users"])
-api_router.include_router(profile_router, prefix="/profile", tags=["profile"])
-api_router.include_router(projects_router, prefix="/projects", tags=["projects"])
-api_router.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
-api_router.include_router(platform_router, prefix="/platform", tags=["platform"])
+api_router.include_router(source_router, prefix="/sources", tags=["sources"])
+api_router.include_router(story_router, prefix="/stories", tags=["stories"])
+# Note: both content routers share /content prefix — routes are on distinct sub-paths
+api_router.include_router(content_strategy_router, prefix="/content", tags=["content-strategy"])
+api_router.include_router(content_generation_router, prefix="/content", tags=["content-generation"])
+api_router.include_router(approvals_router, prefix="/approvals", tags=["approvals"])
+api_router.include_router(publishing_router, prefix="/publishing", tags=["publishing"])
+api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
-api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
+api_router.include_router(audit_router, prefix="/audit", tags=["audit"])
