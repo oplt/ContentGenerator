@@ -51,6 +51,19 @@ export function createSource(payload: Record<string, unknown>) {
   });
 }
 
+export function updateSource(sourceId: string, payload: Record<string, unknown>) {
+  return apiFetch<Source>(`/sources/${sourceId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteSource(sourceId: string) {
+  return apiFetch<void>(`/sources/${sourceId}`, {
+    method: "DELETE",
+  });
+}
+
 export function triggerIngestion(sourceId: string) {
   return apiFetch<{ status: string; raw_articles_ingested: number; clusters_updated: number }>(
     `/sources/${sourceId}/ingest`,

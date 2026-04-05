@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.cache import redis_client
 from backend.core.config import settings
+from backend.core.time_utils import as_utc, utc_now
 from backend.core.security import (
     create_access_token,
     decrypt_secret,
@@ -234,7 +235,7 @@ class IdentityService:
             raise HTTPException(status_code=403, detail="Account disabled")
 
         raw_refresh = generate_refresh_token()
-        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        expires_at = utc_now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
         await self.repo.create_refresh_session(
             user_id=user.id,
@@ -261,7 +262,7 @@ class IdentityService:
         session = await self.repo.get_refresh_session_by_hash(refresh_hash)
         if not session or session.is_revoked:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
-        if session.expires_at < datetime.now(timezone.utc):
+        if as_utc(session.expires_at) < utc_now():
             raise HTTPException(status_code=401, detail="Refresh token expired")
 
         user = await self.repo.get_user_by_id(session.user_id)
@@ -270,7 +271,7 @@ class IdentityService:
 
         await self.repo.revoke_refresh_session(session)
         new_raw = generate_refresh_token()
-        new_expires = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        new_expires = utc_now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         await self.repo.create_refresh_session(
             user_id=user.id,
             token_hash=hash_refresh_token(new_raw),

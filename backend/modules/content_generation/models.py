@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -75,8 +75,8 @@ class ContentJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     grounding_bundle: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     provider_metadata: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ContentRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):

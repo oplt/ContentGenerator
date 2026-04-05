@@ -118,6 +118,7 @@ class Settings(BaseSettings):
     YOUTUBE_API_BASE_URL: str = "https://www.googleapis.com"
     INSTAGRAM_GRAPH_BASE_URL: str = "https://graph.facebook.com"
     TIKTOK_API_BASE_URL: str = "https://open.tiktokapis.com"
+    PUBLIC_URL: str
 
     DEMO_TENANT_SLUG: str = "demo-agency"
     DEMO_ADMIN_EMAIL: str = "demo@example.com"

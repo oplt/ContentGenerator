@@ -54,6 +54,29 @@ export function updateWhatsAppSettings(payload: Record<string, unknown>) {
   });
 }
 
+export type TelegramSettings = {
+  bot_token_configured: boolean;
+  chat_id: string;
+  enabled: boolean;
+};
+
+export function getTelegramSettings() {
+  return apiFetch<TelegramSettings>("/settings/telegram");
+}
+
+export function updateTelegramSettings(payload: Record<string, unknown>) {
+  return apiFetch<TelegramSettings>("/settings/telegram", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function registerTelegramWebhook() {
+  return apiFetch<{ webhook_url: string }>("/settings/telegram/register-webhook", {
+    method: "POST",
+  });
+}
+
 export function getAuditLogs() {
   return apiFetch<AuditLog[]>("/audit/logs");
 }

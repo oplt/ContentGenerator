@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -41,7 +41,7 @@ class NormalizedArticle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     canonical_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     source_name: Mapped[str] = mapped_column(String(255), nullable=False)
     language: Mapped[str] = mapped_column(String(32), nullable=False, default="en")
-    published_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     keywords: Mapped[list[str]] = mapped_column(default=list, nullable=False)
     topic_tags: Mapped[list[str]] = mapped_column(default=list, nullable=False)
     entities: Mapped[list[str]] = mapped_column(default=list, nullable=False)
@@ -114,5 +114,5 @@ class TrendScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     credibility_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     momentum_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     worthiness_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    calculated_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    calculated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     explanation: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)

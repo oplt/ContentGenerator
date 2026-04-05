@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -27,9 +27,9 @@ class TaskExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     entity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     cancellable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cancellation_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    cancelled_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     payload: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     result: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

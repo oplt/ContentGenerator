@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { getSocialAccounts, upsertSocialAccount, type SocialAccountUpsertPayload } from "../api/publishing";
-import { getTenantSettings, getWhatsAppSettings, updateTenantSettings, updateWhatsAppSettings } from "../api/settings";
+import { getTelegramSettings, getTenantSettings, getWhatsAppSettings, registerTelegramWebhook, updateTelegramSettings, updateTenantSettings, updateWhatsAppSettings } from "../api/settings";
 import { SocialPlatformSettingsCard, type SocialPlatformConfigField } from "../components/dashboard/SocialPlatformSettingsCard";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -21,6 +21,7 @@ type WorkflowSettingsForm = {
   approval_sender_label: string;
   publishing_default_timezone: string;
   publishing_default_dry_run: string;
+  ingestion_default_polling_interval_minutes: string;
 };
 
 type WhatsAppSettingsForm = {
@@ -31,6 +32,12 @@ type WhatsAppSettingsForm = {
   verify_token: string;
   access_token: string;
   app_secret: string;
+};
+
+type TelegramSettingsForm = {
+  bot_token: string;
+  chat_id: string;
+  enabled: boolean;
 };
 
 type SocialPlatformDefinition = {
@@ -116,6 +123,10 @@ export default function SettingsPage() {
     queryKey: ["settings", "whatsapp"],
     queryFn: getWhatsAppSettings,
   });
+  const telegramSettings = useQuery({
+    queryKey: ["settings", "telegram"],
+    queryFn: getTelegramSettings,
+  });
   const socialAccounts = useQuery({
     queryKey: ["publishing", "social-accounts"],
     queryFn: getSocialAccounts,
@@ -129,6 +140,7 @@ export default function SettingsPage() {
       approval_sender_label: "",
       publishing_default_timezone: "UTC",
       publishing_default_dry_run: "true",
+      ingestion_default_polling_interval_minutes: "30",
     },
   });
   const whatsappForm = useForm<WhatsAppSettingsForm>({
@@ -141,6 +153,9 @@ export default function SettingsPage() {
       access_token: "",
       app_secret: "",
     },
+  });
+  const telegramForm = useForm<TelegramSettingsForm>({
+    defaultValues: { bot_token: "", chat_id: "", enabled: false },
   });
 
   useEffect(() => {
@@ -157,6 +172,8 @@ export default function SettingsPage() {
         tenantSettings.data.settings["publishing.default_timezone"] ?? tenantSettings.data.timezone,
       publishing_default_dry_run:
         tenantSettings.data.settings["publishing.default_dry_run"] ?? "true",
+      ingestion_default_polling_interval_minutes:
+        tenantSettings.data.settings["ingestion.default_polling_interval_minutes"] ?? "30",
     });
   }, [tenantSettings.data, workflowForm, workspaceForm]);
 
@@ -175,6 +192,15 @@ export default function SettingsPage() {
     });
   }, [whatsappForm, whatsappSettings.data]);
 
+  useEffect(() => {
+    if (!telegramSettings.data) return;
+    telegramForm.reset({
+      bot_token: "",
+      chat_id: telegramSettings.data.chat_id,
+      enabled: telegramSettings.data.enabled,
+    });
+  }, [telegramForm, telegramSettings.data]);
+
   const tenantMutation = useMutation({
     mutationFn: updateTenantSettings,
     onSuccess: async () => {
@@ -188,6 +214,14 @@ export default function SettingsPage() {
       await queryClient.invalidateQueries({ queryKey: ["settings", "whatsapp"] });
     },
   });
+
+  const telegramMutation = useMutation({
+    mutationFn: updateTelegramSettings,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["settings", "telegram"] });
+    },
+  });
+  const registerWebhookMutation = useMutation({ mutationFn: registerTelegramWebhook });
 
   const socialMutation = useMutation({
     mutationFn: upsertSocialAccount,
@@ -205,6 +239,7 @@ export default function SettingsPage() {
   if (
     tenantSettings.isLoading ||
     whatsappSettings.isLoading ||
+    telegramSettings.isLoading ||
     socialAccounts.isLoading ||
     !tenantSettings.data ||
     !whatsappSettings.data
@@ -233,10 +268,11 @@ export default function SettingsPage() {
       </Card>
 
       <Tabs defaultValue="general" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 gap-2 md:grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 gap-2 md:grid-cols-5">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="workflow">Workflow</TabsTrigger>
           <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+          <TabsTrigger value="telegram">Telegram</TabsTrigger>
           <TabsTrigger value="social">Social Media</TabsTrigger>
         </TabsList>
 
@@ -296,6 +332,7 @@ export default function SettingsPage() {
                     "approval.sender_label": values.approval_sender_label,
                     "publishing.default_timezone": values.publishing_default_timezone,
                     "publishing.default_dry_run": values.publishing_default_dry_run,
+                    "ingestion.default_polling_interval_minutes": values.ingestion_default_polling_interval_minutes,
                   },
                 });
               })}
@@ -311,6 +348,19 @@ export default function SettingsPage() {
               <label className="space-y-2 text-sm">
                 <span className="font-medium">Default dry run</span>
                 <Input placeholder="true or false" {...workflowForm.register("publishing_default_dry_run")} />
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Source update interval (minutes)</span>
+                <Input
+                  type="number"
+                  min={5}
+                  max={1440}
+                  placeholder="30"
+                  {...workflowForm.register("ingestion_default_polling_interval_minutes")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Default polling interval applied when creating new sources. Existing sources keep their own interval.
+                </p>
               </label>
               <div className="rounded-2xl border border-border bg-muted/40 p-4 text-sm md:col-span-2">
                 <p className="font-medium">WhatsApp routing moved</p>
@@ -462,6 +512,115 @@ export default function SettingsPage() {
               <Button type="submit" className="md:col-span-2" disabled={whatsappMutation.isPending}>
                 {whatsappMutation.isPending ? "Saving WhatsApp Settings..." : "Save WhatsApp Settings"}
               </Button>
+            </form>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="telegram" className="space-y-6">
+          <Card className="p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Telegram Approval Delivery</h2>
+                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                  Send content approval notifications to a Telegram chat. Create a bot via
+                  <span className="mx-1 font-mono text-xs">@BotFather</span>
+                  on Telegram, then add the bot to your group or use the direct chat ID.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={telegramSettings.data?.bot_token_configured ? "success" : "muted"}>
+                  {telegramSettings.data?.bot_token_configured ? "Bot configured" : "No bot token"}
+                </Badge>
+                <Badge variant={telegramSettings.data?.enabled ? "success" : "muted"}>
+                  {telegramSettings.data?.enabled ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-3 rounded-2xl border border-border bg-muted/40 p-4 text-sm md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Bot Token</p>
+                <p className="mt-2 font-medium">
+                  {telegramSettings.data?.bot_token_configured ? "Configured" : "Not configured"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Chat ID</p>
+                <p className="mt-2 font-medium">{telegramSettings.data?.chat_id || "Not set"}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Status</p>
+                <p className="mt-2 font-medium">{telegramSettings.data?.enabled ? "Active" : "Inactive"}</p>
+              </div>
+            </div>
+
+            <form
+              className="mt-6 grid gap-4 md:grid-cols-2"
+              onSubmit={telegramForm.handleSubmit(async (values) => {
+                await telegramMutation.mutateAsync({
+                  bot_token: values.bot_token || undefined,
+                  chat_id: values.chat_id || undefined,
+                  enabled: values.enabled,
+                });
+              })}
+            >
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Bot Token</span>
+                <Input
+                  type="password"
+                  placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                  {...telegramForm.register("bot_token")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {telegramSettings.data?.bot_token_configured
+                    ? "A bot token is already stored. Leave blank to keep it."
+                    : "Get this from @BotFather on Telegram after creating a bot."}
+                </p>
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Chat ID</span>
+                <Input
+                  placeholder="-1001234567890 or @yourchannel"
+                  {...telegramForm.register("chat_id")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use a group/channel ID (negative number) or username. Send a message to
+                  <span className="mx-1 font-mono text-xs">@userinfobot</span>
+                  to find your ID.
+                </p>
+              </label>
+              <div className="flex items-center gap-3 md:col-span-2">
+                <input
+                  type="checkbox"
+                  id="telegram-enabled"
+                  className="h-4 w-4 rounded border-border accent-primary"
+                  {...telegramForm.register("enabled")}
+                />
+                <label htmlFor="telegram-enabled" className="text-sm font-medium">
+                  Enable Telegram approval notifications
+                </label>
+              </div>
+              <Button type="submit" disabled={telegramMutation.isPending}>
+                {telegramMutation.isPending ? "Saving…" : "Save Telegram Settings"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={registerWebhookMutation.isPending || !telegramSettings.data?.bot_token_configured}
+                onClick={() => registerWebhookMutation.mutate()}
+              >
+                {registerWebhookMutation.isPending ? "Registering…" : "Register Webhook"}
+              </Button>
+              {registerWebhookMutation.isSuccess && (
+                <p className="text-xs text-muted-foreground md:col-span-2">
+                  ✅ Webhook registered: {registerWebhookMutation.data?.webhook_url}
+                </p>
+              )}
+              {registerWebhookMutation.isError && (
+                <p className="text-xs text-destructive md:col-span-2">
+                  Failed to register webhook. Make sure the bot token is saved and the server is publicly reachable.
+                </p>
+              )}
             </form>
           </Card>
         </TabsContent>

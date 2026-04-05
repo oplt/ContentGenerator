@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -62,7 +62,7 @@ class SocialAccount(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Versio
     status: Mapped[SocialAccountStatus] = mapped_column(String(32), nullable=False, default="connected")
     capability_flags: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     account_metadata: Mapped[dict[str, str]] = mapped_column("metadata", default=dict, nullable=False)
-    last_synced_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SocialAccountToken(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
@@ -75,8 +75,8 @@ class SocialAccountToken(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, B
     access_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     refresh_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     scopes: Mapped[list[str]] = mapped_column(default=list, nullable=False)
-    token_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    last_refreshed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PublishingJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
@@ -103,8 +103,8 @@ class PublishingJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="stub")
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    scheduled_for: Mapped[datetime | None] = mapped_column(nullable=True)
-    published_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_payload: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
@@ -130,6 +130,6 @@ class PublishedPost(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     external_post_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     external_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     status: Mapped[PublishedPostStatus] = mapped_column(String(32), nullable=False, default="scheduled")
-    published_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     raw_payload: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     analytics_sync_state: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")

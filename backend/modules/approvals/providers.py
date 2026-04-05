@@ -137,3 +137,45 @@ def get_whatsapp_provider(config: WhatsAppRuntimeConfig) -> WhatsAppProvider:
     if config.provider == "meta" and config.access_token and config.phone_number_id:
         return MetaWhatsAppCloudProvider(config)
     return StubWhatsAppProvider()
+
+
+class TelegramProvider:
+    def __init__(self, bot_token: str, chat_id: str):
+        self.bot_token = bot_token
+        self.chat_id = chat_id
+
+    async def send_message(self, text: str, approval_request_id: str | None = None) -> dict[str, str]:
+        payload: dict[str, Any] = {"chat_id": self.chat_id, "text": text}
+        if approval_request_id:
+            payload["reply_markup"] = {
+                "inline_keyboard": [[
+                    {"text": "✅ Confirm", "callback_data": f"approve:{approval_request_id}"},
+                    {"text": "❌ Reject",  "callback_data": f"reject:{approval_request_id}"},
+                    {"text": "✏️ Update",  "callback_data": f"revise:{approval_request_id}"},
+                ]]
+            }
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            message_id = str(data.get("result", {}).get("message_id", ""))
+            return {"provider": "telegram", "message_id": message_id}
+
+    async def answer_callback(self, callback_query_id: str, text: str) -> None:
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery",
+                json={"callback_query_id": callback_query_id, "text": text},
+            )
+
+    async def set_webhook(self, url: str) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{self.bot_token}/setWebhook",
+                json={"url": url, "allowed_updates": ["callback_query", "message"]},
+            )
+            response.raise_for_status()
+            return response.json()

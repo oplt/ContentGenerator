@@ -157,7 +157,7 @@ class StoryIntelligenceService:
         momentum = min(article_count / 5, 1.0)
         worthiness = sum(article.worthiness_score for article in normalized_articles) / max(article_count, 1)
         score = round((freshness * 0.35) + (credibility * 0.25) + (momentum * 0.2) + (worthiness * 0.2), 4)
-        decision = "generate" if score >= 0.55 else "hold"
+        decision = "generate" if score >= 0.40 else "hold"
         reasons = [
             f"freshness={freshness:.2f}",
             f"credibility={credibility:.2f}",

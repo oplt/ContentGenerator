@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -40,14 +40,14 @@ class ApprovalRequest(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     recipient: Mapped[str] = mapped_column(String(64), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="stub")
     provider_request_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    requested_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    responded_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     revision_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    last_sent_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ApprovalMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -79,8 +79,8 @@ class WebhookInbox(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
     dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     payload: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
-    received_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    processed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     signature_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="received")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

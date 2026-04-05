@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.auth import get_current_membership, require_permission
@@ -54,6 +54,18 @@ async def update_source(
     source = await service.update_source(membership.tenant_id, source_id, payload)
     await db.commit()
     return SourceResponse.model_validate(source)
+
+
+@router.delete("/{source_id}", status_code=204)
+async def delete_source(
+    source_id: UUID,
+    membership: TenantUser = Depends(require_permission("sources:write")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    service = SourceIngestionService(db)
+    await service.delete_source(membership.tenant_id, source_id)
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/{source_id}/ingest", response_model=IngestionTriggerResponse)

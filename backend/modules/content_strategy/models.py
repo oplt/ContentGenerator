@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, Boolean, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -74,4 +74,4 @@ class ContentPlan(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionM
     approval_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     safe_to_publish: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     policy_trace: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
-    scheduled_for: Mapped[datetime | None] = mapped_column(nullable=True)
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.time_utils import as_utc, utc_now
 from backend.modules.source_ingestion.models import RawArticle, Source, SourceFetchRun
 
 
@@ -36,15 +37,24 @@ class SourceRepository:
         )
         return list(result.scalars().all())
 
+    async def soft_delete_source(self, source: Source) -> None:
+        source.active = False
+        source.deleted_at = datetime.now(timezone.utc)
+        await self.db.flush()
+
+    async def hard_delete_source(self, source: Source) -> None:
+        await self.db.delete(source)
+        await self.db.flush()
+
     async def list_due_sources(self) -> list[Source]:
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         result = await self.db.execute(select(Source).where(Source.active.is_(True), Source.deleted_at.is_(None)))
         sources = list(result.scalars().all())
         return [
             source
             for source in sources
             if source.last_polled_at is None
-            or source.last_polled_at <= now - timedelta(minutes=source.polling_interval_minutes)
+            or as_utc(source.last_polled_at) <= now - timedelta(minutes=source.polling_interval_minutes)
         ]
 
     async def create_fetch_run(self, run: SourceFetchRun) -> SourceFetchRun:

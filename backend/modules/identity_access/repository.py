@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload  
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.time_utils import as_utc, utc_now, utc_now_naive
 from backend.modules.identity_access.models import (
     MembershipStatus,
     Permission,
@@ -156,17 +157,10 @@ class IdentityRepository:
     async def create_refresh_session(
             self, *, user_id: uuid.UUID, token_hash: str, expires_at: datetime
     ) -> RefreshSession:
-        # Convert timezone-aware datetime to naive UTC if it has timezone info
-        if expires_at.tzinfo is not None:
-            # Convert to UTC and remove timezone info
-            expires_at_naive = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
-        else:
-            expires_at_naive = expires_at
-
         session = RefreshSession(
             user_id=user_id,
             token_hash=token_hash,
-            expires_at=expires_at_naive
+            expires_at=expires_at,
         )
         self.db.add(session)
         await self.db.flush()
@@ -189,13 +183,11 @@ class IdentityRepository:
         await self.db.flush()
 
     async def list_active_sessions(self, user_id: uuid.UUID) -> list[RefreshSession]:
-        # Use naive UTC datetime for comparison since database stores naive UTC
-        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
         result = await self.db.execute(
             select(RefreshSession).where(
                 RefreshSession.user_id == user_id,
                 RefreshSession.is_revoked.is_(False),
-                RefreshSession.expires_at > now_naive,
+                RefreshSession.expires_at > utc_now_naive(),
                 )
         )
         return list(result.scalars().all())

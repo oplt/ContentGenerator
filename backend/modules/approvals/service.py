@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
 from backend.modules.approvals.models import ApprovalIntent, ApprovalMessage, ApprovalRequest, ApprovalStatus, WebhookInbox
-from backend.modules.approvals.providers import WhatsAppRuntimeConfig, get_whatsapp_provider
+from backend.modules.approvals.providers import TelegramProvider, WhatsAppRuntimeConfig, get_whatsapp_provider
 from backend.modules.approvals.repository import ApprovalRepository
 from backend.modules.approvals.schemas import ApprovalMessageResponse, ApprovalRequestResponse
 from backend.modules.audit.service import AuditService
@@ -112,13 +112,38 @@ class ApprovalService:
                 payload=send_result,
             )
         )
+        # Also send via Telegram if configured and enabled
+        telegram_config = await self.settings_service.resolve_telegram_runtime_config(tenant_id)
+        if telegram_config.get("enabled") and telegram_config.get("bot_token") and telegram_config.get("chat_id"):
+            telegram = TelegramProvider(
+                bot_token=str(telegram_config["bot_token"]),
+                chat_id=str(telegram_config["chat_id"]),
+            )
+            try:
+                tg_result = await telegram.send_message(message_text, approval_request_id=str(request.id))
+                await self.repo.create_message(
+                    ApprovalMessage(
+                        approval_request_id=request.id,
+                        direction="outbound",
+                        channel="telegram",
+                        provider_message_id=tg_result.get("message_id"),
+                        message_type="text",
+                        raw_text=message_text,
+                        parsed_intent=ApprovalIntent.UNKNOWN.value,
+                        intent_confidence=1.0,
+                        payload=tg_result,
+                    )
+                )
+            except Exception:
+                pass  # Telegram failure must not block the approval request
+
         await self.audit.record(
             tenant_id=tenant_id,
             actor_user_id=None,
             action="approvals.request_sent",
             entity_type="approval_request",
             entity_id=str(request.id),
-            message="Approval request sent over WhatsApp",
+            message="Approval request sent",
             payload={"content_job_id": str(content_job_id), "recipient": request.recipient},
         )
         await self.db.flush()
@@ -264,3 +289,77 @@ class ApprovalService:
             updated_requests.append(request)
         await self.db.flush()
         return updated_requests
+
+    async def handle_telegram_callback(
+        self,
+        payload: dict,
+    ) -> None:
+        """Process an inline keyboard callback_query from Telegram."""
+        callback_query = payload.get("callback_query")
+        if not callback_query:
+            return
+
+        callback_query_id = callback_query.get("id", "")
+        data = callback_query.get("data", "")
+        # data format: "approve:<uuid>" | "reject:<uuid>" | "revise:<uuid>"
+        parts = data.split(":", 1)
+        if len(parts) != 2:
+            return
+        intent_str, request_id_str = parts
+
+        # Resolve the approval request across all tenants
+        request = await self.repo.get_request_by_id(UUID(request_id_str))
+        if not request:
+            return
+
+        telegram_config = await self.settings_service.resolve_telegram_runtime_config(request.tenant_id)
+        bot_token = str(telegram_config.get("bot_token", ""))
+        chat_id = str(telegram_config.get("chat_id", ""))
+
+        if intent_str == "approve":
+            request.status = ApprovalStatus.APPROVED.value
+            request.responded_at = datetime.now(timezone.utc)
+            ack_text = "✅ Content approved and queued for publishing."
+            await self.publish_service.publish_now(
+                tenant_id=request.tenant_id,
+                approval_request_id=request.id,
+                payload=PublishNowRequest(content_job_id=request.content_job_id),
+            )
+        elif intent_str == "reject":
+            request.status = ApprovalStatus.REJECTED.value
+            request.responded_at = datetime.now(timezone.utc)
+            ack_text = "❌ Content rejected."
+        elif intent_str == "revise":
+            request.status = ApprovalStatus.PENDING.value
+            ack_text = "✏️ Send your revision notes as a reply in this chat."
+        else:
+            return
+
+        await self.repo.create_message(
+            ApprovalMessage(
+                approval_request_id=request.id,
+                direction="inbound",
+                channel="telegram",
+                message_type="callback",
+                raw_text=data,
+                parsed_intent=intent_str,
+                intent_confidence=1.0,
+                payload={"callback_data": data},
+            )
+        )
+
+        if bot_token and callback_query_id:
+            from backend.modules.approvals.providers import TelegramProvider
+            provider = TelegramProvider(bot_token=bot_token, chat_id=chat_id)
+            await provider.answer_callback(callback_query_id, ack_text)
+
+        await self.audit.record(
+            tenant_id=request.tenant_id,
+            actor_user_id=None,
+            action="approvals.telegram_callback",
+            entity_type="approval_request",
+            entity_id=str(request.id),
+            message=f"Telegram callback: {intent_str}",
+            payload={"intent": intent_str},
+        )
+        await self.db.flush()

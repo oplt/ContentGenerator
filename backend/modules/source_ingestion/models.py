@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -56,9 +56,9 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin,
     circuit_state: Mapped[CircuitState] = mapped_column(
         String(32), nullable=False, default=CircuitState.CLOSED.value
     )
-    negative_cache_until: Mapped[datetime | None] = mapped_column(nullable=True)
-    last_polled_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    last_success_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    negative_cache_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stale_cache_ttl_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=3600)
 
 
@@ -74,8 +74,8 @@ class SourceFetchRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     status: Mapped[FetchRunStatus] = mapped_column(String(32), nullable=False, default="queued")
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     articles_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -110,6 +110,6 @@ class RawArticle(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     author: Mapped[str | None] = mapped_column(String(255), nullable=True)
     language: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    published_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     extraction_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     source_metadata: Mapped[dict[str, str]] = mapped_column("metadata", default=dict, nullable=False)

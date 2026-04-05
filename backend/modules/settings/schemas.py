@@ -23,6 +23,18 @@ class TenantSettingsResponse(ORMModel):
     settings: dict[str, str]
 
 
+class TelegramSettingsRequest(BaseModel):
+    bot_token: str | None = None
+    chat_id: str | None = None
+    enabled: bool | None = None
+
+
+class TelegramSettingsResponse(BaseModel):
+    bot_token_configured: bool
+    chat_id: str
+    enabled: bool
+
+
 class WhatsAppSettingsRequest(BaseModel):
     recipient: str | None = None
     provider: str | None = None

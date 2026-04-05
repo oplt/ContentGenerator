@@ -1,10 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { sendApprovalRequest, getApprovalRequests } from "../api/approvals";
-import { createContentPlan, generateContent, getContentJobs, getContentPlans } from "../api/content";
+import { createContentPlan, generateContent, getContentJobs, getContentPlans, type ContentJob } from "../api/content";
 import { getPublishedPosts, getPublishingJobs, publishNow } from "../api/publishing";
 import { getStoryClusters } from "../api/stories";
 import { queryClient } from "../lib/queryClient";
+import { Badge } from "../components/ui/badge";
 import { ApprovalTimeline } from "../components/dashboard/ApprovalTimeline";
 import { ContentPlanPanel } from "../components/dashboard/ContentPlanPanel";
 import { PublishingStatusCard } from "../components/dashboard/PublishingStatusCard";
@@ -19,6 +20,50 @@ type Tab = (typeof TABS)[number];
 
 function isValidTab(value: string | null): value is Tab {
   return TABS.includes(value as Tab);
+}
+
+// ─── Job status badge ─────────────────────────────────────────────────────────
+
+const JOB_STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "muted"> = {
+  pending: "muted",
+  running: "warning",
+  completed: "success",
+  failed: "warning",
+};
+
+function JobCard({ job, onSendApproval }: { job: ContentJob; onSendApproval: (id: string) => void }) {
+  const statusVariant = JOB_STATUS_VARIANT[job.status] ?? "muted";
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">{job.job_type}</p>
+            <Badge variant={statusVariant}>{job.status}</Badge>
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{job.stage}</p>
+          {job.error_message && (
+            <p className="mt-1 text-xs text-destructive">{job.error_message}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {job.status === "completed" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onSendApproval(job.id)}
+            >
+              Send for Approval
+            </Button>
+          )}
+          <Link to={`/dashboard/content/${job.id}`}>
+            <Button variant="outline" size="sm">Open</Button>
+          </Link>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 // ─── Plans + Jobs tab ────────────────────────────────────────────────────────
@@ -38,6 +83,12 @@ function PlansTab() {
     mutationFn: generateContent,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["content", "jobs"] });
+    },
+  });
+  const sendApprovalMutation = useMutation({
+    mutationFn: (content_job_id: string) => sendApprovalRequest({ content_job_id }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["approvals"] });
     },
   });
 
@@ -87,17 +138,11 @@ function PlansTab() {
             <p className="text-sm text-muted-foreground">No generation jobs yet.</p>
           )}
           {jobs.data?.map((job) => (
-            <Card key={job.id} className="p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium">{job.job_type}</p>
-                  <p className="text-xs text-muted-foreground">{job.stage}</p>
-                </div>
-                <Link to={`/dashboard/content/${job.id}`}>
-                  <Button variant="outline" size="sm">Open</Button>
-                </Link>
-              </div>
-            </Card>
+            <JobCard
+              key={job.id}
+              job={job}
+              onSendApproval={(id) => sendApprovalMutation.mutate(id)}
+            />
           ))}
         </div>
       </div>

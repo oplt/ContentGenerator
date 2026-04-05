@@ -10,6 +10,8 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree
 
+import email.utils
+
 import feedparser
 import httpx
 import trafilatura
@@ -68,6 +70,24 @@ class BaseSourceAdapter:
         raise NotImplementedError
 
 
+def _parse_rss_date(entry: Any) -> datetime | None:
+    """Try published_parsed (struct_time) first, then parse the raw string."""
+    if entry.get("published_parsed"):
+        try:
+            import calendar
+            ts = calendar.timegm(entry["published_parsed"])
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        except Exception:
+            pass
+    raw = entry.get("published") or entry.get("updated")
+    if raw:
+        try:
+            return email.utils.parsedate_to_datetime(raw)
+        except Exception:
+            pass
+    return None
+
+
 class RSSSourceAdapter(BaseSourceAdapter):
     async def fetch(self) -> list[FetchedArticle]:
         feed_text = await self._fetch_text(self.source.url)
@@ -83,7 +103,7 @@ class RSSSourceAdapter(BaseSourceAdapter):
                     summary=entry.get("summary"),
                     body=entry.get("summary"),
                     author=entry.get("author"),
-                    published_at=None,
+                    published_at=_parse_rss_date(entry),
                     metadata={"source": self.source.name},
                 )
             )

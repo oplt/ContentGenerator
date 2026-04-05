@@ -1,13 +1,24 @@
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { createSource, getRawArticles, getSourceHealth, getSources, triggerIngestion } from "../api/sources";
+import {
+  createSource,
+  deleteSource,
+  getRawArticles,
+  getSourceHealth,
+  getSources,
+  triggerIngestion,
+  updateSource,
+  type Source,
+} from "../api/sources";
+import { getTenantSettings } from "../api/settings";
 import { queryClient } from "../lib/queryClient";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
 import { LoadingState } from "../components/ui/LoadingState";
 import { EmptyState } from "../components/ui/EmptyState";
-import { SourceHealthTable } from "../components/dashboard/SourceHealthTable";
 
 type SourceForm = {
   name: string;
@@ -16,14 +27,122 @@ type SourceForm = {
   category: string;
 };
 
+type EditForm = {
+  name: string;
+  category: string;
+  polling_interval_minutes: number;
+  trust_score: number;
+};
+
+const SOURCE_CATEGORIES = [
+  "technology",
+  "politics",
+  "conflicts",
+  "general",
+  "business",
+  "world",
+  "science",
+  "health",
+  "entertainment",
+] as const;
+
+function SourceEditRow({
+  source,
+  onSave,
+  onCancel,
+  isSaving,
+}: {
+  source: Source;
+  onSave: (values: EditForm) => Promise<void>;
+  onCancel: () => void;
+  isSaving: boolean;
+}) {
+  const form = useForm<EditForm>({
+    defaultValues: {
+      name: source.name,
+      category: source.category,
+      polling_interval_minutes: source.polling_interval_minutes,
+      trust_score: source.trust_score,
+    },
+  });
+
+  return (
+    <Card className="p-5">
+      <p className="mb-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+        Editing — {source.url}
+      </p>
+      <form
+        className="grid gap-3 sm:grid-cols-4"
+        onSubmit={form.handleSubmit(async (values) => {
+          await onSave(values);
+        })}
+      >
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Name</span>
+          <Input {...form.register("name")} />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Category</span>
+          <Input {...form.register("category")} />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Poll interval (min)</span>
+          <Input
+            type="number"
+            min={5}
+            max={1440}
+            {...form.register("polling_interval_minutes", { valueAsNumber: true })}
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Trust score (0–1)</span>
+          <Input
+            type="number"
+            step="0.1"
+            min={0}
+            max={1}
+            {...form.register("trust_score", { valueAsNumber: true })}
+          />
+        </label>
+        <div className="flex gap-2 sm:col-span-4">
+          <Button type="submit" disabled={isSaving}>
+            {isSaving ? "Saving…" : "Save"}
+          </Button>
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 export default function SourcesPage() {
+  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
+  const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
+  const [savingSourceId, setSavingSourceId] = useState<string | null>(null);
   const form = useForm<SourceForm>({ defaultValues: { source_type: "rss", category: "technology" } });
+  const tenantSettings = useQuery({ queryKey: ["tenant-settings"], queryFn: getTenantSettings });
   const sources = useQuery({ queryKey: ["sources"], queryFn: getSources });
   const health = useQuery({ queryKey: ["sources", "health"], queryFn: getSourceHealth });
   const rawArticles = useQuery({ queryKey: ["sources", "articles"], queryFn: getRawArticles });
 
+  const defaultPollingInterval = Number(
+    tenantSettings.data?.settings["ingestion.default_polling_interval_minutes"] ?? 30
+  );
+
   const createMutation = useMutation({
     mutationFn: createSource,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sources"] }),
+        queryClient.invalidateQueries({ queryKey: ["sources", "health"] }),
+      ]);
+    },
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
+      updateSource(id, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
@@ -34,6 +153,16 @@ export default function SourcesPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sources", "articles"] }),
         queryClient.invalidateQueries({ queryKey: ["stories"] }),
+      ]);
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteSource,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sources"] }),
+        queryClient.invalidateQueries({ queryKey: ["sources", "health"] }),
+        queryClient.invalidateQueries({ queryKey: ["sources", "articles"] }),
       ]);
     },
   });
@@ -53,7 +182,7 @@ export default function SourcesPage() {
               ...values,
               parser_type: "auto",
               trust_score: 0.7,
-              polling_interval_minutes: 30,
+              polling_interval_minutes: defaultPollingInterval,
               config: {},
               active: true,
             });
@@ -63,30 +192,102 @@ export default function SourcesPage() {
           <Input placeholder="Name" {...form.register("name")} />
           <Input placeholder="URL" {...form.register("url")} />
           <Input placeholder="Type (rss/web/api/sitemap)" {...form.register("source_type")} />
-          <Input placeholder="Category" {...form.register("category")} />
-          <Button type="submit">Create Source</Button>
+          <select
+            aria-label="Category"
+            className="flex h-11 w-full rounded-xl border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            {...form.register("category")}
+          >
+            {SOURCE_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat[0].toUpperCase() + cat.slice(1)}
+              </option>
+            ))}
+          </select>
+          <Button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? "Creating…" : "Create Source"}
+          </Button>
         </form>
       </Card>
+
       {sources.data && sources.data.length > 0 ? (
         <>
-          <SourceHealthTable sources={sources.data} health={health.data ?? []} />
+          {/* Health summary is now merged into individual source cards below */}
           <div className="grid gap-4">
-            {sources.data.map((source) => (
-              <Card key={source.id} className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="font-semibold">{source.name}</h2>
-                  <p className="text-sm text-muted-foreground">{source.url}</p>
-                </div>
-                <Button onClick={() => ingestMutation.mutate(source.id)}>Ingest Now</Button>
-              </Card>
-            ))}
+            {sources.data.map((source) => {
+              const sourceHealth = health.data?.find((h) => h.source_id === source.id);
+              return editingSourceId === source.id ? (
+                <SourceEditRow
+                  key={source.id}
+                  source={source}
+                  isSaving={savingSourceId === source.id && updateMutation.isPending}
+                  onCancel={() => setEditingSourceId(null)}
+                  onSave={async (values) => {
+                    setSavingSourceId(source.id);
+                    try {
+                      await updateMutation.mutateAsync({ id: source.id, payload: values });
+                      setEditingSourceId(null);
+                    } finally {
+                      setSavingSourceId(null);
+                    }
+                  }}
+                />
+              ) : (
+                <Card
+                  key={source.id}
+                  className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h2 className="font-semibold">{source.name}</h2>
+                      <Badge variant={sourceHealth?.status === "healthy" ? "success" : "warning"}>
+                        {sourceHealth?.status ?? "unknown"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{source.url}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {source.source_type} · {source.category} · every {source.polling_interval_minutes} min · {source.success_count} / {source.failure_count}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Button variant="outline" onClick={() => ingestMutation.mutate(source.id)}>
+                      Ingest Now
+                    </Button>
+                    <Button variant="outline" onClick={() => setEditingSourceId(source.id)}>
+                      Edit
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={async () => {
+                        if (!window.confirm(`Delete source "${source.name}"?`)) return;
+                        setDeletingSourceId(source.id);
+                        try {
+                          await deleteMutation.mutateAsync(source.id);
+                        } finally {
+                          setDeletingSourceId(null);
+                        }
+                      }}
+                      disabled={deleteMutation.isPending && deletingSourceId === source.id}
+                    >
+                      {deleteMutation.isPending && deletingSourceId === source.id ? "Deleting…" : "Delete"}
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
           </div>
           <Card className="p-5">
             <h2 className="text-lg font-semibold">Latest Raw Articles</h2>
             <div className="mt-4 space-y-3">
               {rawArticles.data?.slice(0, 8).map((article) => (
                 <div key={article.id} className="rounded-2xl border border-border bg-muted/40 p-4">
-                  <p className="font-medium">{article.title}</p>
+                  <a
+                    href={article.canonical_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium hover:underline hover:text-primary"
+                  >
+                    {article.title}
+                  </a>
                   <p className="mt-1 text-sm text-muted-foreground">{article.summary}</p>
                 </div>
               ))}

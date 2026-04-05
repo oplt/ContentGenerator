@@ -1,13 +1,31 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 import type { StoryCluster } from "../../api/stories";
+import { createContentPlan, generateContent } from "../../api/content";
+import { queryClient } from "../../lib/queryClient";
 import { Card } from "../ui/card";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { TrendScoreBadge } from "./TrendScoreBadge";
 
 export function StoryClusterCard({ cluster }: { cluster: StoryCluster }) {
+  const navigate = useNavigate();
+
+  const planAndGenerate = useMutation({
+    mutationFn: async () => {
+      const plan = await createContentPlan({ story_cluster_id: cluster.id });
+      const job = await generateContent(plan.id);
+      return job;
+    },
+    onSuccess: async (job) => {
+      await queryClient.invalidateQueries({ queryKey: ["content"] });
+      navigate(`/dashboard/content/${job.id}`);
+    },
+  });
+
   return (
-    <Link to={`/dashboard/stories/${cluster.id}`}>
-      <Card className="group h-full p-5 transition hover:border-primary/40">
+    <Card className="group h-full p-5 transition hover:border-primary/40">
+      <Link to={`/dashboard/stories/${cluster.id}`} className="block">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{cluster.primary_topic}</p>
@@ -24,7 +42,22 @@ export function StoryClusterCard({ cluster }: { cluster: StoryCluster }) {
             {cluster.risk_level}
           </Badge>
         </div>
-      </Card>
-    </Link>
+      </Link>
+      {cluster.worthy_for_content && (
+        <div className="mt-4 border-t border-border pt-4">
+          <Button
+            size="sm"
+            className="w-full"
+            disabled={planAndGenerate.isPending}
+            onClick={(e) => {
+              e.preventDefault();
+              planAndGenerate.mutate();
+            }}
+          >
+            {planAndGenerate.isPending ? "Creating…" : "Plan & Generate"}
+          </Button>
+        </div>
+      )}
+    </Card>
   );
 }

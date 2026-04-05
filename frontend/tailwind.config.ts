@@ -33,11 +33,11 @@ export default {
         sm: "0.5rem",
       },
       boxShadow: {
-        soft: "0 22px 60px rgba(6, 24, 44, 0.08)",
+        soft: "0 22px 60px rgba(34, 40, 49, 0.12)",
       },
       backgroundImage: {
         aurora:
-          "radial-gradient(circle at top left, rgba(6,182,212,0.18), transparent 28%), radial-gradient(circle at top right, rgba(251,191,36,0.18), transparent 24%), linear-gradient(180deg, rgba(15,23,42,0.96), rgba(2,6,23,1))",
+          "radial-gradient(circle at top left, rgba(0,173,181,0.25), transparent 30%), radial-gradient(circle at top right, rgba(57,62,70,0.50), transparent 28%), linear-gradient(180deg, rgba(34,40,49,0.98), rgba(34,40,49,1))",
       },
     },
   },

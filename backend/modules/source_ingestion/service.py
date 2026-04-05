@@ -5,8 +5,10 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import RetryError
 
 from backend.core.cache import redis_client
+from backend.core.time_utils import as_utc, utc_now
 from backend.modules.audit.service import AuditService
 from backend.modules.source_ingestion.adapters import FetchedArticle, get_source_adapter
 from backend.modules.source_ingestion.models import CircuitState, FetchRunStatus, RawArticle, Source, SourceFetchRun
@@ -38,6 +40,23 @@ class SourceIngestionService:
             setattr(source, key, value)
         await self.db.flush()
         return source
+
+    async def delete_source(self, tenant_id: UUID, source_id: UUID) -> None:
+        source = await self.repo.get_source(tenant_id, source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Source not found")
+        await self.repo.hard_delete_source(source)
+        await redis_client.delete(f"ingestion:source:{source.id}:last_success")
+        await self.audit.record(
+            tenant_id=tenant_id,
+            actor_user_id=None,
+            action="ingestion.source_deleted",
+            entity_type="source",
+            entity_id=str(source.id),
+            message=f"Source {source.name} deleted",
+            payload={"source_type": str(source.source_type), "url": source.url},
+        )
+        await self.db.flush()
 
     async def list_sources(self, tenant_id: UUID) -> list[Source]:
         return await self.repo.list_sources(tenant_id)
@@ -119,14 +138,21 @@ class SourceIngestionService:
         ]
         await redis_client.setex(cache_key, source.stale_cache_ttl_seconds, json.dumps(payload))
 
+    def _describe_fetch_error(self, exc: Exception) -> str:
+        if isinstance(exc, RetryError):
+            last_error = exc.last_attempt.exception()
+            if last_error:
+                return str(last_error)
+        return str(exc)
+
     async def run_ingestion(self, tenant_id: UUID, source_id: UUID) -> IngestionTriggerResponse:
         source = await self.get_source(tenant_id, source_id)
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         live_fetch_succeeded = False
         if (
             source.circuit_state == CircuitState.OPEN.value
             and source.negative_cache_until
-            and source.negative_cache_until > now
+            and as_utc(source.negative_cache_until) > now
         ):
             cached = await self._articles_from_cache(source)
             return IngestionTriggerResponse(
@@ -150,9 +176,10 @@ class SourceIngestionService:
             fetched_articles = await adapter.fetch()
             live_fetch_succeeded = True
         except Exception as exc:
+            error_message = self._describe_fetch_error(exc)
             source.failure_count += 1
             fetch_run.status = FetchRunStatus.FAILED.value
-            fetch_run.error_message = str(exc)
+            fetch_run.error_message = error_message
             source.circuit_state = (
                 CircuitState.OPEN.value if source.failure_count >= 3 else CircuitState.HALF_OPEN.value
             )
@@ -163,9 +190,9 @@ class SourceIngestionService:
                 fetch_run.response_cache_hit = True
                 fetch_run.status = FetchRunStatus.PARTIAL.value
             else:
-                fetch_run.finished_at = datetime.now(timezone.utc)
+                fetch_run.finished_at = utc_now()
                 await self.db.commit()
-                raise
+                raise HTTPException(status_code=502, detail=f"Source fetch failed: {error_message}") from exc
 
         new_raw_articles: list[RawArticle] = []
         for article in fetched_articles:
@@ -198,12 +225,12 @@ class SourceIngestionService:
 
         fetch_run.articles_found = len(fetched_articles)
         fetch_run.new_articles = len(new_raw_articles)
-        fetch_run.finished_at = datetime.now(timezone.utc)
+        fetch_run.finished_at = utc_now()
         if fetch_run.status == FetchRunStatus.RUNNING.value:
             fetch_run.status = FetchRunStatus.SUCCESS.value
         source.last_polled_at = now
         if live_fetch_succeeded:
-            source.last_success_at = datetime.now(timezone.utc)
+            source.last_success_at = utc_now()
             source.success_count += 1
             source.failure_count = 0
             source.circuit_state = CircuitState.CLOSED.value

@@ -10,11 +10,17 @@ from backend.core.security import decrypt_secret, encrypt_secret
 from backend.modules.approvals.providers import WhatsAppRuntimeConfig
 from backend.modules.settings.repository import SettingsRepository
 from backend.modules.settings.schemas import (
+    TelegramSettingsRequest,
+    TelegramSettingsResponse,
     TenantSettingsRequest,
     WhatsAppSettingsRequest,
     WhatsAppSettingsResponse,
 )
 
+
+TELEGRAM_BOT_TOKEN_KEY = "approval.telegram_bot_token_encrypted"
+TELEGRAM_CHAT_ID_KEY = "approval.telegram_chat_id"
+TELEGRAM_ENABLED_KEY = "approval.telegram_enabled"
 
 WHATSAPP_RECIPIENT_KEY = "approval.whatsapp_recipient"
 WHATSAPP_PROVIDER_KEY = "approval.whatsapp_provider"
@@ -176,6 +182,53 @@ class SettingsService:
             if settings_map.get(WHATSAPP_PHONE_NUMBER_ID_KEY) == normalized:
                 return tenant.id
         return None
+
+    async def get_telegram_settings(self, tenant_id: UUID) -> TelegramSettingsResponse:
+        tenant = await self.get_tenant_settings(tenant_id)
+        s = tenant.settings or {}
+        return TelegramSettingsResponse(
+            bot_token_configured=bool(s.get(TELEGRAM_BOT_TOKEN_KEY)),
+            chat_id=s.get(TELEGRAM_CHAT_ID_KEY, ""),
+            enabled=s.get(TELEGRAM_ENABLED_KEY, "false").lower() == "true",
+        )
+
+    async def update_telegram_settings(
+        self, tenant_id: UUID, payload: TelegramSettingsRequest
+    ) -> TelegramSettingsResponse:
+        tenant = await self.get_tenant_settings(tenant_id)
+        current_settings = dict(tenant.settings or {})
+        fields_set = payload.model_fields_set
+
+        if "bot_token" in fields_set:
+            normalized = self._normalize_setting_value(payload.bot_token)
+            if normalized:
+                current_settings[TELEGRAM_BOT_TOKEN_KEY] = encrypt_secret(normalized)
+            else:
+                current_settings.pop(TELEGRAM_BOT_TOKEN_KEY, None)
+
+        if "chat_id" in fields_set:
+            normalized = self._normalize_setting_value(payload.chat_id)
+            if normalized:
+                current_settings[TELEGRAM_CHAT_ID_KEY] = normalized
+            else:
+                current_settings.pop(TELEGRAM_CHAT_ID_KEY, None)
+
+        if "enabled" in fields_set and payload.enabled is not None:
+            current_settings[TELEGRAM_ENABLED_KEY] = str(payload.enabled).lower()
+
+        tenant.settings = current_settings
+        await self.db.flush()
+        return await self.get_telegram_settings(tenant_id)
+
+    async def resolve_telegram_runtime_config(self, tenant_id: UUID) -> dict[str, str | bool]:
+        tenant = await self.get_tenant_settings(tenant_id)
+        s = tenant.settings or {}
+        encrypted_token = s.get(TELEGRAM_BOT_TOKEN_KEY)
+        return {
+            "bot_token": decrypt_secret(encrypted_token) if encrypted_token else "",
+            "chat_id": s.get(TELEGRAM_CHAT_ID_KEY, ""),
+            "enabled": s.get(TELEGRAM_ENABLED_KEY, "false").lower() == "true",
+        }
 
     async def verify_whatsapp_verify_token(self, verify_token: str) -> bool:
         if verify_token == settings.WHATSAPP_VERIFY_TOKEN:
