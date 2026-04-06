@@ -78,3 +78,25 @@ export function getSourceHealth() {
 export function getRawArticles() {
   return apiFetch<RawArticle[]>("/sources/articles");
 }
+
+export type CatalogEntry = {
+  id: string;
+  name: string;
+  url: string;
+  source_type: string;
+  category: string;
+  description: string;
+  trust_score: number;
+  polling_interval_minutes: number;
+};
+
+export function getCatalog(category?: string) {
+  const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+  return apiFetch<CatalogEntry[]>(`/sources/catalog${qs}`);
+}
+
+export function importCatalogSource(catalogId: string) {
+  return apiFetch<Source>(`/sources/catalog/${encodeURIComponent(catalogId)}/import`, {
+    method: "POST",
+  });
+}

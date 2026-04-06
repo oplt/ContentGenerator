@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.modules.approvals.models import ApprovalMessage, ApprovalRequest, WebhookInbox
+from backend.modules.approvals.models import ApprovalMessage, ApprovalRequest, ApprovalStatus, WebhookInbox
 
 
 class ApprovalRepository:
@@ -62,6 +63,31 @@ class ApprovalRepository:
             select(WebhookInbox).where(WebhookInbox.dedupe_key == dedupe_key)
         )
         return result.scalar_one_or_none()
+
+    async def get_pending_webhook(self, inbox_id: UUID) -> WebhookInbox | None:
+        result = await self.db.execute(
+            select(WebhookInbox).where(WebhookInbox.id == inbox_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_pending_inbox(self, limit: int = 50) -> list[WebhookInbox]:
+        result = await self.db.execute(
+            select(WebhookInbox)
+            .where(WebhookInbox.status == "received")
+            .order_by(WebhookInbox.received_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def list_expired_pending_requests(self) -> list[ApprovalRequest]:
+        now = datetime.now(timezone.utc)
+        result = await self.db.execute(
+            select(ApprovalRequest).where(
+                ApprovalRequest.status == ApprovalStatus.PENDING.value,
+                ApprovalRequest.expires_at <= now,
+            )
+        )
+        return list(result.scalars().all())
 
     async def get_request_for_content_job(self, content_job_id: UUID) -> ApprovalRequest | None:
         result = await self.db.execute(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.story_intelligence.models import (
@@ -115,6 +115,52 @@ class StoryIntelligenceRepository:
             .order_by(NormalizedArticle.published_at.desc().nullslast(), NormalizedArticle.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def count_recent_cluster_articles(self, cluster_id: UUID, within_hours: int = 3) -> int:
+        """Count articles added to this cluster within the last `within_hours` hours."""
+        since = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+        result = await self.db.execute(
+            select(func.count(StoryClusterArticle.story_cluster_id)).where(
+                StoryClusterArticle.story_cluster_id == cluster_id,
+                StoryClusterArticle.created_at >= since,
+            )
+        )
+        return result.scalar_one() or 0
+
+    async def count_distinct_sources_for_cluster(self, cluster_id: UUID) -> int:
+        """Count unique source names across all normalized articles in this cluster."""
+        result = await self.db.execute(
+            select(func.count(distinct(NormalizedArticle.source_name)))
+            .join(
+                StoryClusterArticle,
+                StoryClusterArticle.normalized_article_id == NormalizedArticle.id,
+            )
+            .where(StoryClusterArticle.story_cluster_id == cluster_id)
+        )
+        return result.scalar_one() or 0
+
+    async def find_near_duplicate(
+        self, tenant_id: UUID, embedding: list[float], within_hours: int = 6
+    ) -> NormalizedArticle | None:
+        """Return a recently ingested article with high cosine similarity (Python-side check)."""
+        since = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+        result = await self.db.execute(
+            select(NormalizedArticle)
+            .where(
+                NormalizedArticle.tenant_id == tenant_id,
+                NormalizedArticle.created_at >= since,
+            )
+            .order_by(NormalizedArticle.created_at.desc())
+            .limit(200)
+        )
+        from backend.modules.story_intelligence.providers import cosine_similarity
+        candidates = list(result.scalars().all())
+        threshold = 0.97
+        for candidate in candidates:
+            candidate_embedding = [float(v) for v in candidate.embedding]
+            if cosine_similarity(embedding, candidate_embedding) >= threshold:
+                return candidate
+        return None
 
     async def list_latest_trend_scores(self, tenant_id: UUID, limit: int = 30) -> list[TrendScore]:
         result = await self.db.execute(

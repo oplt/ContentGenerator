@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     FFMPEG_BIN: str = "ffmpeg"
     FFPROBE_BIN: str = "ffprobe"
 
+    TELEGRAM_WEBHOOK_SECRET: str = ""
+
     WHATSAPP_PROVIDER: str = "stub"
     WHATSAPP_ACCESS_TOKEN: str = ""
     WHATSAPP_PHONE_NUMBER_ID: str = ""

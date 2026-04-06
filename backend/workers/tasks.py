@@ -7,6 +7,7 @@ from backend.modules.approvals.service import ApprovalService
 from backend.modules.content_generation.service import ContentGenerationService
 from backend.modules.source_ingestion.service import SourceIngestionService
 from backend.modules.publishing.service import PublishingService
+from backend.modules.story_intelligence.service import StoryIntelligenceService
 from backend.workers.celery_app import celery_app
 from backend.workers.email import send_email_sync
 from backend.workers.runtime import run_async_task
@@ -155,6 +156,87 @@ def publish_due_jobs_task() -> list[str]:
         celery_task_id=publish_due_jobs_task.request.id,
         correlation_id=publish_due_jobs_task.request.id,
         payload={},
+        operation=operation,
+    )
+
+
+@celery_app.task(
+    name="backend.workers.tasks.process_webhook_inbox_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    max_retries=3,
+)
+def process_webhook_inbox_task(*, inbox_id: str) -> dict[str, int]:
+    async def operation(db):
+        service = ApprovalService(db)
+        updated = await service.process_webhook_inbox(UUID(inbox_id))
+        return {"updated_requests": len(updated)}
+
+    return run_async_task(
+        task_name="process_webhook_inbox",
+        queue_name="approvals",
+        tenant_id=None,
+        entity_type="webhook_inbox",
+        entity_id=inbox_id,
+        celery_task_id=process_webhook_inbox_task.request.id,
+        correlation_id=process_webhook_inbox_task.request.id,
+        payload={"inbox_id": inbox_id},
+        operation=operation,
+    )
+
+
+@celery_app.task(
+    name="backend.workers.tasks.expire_stale_approvals_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=2,
+)
+def expire_stale_approvals_task() -> int:
+    async def operation(db):
+        from datetime import datetime, timezone
+        from backend.modules.approvals.models import ApprovalStatus
+        repo = ApprovalService(db).repo
+        expired = await repo.list_expired_pending_requests()
+        for request in expired:
+            request.status = ApprovalStatus.EXPIRED.value
+        await db.commit()
+        return len(expired)
+
+    return run_async_task(
+        task_name="expire_stale_approvals",
+        queue_name="approvals",
+        tenant_id=None,
+        entity_type="approval_request",
+        entity_id=None,
+        celery_task_id=expire_stale_approvals_task.request.id,
+        correlation_id=expire_stale_approvals_task.request.id,
+        payload={},
+        operation=operation,
+    )
+
+
+@celery_app.task(
+    name="backend.workers.tasks.rescore_clusters_task",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=2,
+)
+def rescore_clusters_task(*, tenant_id: str) -> int:
+    async def operation(db):
+        count = await StoryIntelligenceService(db).rescore_active_clusters(UUID(tenant_id))
+        await db.commit()
+        return count
+
+    return run_async_task(
+        task_name="rescore_clusters",
+        queue_name="enrichment",
+        tenant_id=UUID(tenant_id),
+        entity_type="story_cluster",
+        entity_id=None,
+        celery_task_id=rescore_clusters_task.request.id,
+        correlation_id=rescore_clusters_task.request.id,
+        payload={"tenant_id": tenant_id},
         operation=operation,
     )
 

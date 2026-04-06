@@ -101,6 +101,14 @@ class StoryIntelligenceService:
         freshness_score = self._freshness_score(raw_article.published_at)
         credibility_score = float(source.trust_score)
         worthiness_score = round((freshness_score * 0.4) + (credibility_score * 0.4) + min(len(keywords), 8) / 20, 4)
+
+        # Semantic near-dedup: skip syndicated copies (cosine > 0.97 within 6h)
+        near_dup = await self.repo.find_near_duplicate(
+            raw_article.tenant_id, embedding, within_hours=6
+        )
+        if near_dup:
+            return near_dup
+
         article = NormalizedArticle(
             tenant_id=raw_article.tenant_id,
             raw_article_id=raw_article.id,
@@ -154,14 +162,42 @@ class StoryIntelligenceService:
         article_count = len(normalized_articles)
         freshness = max((article.freshness_score for article in normalized_articles), default=0.0)
         credibility = sum(article.credibility_score for article in normalized_articles) / max(article_count, 1)
-        momentum = min(article_count / 5, 1.0)
         worthiness = sum(article.worthiness_score for article in normalized_articles) / max(article_count, 1)
-        score = round((freshness * 0.35) + (credibility * 0.25) + (momentum * 0.2) + (worthiness * 0.2), 4)
+
+        # Velocity: articles added to this cluster in the last 3 hours (rate signal)
+        recent_count = await self.repo.count_recent_cluster_articles(cluster.id, within_hours=3)
+        velocity = min(recent_count / 5.0, 1.0)
+
+        # Cross-source confirmation: unique outlets covering this story
+        unique_sources = await self.repo.count_distinct_sources_for_cluster(cluster.id)
+        cross_source = min(unique_sources / 5.0, 1.0)
+
+        # Momentum kept for backwards compat (article total volume)
+        momentum = min(article_count / 5, 1.0)
+
+        score = round(
+            (freshness    * 0.25)
+            + (credibility  * 0.20)
+            + (velocity     * 0.30)
+            + (cross_source * 0.15)
+            + (worthiness   * 0.10),
+            4,
+        )
         decision = "generate" if score >= 0.40 else "hold"
+
+        # Trend direction based on velocity vs momentum
+        if velocity >= 0.6:
+            cluster.trend_direction = "up"
+        elif velocity <= 0.1 and momentum >= 0.6:
+            cluster.trend_direction = "down"
+        else:
+            cluster.trend_direction = "flat"
+
         reasons = [
             f"freshness={freshness:.2f}",
             f"credibility={credibility:.2f}",
-            f"momentum={momentum:.2f}",
+            f"velocity={velocity:.2f}",
+            f"cross_source={cross_source:.2f}",
             f"worthiness={worthiness:.2f}",
         ]
         trend = TrendScore(
@@ -172,6 +208,8 @@ class StoryIntelligenceService:
             credibility_score=credibility,
             momentum_score=momentum,
             worthiness_score=worthiness,
+            velocity_score=velocity,
+            cross_source_score=cross_source,
             calculated_at=datetime.now(timezone.utc),
             explanation={"reasons": "; ".join(reasons)},
         )
@@ -253,6 +291,22 @@ class StoryIntelligenceService:
             trend_score=TrendScoreResponse.model_validate(trend) if trend else None,
             latest_trend_score=trend.score if trend else None,
         )
+
+    async def rescore_active_clusters(self, tenant_id: UUID) -> int:
+        """Re-score all active clusters for a tenant. Called by Celery beat every 15 min."""
+        clusters = await self.repo.list_clusters(tenant_id=tenant_id, worthy_only=False)
+        count = 0
+        for cluster in clusters:
+            normalized_articles = await self.repo.list_normalized_for_cluster(cluster.id)
+            if not normalized_articles:
+                continue
+            trend_score, decision = await self._score_cluster(cluster, normalized_articles)
+            cluster.worthy_for_content = decision.decision == "generate"
+            cluster.explainability["score"] = f"{decision.score:.2f}"
+            await self.repo.create_trend_score(trend_score)
+            count += 1
+        await self.db.flush()
+        return count
 
     async def trend_dashboard(self, tenant_id: UUID) -> TrendDashboardResponse:
         clusters = await self.list_clusters(tenant_id=tenant_id, worthy_only=False)

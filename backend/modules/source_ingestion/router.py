@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps.auth import get_current_membership, require_permission
 from backend.api.deps.db import get_db
 from backend.modules.identity_access.models import TenantUser
+from backend.modules.source_ingestion.catalog import CATALOG, CATALOG_BY_ID
 from backend.modules.source_ingestion.schemas import (
+    CatalogEntryResponse,
     IngestionTriggerResponse,
     RawArticleResponse,
     SourceCreateRequest,
@@ -97,6 +99,45 @@ async def list_fetch_runs(
         SourceFetchRunResponse.model_validate(run)
         for run in await service.list_fetch_runs(membership.tenant_id)
     ]
+
+
+@router.get("/catalog", response_model=list[CatalogEntryResponse])
+async def list_catalog(
+    category: str | None = Query(default=None),
+    membership: TenantUser = Depends(get_current_membership),
+) -> list[CatalogEntryResponse]:
+    entries = CATALOG if category is None else [e for e in CATALOG if e["category"] == category]
+    return [CatalogEntryResponse(**e) for e in entries]
+
+
+@router.post("/catalog/{catalog_id}/import", response_model=SourceResponse, status_code=201)
+async def import_catalog_source(
+    catalog_id: str,
+    membership: TenantUser = Depends(require_permission("sources:write")),
+    db: AsyncSession = Depends(get_db),
+) -> SourceResponse:
+    from fastapi import HTTPException as _HTTPException
+    entry = CATALOG_BY_ID.get(catalog_id)
+    if not entry:
+        raise _HTTPException(status_code=404, detail="Catalog entry not found")
+    service = SourceIngestionService(db)
+    config: dict[str, str] = {}
+    if entry.get("fetch_full_text"):
+        config["fetch_full_text"] = "true"
+    payload = SourceCreateRequest(
+        name=entry["name"],
+        source_type=entry["source_type"],
+        url=entry["url"],
+        parser_type="auto",
+        category=entry["category"],
+        trust_score=entry["trust_score"],
+        polling_interval_minutes=entry["polling_interval_minutes"],
+        config=config,
+        active=True,
+    )
+    source = await service.create_source(membership.tenant_id, payload)
+    await db.commit()
+    return SourceResponse.model_validate(source)
 
 
 @router.get("/articles", response_model=list[RawArticleResponse])

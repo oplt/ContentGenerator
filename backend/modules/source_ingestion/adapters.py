@@ -5,7 +5,7 @@ import hashlib
 import json
 import urllib.robotparser
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree
@@ -89,19 +89,39 @@ def _parse_rss_date(entry: Any) -> datetime | None:
 
 
 class RSSSourceAdapter(BaseSourceAdapter):
+    async def _fetch_full_text(self, url: str) -> str | None:
+        """Fetch the full article body using trafilatura. Returns None on any failure."""
+        try:
+            html = await self._fetch_text(url)
+            return trafilatura.extract(
+                html,
+                include_comments=False,
+                no_fallback=False,
+                favor_precision=True,
+            )
+        except Exception:
+            return None
+
     async def fetch(self) -> list[FetchedArticle]:
         feed_text = await self._fetch_text(self.source.url)
         parsed = feedparser.parse(feed_text)
+        fetch_full_text = self.source.config.get("fetch_full_text", "false").lower() == "true"
         articles: list[FetchedArticle] = []
         for entry in parsed.entries[: int(self.source.config.get("limit", "15"))]:
             url = entry.get("link") or self.source.url
+            summary = entry.get("summary")
+            body = summary  # fallback
+            if fetch_full_text and url != self.source.url:
+                full_body = await self._fetch_full_text(url)
+                if full_body and len(full_body) > len(summary or ""):
+                    body = full_body
             articles.append(
                 FetchedArticle(
                     url=url,
                     canonical_url=url,
                     title=entry.get("title", "Untitled"),
-                    summary=entry.get("summary"),
-                    body=entry.get("summary"),
+                    summary=summary,
+                    body=body,
                     author=entry.get("author"),
                     published_at=_parse_rss_date(entry),
                     metadata={"source": self.source.name},

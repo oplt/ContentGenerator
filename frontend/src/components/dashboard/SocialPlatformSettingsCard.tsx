@@ -4,6 +4,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
+import { PasswordInput } from "../ui/PasswordInput";
 
 export type SocialPlatformConfigField = {
   key: string;
@@ -125,17 +126,29 @@ export function SocialPlatformSettingsCard({
           {configFields.map((field) => (
             <label key={field.key} className="space-y-2 text-sm">
               <span className="font-medium">{field.label}</span>
-              <Input
-                type={field.secret ? "password" : "text"}
-                placeholder={field.placeholder}
-                value={state.metadata[field.key] ?? ""}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    metadata: { ...current.metadata, [field.key]: event.target.value },
-                  }))
-                }
-              />
+              {field.secret ? (
+                <PasswordInput
+                  placeholder={field.placeholder}
+                  value={state.metadata[field.key] ?? ""}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      metadata: { ...current.metadata, [field.key]: event.target.value },
+                    }))
+                  }
+                />
+              ) : (
+                <Input
+                  placeholder={field.placeholder}
+                  value={state.metadata[field.key] ?? ""}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      metadata: { ...current.metadata, [field.key]: event.target.value },
+                    }))
+                  }
+                />
+              )}
               <p className="text-xs text-muted-foreground">{field.description}</p>
             </label>
           ))}
@@ -195,8 +208,7 @@ export function SocialPlatformSettingsCard({
         </label>
         <label className="space-y-2 text-sm">
           <span className="font-medium">Access token</span>
-          <Input
-            type="password"
+          <PasswordInput
             placeholder="Optional access token"
             value={state.accessToken}
             onChange={(event) => setState((current) => ({ ...current, accessToken: event.target.value }))}
@@ -204,8 +216,7 @@ export function SocialPlatformSettingsCard({
         </label>
         <label className="space-y-2 text-sm">
           <span className="font-medium">Refresh token</span>
-          <Input
-            type="password"
+          <PasswordInput
             placeholder="Optional refresh token"
             value={state.refreshToken}
             onChange={(event) => setState((current) => ({ ...current, refreshToken: event.target.value }))}

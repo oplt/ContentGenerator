@@ -37,27 +37,40 @@ async def receive_whatsapp_webhook(
     x_hub_signature_256: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
+    from backend.workers.tasks import process_webhook_inbox_task
     raw_body = await request.body()
     payload = json.loads(raw_body.decode("utf-8"))
     service = ApprovalService(db)
-    await service.handle_webhook(
+    inbox_id = await service.handle_webhook(
         payload=payload,
         raw_body=raw_body,
         signature=x_hub_signature_256,
     )
-    await db.commit()
+    # Dispatch async processing — return 202 immediately to WhatsApp
+    process_webhook_inbox_task.delay(inbox_id=inbox_id)
     return {"status": "accepted"}
 
 
 @router.post("/telegram/webhook", status_code=200)
 async def receive_telegram_webhook(
     request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
+    from backend.core.config import settings as _settings
+    expected_secret = getattr(_settings, "TELEGRAM_WEBHOOK_SECRET", "")
+    if expected_secret and x_telegram_bot_api_secret_token != expected_secret:
+        raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret")
+
     payload = await request.json()
     service = ApprovalService(db)
+    # Plain-text messages may be revision follow-ups; check session first
+    if "message" in payload and "callback_query" not in payload:
+        consumed = await service.handle_telegram_message(payload)
+        if consumed:
+            return {"ok": True}
+    # Otherwise handle as inline button callback
     await service.handle_telegram_callback(payload)
-    await db.commit()
     return {"ok": True}
 
 

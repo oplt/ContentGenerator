@@ -10,6 +10,8 @@ celery_app = Celery(
     include=["backend.workers.tasks"],
 )
 
+from celery.schedules import crontab
+
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
@@ -27,7 +29,32 @@ celery_app.conf.update(
         "backend.workers.tasks.ingest_source_task": {"queue": settings.CELERY_QUEUE_INGESTION},
         "backend.workers.tasks.generate_content_task": {"queue": settings.CELERY_QUEUE_GENERATION},
         "backend.workers.tasks.send_approval_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
+        "backend.workers.tasks.process_webhook_inbox_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
+        "backend.workers.tasks.expire_stale_approvals_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
+        "backend.workers.tasks.rescore_clusters_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
         "backend.workers.tasks.publish_due_jobs_task": {"queue": settings.CELERY_QUEUE_PUBLISHING},
         "backend.workers.tasks.sync_analytics_task": {"queue": settings.CELERY_QUEUE_ANALYTICS},
+    },
+    beat_schedule={
+        # Poll RSS/web sources every 15 minutes
+        "poll-sources-every-15-min": {
+            "task": "backend.workers.tasks.poll_sources_task",
+            "schedule": crontab(minute="*/15"),
+        },
+        # Re-score story clusters every 15 minutes (velocity signal decays fast)
+        # NOTE: rescore_clusters_task requires a tenant_id — this beat entry
+        # is intentionally omitted here because it must be dispatched per-tenant.
+        # Call rescore_clusters_task.delay(tenant_id=...) from your tenant management code.
+
+        # Expire stale pending approval requests every 30 minutes
+        "expire-stale-approvals-every-30-min": {
+            "task": "backend.workers.tasks.expire_stale_approvals_task",
+            "schedule": crontab(minute="*/30"),
+        },
+        # Publish due social posts every minute
+        "publish-due-jobs-every-minute": {
+            "task": "backend.workers.tasks.publish_due_jobs_task",
+            "schedule": crontab(minute="*"),
+        },
     },
 )

@@ -8,6 +8,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { PasswordInput } from "../components/ui/PasswordInput";
 import { LoadingState } from "../components/ui/LoadingState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { queryClient } from "../lib/queryClient";
@@ -497,14 +498,14 @@ export default function SettingsPage() {
               </label>
               <label className="space-y-2 text-sm">
                 <span className="font-medium">Access token</span>
-                <Input type="password" placeholder="Meta Cloud API access token" {...whatsappForm.register("access_token")} />
+                <PasswordInput placeholder="Meta Cloud API access token" {...whatsappForm.register("access_token")} />
                 <p className="text-xs text-muted-foreground">
                   {whatsappSettings.data.access_token_configured ? "A tenant access token is already stored." : "No tenant access token is stored yet."}
                 </p>
               </label>
               <label className="space-y-2 text-sm">
                 <span className="font-medium">App secret</span>
-                <Input type="password" placeholder="Meta app secret" {...whatsappForm.register("app_secret")} />
+                <PasswordInput placeholder="Meta app secret" {...whatsappForm.register("app_secret")} />
                 <p className="text-xs text-muted-foreground">
                   {whatsappSettings.data.app_secret_configured ? "A tenant app secret is already stored." : "No tenant app secret is stored yet."}
                 </p>
@@ -566,8 +567,7 @@ export default function SettingsPage() {
             >
               <label className="space-y-2 text-sm">
                 <span className="font-medium">Bot Token</span>
-                <Input
-                  type="password"
+                <PasswordInput
                   placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
                   {...telegramForm.register("bot_token")}
                 />

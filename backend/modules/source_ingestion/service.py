@@ -28,6 +28,22 @@ class SourceIngestionService:
         self.repo = SourceRepository(db)
         self.audit = AuditService(db)
 
+    @staticmethod
+    def _recompute_trust_score(source: Source) -> float:
+        """
+        Blend the user-set baseline with observed reliability.
+        baseline * 0.5 + consistency * 0.3 + longevity * 0.2
+        consistency = success_count / (success_count + failure_count)
+        longevity   = 1 - failure_rate (same denominator, inverse)
+        """
+        total = source.success_count + source.failure_count
+        if total == 0:
+            return source.trust_score
+        consistency = source.success_count / total
+        longevity = 1.0 - (source.failure_count / total)
+        computed = (source.trust_score * 0.5) + (consistency * 0.3) + (longevity * 0.2)
+        return round(min(max(computed, 0.0), 1.0), 4)
+
     async def create_source(self, tenant_id: UUID, payload: SourceCreateRequest) -> Source:
         source = Source(tenant_id=tenant_id, **payload.model_dump())
         return await self.repo.create_source(source)
@@ -178,6 +194,7 @@ class SourceIngestionService:
         except Exception as exc:
             error_message = self._describe_fetch_error(exc)
             source.failure_count += 1
+            source.trust_score = self._recompute_trust_score(source)
             fetch_run.status = FetchRunStatus.FAILED.value
             fetch_run.error_message = error_message
             source.circuit_state = (
@@ -235,6 +252,7 @@ class SourceIngestionService:
             source.failure_count = 0
             source.circuit_state = CircuitState.CLOSED.value
             source.negative_cache_until = None
+            source.trust_score = self._recompute_trust_score(source)
             await self._save_cache(source, fetched_articles)
 
         intelligence_service = StoryIntelligenceService(self.db)

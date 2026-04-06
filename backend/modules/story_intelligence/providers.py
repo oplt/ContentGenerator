@@ -25,6 +25,10 @@ class LLMProvider:
     async def summarize(self, prompt: str, *, max_words: int = 120) -> str:
         raise NotImplementedError
 
+    async def generate(self, prompt: str, *, max_tokens: int = 800, temperature: float = 0.7) -> str:
+        """Generate free-form text. Default implementation falls back to summarize."""
+        return await self.summarize(prompt, max_words=max_tokens // 4)
+
 
 class EmbeddingsProvider:
     async def embed(self, text: str) -> list[float]:
@@ -38,19 +42,62 @@ class MockLLMProvider(LLMProvider):
 
 
 class OllamaCompatibleLLMProvider(LLMProvider):
-    async def summarize(self, prompt: str, *, max_words: int = 120) -> str:
+    async def _call(self, prompt: str, temperature: float = 0.7) -> str:
         async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
             response = await client.post(
                 f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate",
                 json={
                     "model": settings.LLM_MODEL,
-                    "prompt": f"Summarize in {max_words} words or less:\n{prompt}",
+                    "prompt": prompt,
                     "stream": False,
+                    "options": {"temperature": temperature},
                 },
             )
             response.raise_for_status()
-            payload = response.json()
-            return str(payload.get("response", "")).strip()
+            return str(response.json().get("response", "")).strip()
+
+    async def summarize(self, prompt: str, *, max_words: int = 120) -> str:
+        return await self._call(f"Summarize in {max_words} words or less:\n{prompt}")
+
+    async def generate(self, prompt: str, *, max_tokens: int = 800, temperature: float = 0.7) -> str:
+        return await self._call(prompt, temperature=temperature)
+
+
+class OpenAICompatibleLLMProvider(LLMProvider):
+    """Works with any OpenAI-compatible endpoint (OpenAI, Together, Groq, LM Studio…)."""
+
+    async def _call(self, messages: list[dict], temperature: float = 0.7, max_tokens: int = 800) -> str:
+        headers = {"Content-Type": "application/json"}
+        if settings.LLM_API_KEY:
+            headers["Authorization"] = f"Bearer {settings.LLM_API_KEY}"
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{settings.LLM_BASE_URL.rstrip('/')}/chat/completions",
+                headers=headers,
+                json={
+                    "model": settings.LLM_MODEL,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+            )
+            response.raise_for_status()
+            return str(response.json()["choices"][0]["message"]["content"]).strip()
+
+    async def summarize(self, prompt: str, *, max_words: int = 120) -> str:
+        return await self._call(
+            [
+                {"role": "system", "content": f"Summarize the following text in {max_words} words or less. Be factual and concise."},
+                {"role": "user", "content": prompt},
+            ]
+        )
+
+    async def generate(self, prompt: str, *, max_tokens: int = 800, temperature: float = 0.7) -> str:
+        return await self._call(
+            [{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
 
 @dataclass
@@ -72,6 +119,8 @@ class HashingEmbeddingsProvider(EmbeddingsProvider):
 def get_llm_provider() -> LLMProvider:
     if settings.LLM_PROVIDER == "ollama":
         return OllamaCompatibleLLMProvider()
+    if settings.LLM_PROVIDER in {"openai", "openai_compatible"} and settings.LLM_BASE_URL:
+        return OpenAICompatibleLLMProvider()
     return MockLLMProvider()
 
 

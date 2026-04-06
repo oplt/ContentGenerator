@@ -114,5 +114,7 @@ class TrendScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     credibility_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     momentum_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     worthiness_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    velocity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cross_source_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     calculated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     explanation: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)

@@ -4,11 +4,14 @@ import { useForm } from "react-hook-form";
 import {
   createSource,
   deleteSource,
+  getCatalog,
   getRawArticles,
   getSourceHealth,
   getSources,
+  importCatalogSource,
   triggerIngestion,
   updateSource,
+  type CatalogEntry,
   type Source,
 } from "../api/sources";
 import { getTenantSettings } from "../api/settings";
@@ -34,6 +37,8 @@ type EditForm = {
   trust_score: number;
 };
 
+type AddMode = "catalog" | "manual";
+
 const SOURCE_CATEGORIES = [
   "technology",
   "politics",
@@ -43,7 +48,21 @@ const SOURCE_CATEGORIES = [
   "world",
   "science",
   "health",
-  "entertainment",
+  "gaming",
+  "ai",
+  "crypto",
+] as const;
+
+const CATALOG_TABS = [
+  { key: undefined, label: "All" },
+  { key: "ai", label: "AI" },
+  { key: "technology", label: "Tech" },
+  { key: "politics", label: "Politics" },
+  { key: "gaming", label: "Gaming" },
+  { key: "science", label: "Science" },
+  { key: "business", label: "Business" },
+  { key: "health", label: "Health" },
+  { key: "crypto", label: "Crypto" },
 ] as const;
 
 function SourceEditRow({
@@ -117,10 +136,86 @@ function SourceEditRow({
   );
 }
 
+function CatalogBrowser({
+  existingUrls,
+  onImport,
+  importingId,
+}: {
+  existingUrls: Set<string>;
+  onImport: (entry: CatalogEntry) => void;
+  importingId: string | null;
+}) {
+  const [activeCategory, setActiveCategory] = useState<string | undefined>(undefined);
+  const catalog = useQuery({
+    queryKey: ["sources", "catalog", activeCategory],
+    queryFn: () => getCatalog(activeCategory),
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Category tabs */}
+      <div className="flex flex-wrap gap-2">
+        {CATALOG_TABS.map((tab) => (
+          <button
+            key={tab.label}
+            type="button"
+            onClick={() => setActiveCategory(tab.key)}
+            className={[
+              "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+              activeCategory === tab.key
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/70",
+            ].join(" ")}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {catalog.isLoading && <LoadingState label="Loading catalog" />}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {catalog.data?.map((entry) => {
+          const alreadyAdded = existingUrls.has(entry.url);
+          return (
+            <div
+              key={entry.id}
+              className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-sm">{entry.name}</p>
+                  <Badge variant="secondary" className="mt-1 text-xs capitalize">
+                    {entry.category}
+                  </Badge>
+                </div>
+                <Button
+                  size="sm"
+                  variant={alreadyAdded ? "outline" : "default"}
+                  disabled={alreadyAdded || importingId === entry.id}
+                  onClick={() => onImport(entry)}
+                  className="shrink-0"
+                >
+                  {alreadyAdded ? "Added" : importingId === entry.id ? "Adding…" : "+ Add"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground line-clamp-2">{entry.description}</p>
+              <p className="truncate text-xs text-muted-foreground/60">{entry.url}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function SourcesPage() {
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
   const [savingSourceId, setSavingSourceId] = useState<string | null>(null);
+  const [importingCatalogId, setImportingCatalogId] = useState<string | null>(null);
+  const [addMode, setAddMode] = useState<AddMode>("catalog");
+
   const form = useForm<SourceForm>({ defaultValues: { source_type: "rss", category: "technology" } });
   const tenantSettings = useQuery({ queryKey: ["tenant-settings"], queryFn: getTenantSettings });
   const sources = useQuery({ queryKey: ["sources"], queryFn: getSources });
@@ -131,8 +226,19 @@ export default function SourcesPage() {
     tenantSettings.data?.settings["ingestion.default_polling_interval_minutes"] ?? 30
   );
 
+  const existingUrls = new Set((sources.data ?? []).map((s) => s.url));
+
   const createMutation = useMutation({
     mutationFn: createSource,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sources"] }),
+        queryClient.invalidateQueries({ queryKey: ["sources", "health"] }),
+      ]);
+    },
+  });
+  const importMutation = useMutation({
+    mutationFn: (catalogId: string) => importCatalogSource(catalogId),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sources"] }),
@@ -173,45 +279,92 @@ export default function SourcesPage() {
 
   return (
     <div className="space-y-6">
+      {/* Add source panel */}
       <Card className="p-6">
-        <h1 className="text-2xl font-semibold">Sources</h1>
-        <form
-          className="mt-5 grid gap-3 md:grid-cols-5"
-          onSubmit={form.handleSubmit(async (values) => {
-            await createMutation.mutateAsync({
-              ...values,
-              parser_type: "auto",
-              trust_score: 0.7,
-              polling_interval_minutes: defaultPollingInterval,
-              config: {},
-              active: true,
-            });
-            form.reset({ source_type: "rss", category: "technology" });
-          })}
-        >
-          <Input placeholder="Name" {...form.register("name")} />
-          <Input placeholder="URL" {...form.register("url")} />
-          <Input placeholder="Type (rss/web/api/sitemap)" {...form.register("source_type")} />
-          <select
-            aria-label="Category"
-            className="flex h-11 w-full rounded-xl border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            {...form.register("category")}
-          >
-            {SOURCE_CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat[0].toUpperCase() + cat.slice(1)}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" disabled={createMutation.isPending}>
-            {createMutation.isPending ? "Creating…" : "Create Source"}
-          </Button>
-        </form>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Sources</h1>
+          <div className="flex rounded-xl border border-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setAddMode("catalog")}
+              className={[
+                "px-4 py-1.5 text-sm font-medium transition-colors",
+                addMode === "catalog"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card text-muted-foreground hover:bg-muted",
+              ].join(" ")}
+            >
+              From Library
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddMode("manual")}
+              className={[
+                "px-4 py-1.5 text-sm font-medium transition-colors",
+                addMode === "manual"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card text-muted-foreground hover:bg-muted",
+              ].join(" ")}
+            >
+              Manual
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          {addMode === "catalog" ? (
+            <CatalogBrowser
+              existingUrls={existingUrls}
+              importingId={importingCatalogId}
+              onImport={async (entry) => {
+                setImportingCatalogId(entry.id);
+                try {
+                  await importMutation.mutateAsync(entry.id);
+                } finally {
+                  setImportingCatalogId(null);
+                }
+              }}
+            />
+          ) : (
+            <form
+              className="grid gap-3 md:grid-cols-5"
+              onSubmit={form.handleSubmit(async (values) => {
+                await createMutation.mutateAsync({
+                  ...values,
+                  parser_type: "auto",
+                  trust_score: 0.7,
+                  polling_interval_minutes: defaultPollingInterval,
+                  config: {},
+                  active: true,
+                });
+                form.reset({ source_type: "rss", category: "technology" });
+              })}
+            >
+              <Input placeholder="Name" {...form.register("name")} />
+              <Input placeholder="URL" {...form.register("url")} />
+              <Input placeholder="Type (rss/web/api/sitemap)" {...form.register("source_type")} />
+              <select
+                aria-label="Category"
+                className="flex h-11 w-full rounded-xl border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                {...form.register("category")}
+              >
+                {SOURCE_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat[0].toUpperCase() + cat.slice(1)}
+                  </option>
+                ))}
+              </select>
+              <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending ? "Creating…" : "Create Source"}
+              </Button>
+            </form>
+          )}
+        </div>
       </Card>
 
+      {/* Source list */}
       {sources.data && sources.data.length > 0 ? (
         <>
-          {/* Health summary is now merged into individual source cards below */}
           <div className="grid gap-4">
             {sources.data.map((source) => {
               const sourceHealth = health.data?.find((h) => h.source_id === source.id);
@@ -242,10 +395,13 @@ export default function SourcesPage() {
                       <Badge variant={sourceHealth?.status === "healthy" ? "success" : "warning"}>
                         {sourceHealth?.status ?? "unknown"}
                       </Badge>
+                      <Badge variant="secondary" className="capitalize">
+                        {source.category}
+                      </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">{source.url}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {source.source_type} · {source.category} · every {source.polling_interval_minutes} min · {source.success_count} / {source.failure_count}
+                      {source.source_type} · every {source.polling_interval_minutes} min · {source.success_count} ok / {source.failure_count} fail
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3">
@@ -275,6 +431,7 @@ export default function SourcesPage() {
               );
             })}
           </div>
+
           <Card className="p-5">
             <h2 className="text-lg font-semibold">Latest Raw Articles</h2>
             <div className="mt-4 space-y-3">
@@ -295,7 +452,7 @@ export default function SourcesPage() {
           </Card>
         </>
       ) : (
-        <EmptyState title="No sources configured" description="Create your first RSS, API, web, or sitemap source." />
+        <EmptyState title="No sources configured" description="Add from the library above or create a manual source." />
       )}
     </div>
   );

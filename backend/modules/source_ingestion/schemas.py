@@ -88,3 +88,14 @@ class IngestionTriggerResponse(BaseModel):
     status: str
     raw_articles_ingested: int
     clusters_updated: int
+
+
+class CatalogEntryResponse(BaseModel):
+    id: str
+    name: str
+    url: str
+    source_type: str
+    category: str
+    description: str
+    trust_score: float
+    polling_interval_minutes: int
