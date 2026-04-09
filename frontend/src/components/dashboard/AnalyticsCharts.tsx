@@ -14,7 +14,7 @@ export function AnalyticsCharts({ data }: { data: AnalyticsOverview }) {
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
               <Tooltip />
-              <Bar dataKey="value" fill="#06b6d4" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="value" fill="var(--color-chart-1, #fa520f)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -24,7 +24,7 @@ export function AnalyticsCharts({ data }: { data: AnalyticsOverview }) {
         <div className="mt-4 h-72">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={data.engagement_by_platform} dataKey="value" nameKey="label" outerRadius={100} fill="#eab308" />
+              <Pie data={data.engagement_by_platform} dataKey="value" nameKey="label" outerRadius={100} fill="var(--color-chart-2, #ffa110)" />
               <Tooltip />
             </PieChart>
           </ResponsiveContainer>
@@ -39,7 +39,7 @@ export function AnalyticsCharts({ data }: { data: AnalyticsOverview }) {
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
               <Tooltip />
-              <Bar dataKey="value" fill="#0f766e" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="value" fill="var(--color-chart-3, #2d8a5a)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

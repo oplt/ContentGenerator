@@ -9,6 +9,7 @@ import { VideoJobProgress } from "../components/dashboard/VideoJobProgress";
 import { AssetPreviewDialog } from "../components/dashboard/AssetPreviewDialog";
 import { LoadingState } from "../components/ui/LoadingState";
 import { useState } from "react";
+import { Badge } from "../components/ui/badge";
 
 export default function ContentDetailPage() {
   const params = useParams();
@@ -27,6 +28,10 @@ export default function ContentDetailPage() {
     return <LoadingState label="Loading content job" />;
   }
 
+  const riskWarnings = Array.isArray(job.data.risk_review?.warnings)
+    ? (job.data.risk_review.warnings as string[])
+    : [];
+
   return (
     <div className="space-y-6">
       <Card className="p-6">
@@ -34,10 +39,27 @@ export default function ContentDetailPage() {
           <div>
             <h1 className="text-2xl font-semibold">Content Job</h1>
             <p className="mt-2 text-sm text-muted-foreground">{job.data.stage}</p>
+            {job.data.risk_label && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant={job.data.risk_label === "blocked" ? "danger" : job.data.risk_label === "high" ? "warning" : "muted"}>
+                  Risk review: {job.data.risk_label}
+                </Badge>
+              </div>
+            )}
           </div>
           <VideoJobProgress job={job.data} />
         </div>
       </Card>
+      {riskWarnings.length > 0 && (
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold">Risk Review</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {riskWarnings.map((warning) => (
+              <Badge key={warning} variant="warning">{warning}</Badge>
+            ))}
+          </div>
+        </Card>
+      )}
       <ContentVariantTabs assets={job.data.assets} />
       <Card className="p-6">
         <h2 className="text-lg font-semibold">Revision Loop</h2>

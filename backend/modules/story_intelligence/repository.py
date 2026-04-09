@@ -10,6 +10,8 @@ from backend.modules.story_intelligence.models import (
     NormalizedArticle,
     StoryCluster,
     StoryClusterArticle,
+    TrendCandidate,
+    TrendWorkflowState,
     TrendScore,
 )
 
@@ -70,6 +72,53 @@ class StoryIntelligenceRepository:
         await self.db.flush()
         return trend_score
 
+    async def get_trend_candidate_for_cluster(
+        self,
+        tenant_id: UUID,
+        cluster_id: UUID,
+    ) -> TrendCandidate | None:
+        result = await self.db.execute(
+            select(TrendCandidate)
+            .where(
+                TrendCandidate.tenant_id == tenant_id,
+                TrendCandidate.story_cluster_id == cluster_id,
+            )
+            .order_by(TrendCandidate.date_bucket.desc(), TrendCandidate.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_trend_candidate(self, candidate: TrendCandidate) -> TrendCandidate:
+        self.db.add(candidate)
+        await self.db.flush()
+        return candidate
+
+    async def list_trend_candidates(
+        self,
+        tenant_id: UUID,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[TrendCandidate]:
+        query = (
+            select(TrendCandidate)
+            .where(TrendCandidate.tenant_id == tenant_id)
+            .order_by(TrendCandidate.final_score.desc(), TrendCandidate.created_at.desc())
+            .limit(limit)
+        )
+        if status:
+            query = query.where(TrendCandidate.status == status)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_trend_candidate(self, tenant_id: UUID, candidate_id: UUID) -> TrendCandidate | None:
+        result = await self.db.execute(
+            select(TrendCandidate).where(
+                TrendCandidate.tenant_id == tenant_id,
+                TrendCandidate.id == candidate_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def list_clusters(
         self,
         *,
@@ -77,10 +126,19 @@ class StoryIntelligenceRepository:
         worthy_only: bool = False,
         limit: int = 50,
     ) -> list[StoryCluster]:
+        # Correlated subquery: latest trend score per cluster for ranking
+        latest_score_subq = (
+            select(TrendScore.score)
+            .where(TrendScore.story_cluster_id == StoryCluster.id)
+            .order_by(TrendScore.created_at.desc())
+            .limit(1)
+            .correlate(StoryCluster)
+            .scalar_subquery()
+        )
         query = (
             select(StoryCluster)
             .where(StoryCluster.tenant_id == tenant_id, StoryCluster.deleted_at.is_(None))
-            .order_by(StoryCluster.created_at.desc())
+            .order_by(latest_score_subq.desc().nullslast(), StoryCluster.created_at.desc())
             .limit(limit)
         )
         if worthy_only:
@@ -157,7 +215,9 @@ class StoryIntelligenceRepository:
         candidates = list(result.scalars().all())
         threshold = 0.97
         for candidate in candidates:
-            candidate_embedding = [float(v) for v in candidate.embedding]
+            candidate_embedding: list[float] = candidate.embedding or []
+            if not candidate_embedding:
+                continue
             if cosine_similarity(embedding, candidate_embedding) >= threshold:
                 return candidate
         return None
@@ -171,3 +231,12 @@ class StoryIntelligenceRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def set_workflow_state(
+        self,
+        cluster: StoryCluster,
+        workflow_state: TrendWorkflowState | str,
+    ) -> StoryCluster:
+        cluster.workflow_state = workflow_state.value if isinstance(workflow_state, TrendWorkflowState) else workflow_state
+        await self.db.flush()
+        return cluster

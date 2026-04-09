@@ -57,6 +57,8 @@ export type ContentJob = {
   progress: number;
   feedback: string | null;
   error_message: string | null;
+  risk_label: string | null;
+  risk_review: Record<string, unknown>;
   started_at: string | null;
   completed_at: string | null;
   assets: ContentAsset[];

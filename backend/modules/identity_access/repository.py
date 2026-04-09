@@ -39,12 +39,14 @@ class IdentityRepository:
         password_hash: str,
         full_name: str | None,
         is_admin: bool = False,
+        is_verified: bool = False,
     ) -> User:
         user = User(
             email=email.lower(),
             password_hash=password_hash,
             full_name=full_name,
             is_admin=is_admin,
+            is_verified=is_verified,
         )
         self.db.add(user)
         await self.db.flush()
@@ -189,5 +191,25 @@ class IdentityRepository:
                 RefreshSession.is_revoked.is_(False),
                 RefreshSession.expires_at > utc_now_naive(),
                 )
+        )
+        return list(result.scalars().all())
+
+
+class TenantRepository:
+    """Thin wrapper for tenant-level queries used by workers."""
+
+    def __init__(self, db: "AsyncSession") -> None:
+        from sqlalchemy.ext.asyncio import AsyncSession as _AS  # noqa: F401
+        self.db = db
+
+    async def list_active_tenants(self) -> list["Tenant"]:
+        """Return all non-suspended tenants for beat-scheduled fan-out tasks."""
+        from sqlalchemy import select
+        from backend.modules.identity_access.models import Tenant, TenantStatus
+        result = await self.db.execute(
+            select(Tenant).where(
+                Tenant.status != TenantStatus.SUSPENDED.value,
+                Tenant.deleted_at.is_(None),
+            )
         )
         return list(result.scalars().all())

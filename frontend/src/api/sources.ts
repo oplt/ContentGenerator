@@ -7,6 +7,12 @@ export type Source = {
   url: string;
   parser_type: string;
   category: string;
+  source_tier: string;
+  content_vertical: string;
+  freshness_decay_hours: number;
+  legal_risk: boolean;
+  rate_limit_rph: number | null;
+  tier1_confirmation_required: boolean;
   config: Record<string, string>;
   polling_interval_minutes: number;
   trust_score: number;
@@ -67,6 +73,20 @@ export function deleteSource(sourceId: string) {
 export function triggerIngestion(sourceId: string) {
   return apiFetch<{ status: string; raw_articles_ingested: number; clusters_updated: number }>(
     `/sources/${sourceId}/ingest`,
+    { method: "POST" }
+  );
+}
+
+export function triggerManualPoll(sourceId: string) {
+  return apiFetch<{ status: string; raw_articles_ingested: number; clusters_updated: number }>(
+    `/sources/${sourceId}/manual-poll`,
+    { method: "POST" }
+  );
+}
+
+export function disableSource(sourceId: string) {
+  return apiFetch<{ source_id: string; status: string; detail: string }>(
+    `/sources/${sourceId}/disable`,
     { method: "POST" }
   );
 }

@@ -11,11 +11,21 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   minio:
     image: minio/minio:latest
@@ -29,19 +39,70 @@ services:
     volumes:
       - minio-data:/data
 
+  # ── Ollama: local LLM + embeddings inference ──────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+    # GPU support: uncomment if you have NVIDIA GPU + nvidia-container-toolkit installed
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Pulls required models on first startup (idempotent — ollama pull is a no-op if already present)
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: >
+      sh -c "
+        ollama pull nomic-embed-text &&
+        ollama pull llama3.2:3b &&
+        echo 'Ollama models ready'
+      "
+    restart: "no"
+
   api:
     build:
       context: .
       dockerfile: backend/Dockerfile
     env_file:
       - backend/.env.example
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDINGS_PROVIDER=ollama
+      - EMBEDDINGS_MODEL=nomic-embed-text
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.2:3b
     volumes:
       - ./backend:/app/backend
       - ./docs:/app/docs
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      ollama:
+        condition: service_healthy
     ports:
       - "8000:8000"
 
@@ -49,15 +110,39 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email
+    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email --concurrency=4
     env_file:
       - backend/.env.example
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDINGS_PROVIDER=ollama
+      - EMBEDDINGS_MODEL=nomic-embed-text
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.2:3b
     volumes:
       - ./backend:/app/backend
       - ./docs:/app/docs
     depends_on:
       - api
       - redis
+      - ollama
+
+  # ── Celery Beat: scheduler for periodic tasks ─────────────────────────────
+  beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.workers.celery_app:celery_app beat --loglevel=INFO --scheduler celery.beat.PersistentScheduler --schedule=/tmp/celerybeat-schedule
+    env_file:
+      - backend/.env.example
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - ./backend:/app/backend
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
 
   web:
     build:
@@ -76,3 +161,4 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  ollama-models:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps.auth import get_current_membership
+from backend.api.deps.auth import require_permission
 from backend.api.deps.db import get_db
 from backend.modules.audit.schemas import AuditLogResponse
 from backend.modules.audit.service import AuditService
@@ -15,7 +15,7 @@ router = APIRouter()
 @router.get("/logs", response_model=list[AuditLogResponse])
 async def list_audit_logs(
     limit: int = Query(default=50, ge=1, le=200),
-    membership: TenantUser = Depends(get_current_membership),
+    membership: TenantUser = Depends(require_permission("audit:read")),
     db: AsyncSession = Depends(get_db),
 ) -> list[AuditLogResponse]:
     service = AuditService(db)

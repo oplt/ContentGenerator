@@ -22,3 +22,9 @@ class OperationsRepository:
             select(TaskExecution).where(TaskExecution.id == task_execution_id)
         )
         return result.scalar_one_or_none()
+
+    async def list_recent(self, limit: int = 50) -> list[TaskExecution]:
+        result = await self.db.execute(
+            select(TaskExecution).order_by(TaskExecution.created_at.desc()).limit(limit)
+        )
+        return list(result.scalars().all())

@@ -16,6 +16,10 @@ class RegenerateContentRequest(BaseModel):
     feedback: str
 
 
+class RegenerateAssetGroupRequest(BaseModel):
+    instruction: str
+
+
 class GeneratedAssetResponse(ORMModel):
     id: UUID
     asset_type: str
@@ -38,6 +42,8 @@ class ContentJobResponse(ORMModel):
     progress: float
     feedback: str | None
     error_message: str | None
+    risk_label: str | None = None
+    risk_review: dict[str, object] = {}
     started_at: datetime | None
     completed_at: datetime | None
     assets: list[GeneratedAssetResponse] = []

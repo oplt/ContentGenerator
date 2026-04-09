@@ -3,8 +3,10 @@ from backend.modules.approvals import models as approvals_models  # noqa: F401
 from backend.modules.audit import models as audit_models  # noqa: F401
 from backend.modules.content_generation import models as content_generation_models  # noqa: F401
 from backend.modules.content_strategy import models as content_strategy_models  # noqa: F401
+from backend.modules.editorial_briefs import models as editorial_briefs_models  # noqa: F401
 from backend.modules.identity_access import models as identity_models  # noqa: F401
 from backend.modules.operations import models as operations_models  # noqa: F401
 from backend.modules.publishing import models as publishing_models  # noqa: F401
 from backend.modules.source_ingestion import models as source_models  # noqa: F401
 from backend.modules.story_intelligence import models as story_models  # noqa: F401
+from backend.modules.trending_repos import models as trending_repos_models  # noqa: F401

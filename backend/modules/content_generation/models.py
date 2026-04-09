@@ -40,6 +40,11 @@ class VideoStage(str, enum.Enum):
 
 
 class GeneratedAssetType(str, enum.Enum):
+    PLANNER_STAGE = "planner_stage"
+    WRITER_STAGE = "writer_stage"
+    REVIEWER_STAGE = "reviewer_stage"
+    FORMATTER_STAGE = "formatter_stage"
+    RENDERER_INPUT = "renderer_input"
     TEXT_VARIANT = "text_variant"
     RESEARCH_DIGEST = "research_digest"
     SCRIPT = "script"
@@ -47,8 +52,36 @@ class GeneratedAssetType(str, enum.Enum):
     VOICEOVER = "voiceover"
     CAPTION = "caption"
     VIDEO = "video"
+    PREVIEW_CLIP = "preview_clip"
     THUMBNAIL = "thumbnail"
     METADATA = "metadata"
+    THREAD = "thread"
+    HASHTAG_PACK = "hashtag_pack"
+    IMAGE_CAPTION = "image_caption"
+    CAROUSEL_SLIDES = "carousel_slides"
+    COVER_COPY = "cover_copy"
+    HOOK = "hook"
+    SHOT_LIST = "shot_list"
+    SUBTITLE = "subtitle"
+    ONSCREEN_TEXT = "onscreen_text"
+    TITLE_VARIANTS = "title_variants"
+    DESCRIPTION = "description"
+    TAGS = "tags"
+    BEAT_SHEET = "beat_sheet"
+    FACT_CHECKLIST = "fact_checklist"
+    ATTRIBUTION_LIST = "attribution_list"
+    POLICY_FLAGS = "policy_flags"
+    BRAND_VOICE_REPORT = "brand_voice_report"
+    ORIGINALITY_REPORT = "originality_report"
+
+
+class GeneratedAssetGroupStatus(str, enum.Enum):
+    CREATED = "created"
+    REVIEWED = "reviewed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    REGENERATED = "regenerated"
+    PUBLISHED = "published"
 
 
 class ContentJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
@@ -100,15 +133,45 @@ class ContentRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     revision_payload: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
 
 
+class GeneratedAssetGroup(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
+    __tablename__ = "generated_asset_groups"
+    __table_args__ = (
+        Index("ix_generated_asset_groups_tenant_id_status", "tenant_id", "status"),
+        Index("ix_generated_asset_groups_content_job_id", "content_job_id"),
+        Index("ix_generated_asset_groups_content_plan_id", "content_plan_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    content_job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("content_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    content_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("content_plans.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[GeneratedAssetGroupStatus] = mapped_column(
+        String(32), nullable=False, default=GeneratedAssetGroupStatus.CREATED.value
+    )
+    platform_targets: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    asset_types: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    generation_trace: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    quality_report: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+
+
 class GeneratedAsset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "generated_assets"
     __table_args__ = (
         Index("ix_generated_assets_content_job_id", "content_job_id"),
+        Index("ix_generated_assets_asset_group_id", "asset_group_id"),
         Index("ix_generated_assets_tenant_id_asset_type", "tenant_id", "asset_type"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    asset_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("generated_asset_groups.id", ondelete="SET NULL"), nullable=True
     )
     content_job_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("content_jobs.id", ondelete="CASCADE"), nullable=False

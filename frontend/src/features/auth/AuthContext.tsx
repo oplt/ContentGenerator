@@ -1,14 +1,14 @@
-import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
-import { logout, refresh, signIn, signUp, type AuthUser } from "../../api/auth";
-import { authStore } from "./authStore";
+import { createContext, useCallback, useContext, useEffect, useState, type PropsWithChildren } from "react";
+import { logout, refresh, signIn, signUp, type AuthResponse, type AuthUser } from "../../api/auth";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 
 type AuthContextValue = {
   isReady: boolean;
   isAuthenticated: boolean;
   currentUser: AuthUser | null;
-  signInWithPassword: (payload: { email: string; password: string }) => Promise<void>;
-  signUpWithPassword: (payload: { email: string; password: string; full_name?: string }) => Promise<void>;
+  reloadSession: () => Promise<void>;
+  signInWithPassword: (payload: { email: string; password: string; mfa_code?: string }) => Promise<void>;
+  signUpWithPassword: (payload: { email: string; password: string; full_name?: string }) => Promise<AuthResponse>;
   signOut: () => Promise<void>;
   setActiveTenant: (tenantId: string) => void;
 };
@@ -34,41 +34,67 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const setTenant = useWorkspaceStore((state) => state.setTenant);
 
+  const loadSession = useCallback(async () => {
+    try {
+      const data = await refresh();
+      setCurrentUser(data.user ?? null);
+      syncTenantSelection(setTenant, data.user ?? null);
+    } catch {
+      setCurrentUser(null);
+      syncTenantSelection(setTenant, null);
+    }
+  }, [setTenant]);
+
   useEffect(() => {
+    let active = true;
+
     refresh()
       .then((data) => {
-        authStore.setAccessToken(data.access_token);
-        setCurrentUser(data.user);
-        syncTenantSelection(setTenant, data.user);
+        if (!active) {
+          return;
+        }
+        setCurrentUser(data.user ?? null);
+        syncTenantSelection(setTenant, data.user ?? null);
       })
       .catch(() => {
-        authStore.setAccessToken(null);
+        if (!active) {
+          return;
+        }
         setCurrentUser(null);
+        syncTenantSelection(setTenant, null);
       })
       .finally(() => {
-        setIsReady(true);
+        if (active) {
+          setIsReady(true);
+        }
       });
+
+    return () => {
+      active = false;
+    };
   }, [setTenant]);
 
   const value: AuthContextValue = {
     isReady,
     isAuthenticated: Boolean(currentUser),
     currentUser,
+    reloadSession: loadSession,
     signInWithPassword: async (payload) => {
       const data = await signIn(payload);
-      authStore.setAccessToken(data.access_token);
+      if (!data.user) {
+        throw new Error("Session could not be established.");
+      }
       setCurrentUser(data.user);
       syncTenantSelection(setTenant, data.user);
     },
     signUpWithPassword: async (payload) => {
       const data = await signUp(payload);
-      authStore.setAccessToken(data.access_token);
-      setCurrentUser(data.user);
-      syncTenantSelection(setTenant, data.user);
+      setCurrentUser(data.user ?? null);
+      syncTenantSelection(setTenant, null);
+      return data;
     },
     signOut: async () => {
       await logout().catch(() => undefined);
-      authStore.setAccessToken(null);
       setCurrentUser(null);
       syncTenantSelection(setTenant, null);
     },

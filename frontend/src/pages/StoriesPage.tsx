@@ -17,11 +17,17 @@ export default function StoriesPage() {
   );
 
   if (stories.isLoading) {
-    return <LoadingState label="Loading story clusters" />;
+    return <LoadingState label="Loading trend candidates" />;
   }
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Trend Candidates</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Review scored topics before they move into editorial briefs and asset generation.
+        </p>
+      </div>
       <FilterBar value={query} onChange={setQuery} />
       <div className="grid gap-4 xl:grid-cols-3">
         {filtered.map((cluster) => (

@@ -146,7 +146,7 @@ class IdentityService:
             id=user.id,
             email=user.email,
             full_name=user.full_name,
-            is_verified=user.is_verified,
+            is_verified=user.is_verified or not settings.SEND_AUTH_EMAIL_ON_SIGNUP,
             is_admin=user.is_admin,
             mfa_enabled=user.mfa_enabled,
             default_tenant_id=user.default_tenant_id,
@@ -159,11 +159,13 @@ class IdentityService:
         password: str,
         full_name: str | None,
         admin_invite_code: str | None = None,
-    ) -> User:
+    ) -> User | None:
         normalized_email = email.lower()
         existing = await self.repo.get_user_by_email(normalized_email)
         if existing:
-            raise HTTPException(status_code=409, detail="Email already registered")
+            if not existing.is_verified:
+                await self.resend_verification(normalized_email)
+            return None
 
         invite_code = (admin_invite_code or "").strip()
         configured_invite_code = settings.ADMIN_SIGNUP_INVITE_CODE.strip()
@@ -181,6 +183,7 @@ class IdentityService:
             password_hash=hash_password(password),
             full_name=full_name,
             is_admin=is_admin,
+            is_verified=not settings.SEND_AUTH_EMAIL_ON_SIGNUP,
         )
 
         tenant_name = f"{full_name or normalized_email.split('@', maxsplit=1)[0]}'s workspace"
@@ -202,19 +205,20 @@ class IdentityService:
         await self.db.commit()
         await self.db.refresh(user)
 
-        token = await self._store_verification_token(user.id)
-        verification_link = (
-            f"{settings.FRONTEND_URL}/verify-email?{urlencode({'token': token, 'email': user.email})}"
-        )
-        queue_email(
-            to=user.email,
-            subject=f"Verify your {settings.APP_NAME} email",
-            html_body=(
-                "<p>Welcome to SignalForge.</p>"
-                f"<p>Verify your email: <a href=\"{verification_link}\">{verification_link}</a></p>"
-            ),
-            text_body=f"Verify your email: {verification_link}",
-        )
+        if settings.SEND_AUTH_EMAIL_ON_SIGNUP:
+            token = await self._store_verification_token(user.id)
+            verification_link = (
+                f"{settings.FRONTEND_URL}/verify-email?{urlencode({'token': token, 'email': user.email})}"
+            )
+            queue_email(
+                to=user.email,
+                subject=f"Verify your {settings.APP_NAME} email",
+                html_body=(
+                    "<p>Welcome to SignalForge.</p>"
+                    f"<p>Verify your email: <a href=\"{verification_link}\">{verification_link}</a></p>"
+                ),
+                text_body=f"Verify your email: {verification_link}",
+            )
         await self.audit.record(
             tenant_id=tenant.id,
             actor_user_id=user.id,
@@ -227,17 +231,62 @@ class IdentityService:
         await self.db.commit()
         return user
 
-    async def sign_in(self, email: str, password: str) -> dict[str, object]:
+    async def sign_in(self, email: str, password: str, mfa_code: str | None = None) -> dict[str, object]:
         user = await self.repo.get_user_by_email(email.lower())
         if not user or not verify_password(password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+            await self.audit.record(
+                tenant_id=None,
+                actor_user_id=None,
+                action="identity.sign_in_failed",
+                entity_type="user",
+                entity_id=None,
+                message="Invalid sign-in credentials",
+                payload={"email_hash": _hash_token(email.lower())},
+            )
+            await self.db.commit()
+            raise HTTPException(status_code=401, detail="Invalid email or password")
         if not user.is_active:
-            raise HTTPException(status_code=403, detail="Account disabled")
+            await self.audit.record(
+                tenant_id=user.default_tenant_id,
+                actor_user_id=user.id,
+                action="identity.sign_in_failed",
+                entity_type="user",
+                entity_id=str(user.id),
+                message="Disabled account sign-in attempted",
+            )
+            await self.db.commit()
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        if settings.MFA_ACCESS and user.is_admin and user.mfa_enabled:
+            import pyotp
+
+            if not mfa_code or not user.mfa_secret:
+                await self.audit.record(
+                    tenant_id=user.default_tenant_id,
+                    actor_user_id=user.id,
+                    action="identity.sign_in_failed",
+                    entity_type="user",
+                    entity_id=str(user.id),
+                    message="Admin MFA code missing during sign-in",
+                )
+                await self.db.commit()
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+            raw_secret = decrypt_secret(user.mfa_secret)
+            if not pyotp.TOTP(raw_secret).verify(mfa_code, valid_window=1):
+                await self.audit.record(
+                    tenant_id=user.default_tenant_id,
+                    actor_user_id=user.id,
+                    action="identity.sign_in_failed",
+                    entity_type="user",
+                    entity_id=str(user.id),
+                    message="Admin MFA code invalid during sign-in",
+                )
+                await self.db.commit()
+                raise HTTPException(status_code=401, detail="Invalid email or password")
 
         raw_refresh = generate_refresh_token()
         expires_at = utc_now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
-        await self.repo.create_refresh_session(
+        session = await self.repo.create_refresh_session(
             user_id=user.id,
             token_hash=hash_refresh_token(raw_refresh),
             expires_at=expires_at,
@@ -252,7 +301,7 @@ class IdentityService:
         )
         await self.db.commit()
         return {
-            "access_token": create_access_token(str(user.id)),
+            "access_token": create_access_token(str(user.id), str(session.id)),
             "refresh_token": raw_refresh,
             "user": user,
         }
@@ -272,14 +321,14 @@ class IdentityService:
         await self.repo.revoke_refresh_session(session)
         new_raw = generate_refresh_token()
         new_expires = utc_now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        await self.repo.create_refresh_session(
+        new_session = await self.repo.create_refresh_session(
             user_id=user.id,
             token_hash=hash_refresh_token(new_raw),
             expires_at=new_expires,
         )
         await self.db.commit()
         return {
-            "access_token": create_access_token(str(user.id)),
+            "access_token": create_access_token(str(user.id), str(new_session.id)),
             "refresh_token": new_raw,
             "user": user,
         }
@@ -312,6 +361,8 @@ class IdentityService:
     async def resend_verification(self, email: str) -> None:
         user = await self.repo.get_user_by_email(email.lower())
         if not user or user.is_verified:
+            return
+        if not settings.SEND_AUTH_EMAIL_ON_SIGNUP:
             return
         token = await self._store_verification_token(user.id)
         verification_link = (

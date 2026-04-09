@@ -57,3 +57,17 @@ def run_async_task(
                 raise
 
     return asyncio.run(runner())
+
+
+def run_async_task_simple(operation: Callable[..., Awaitable[ResultT]]) -> ResultT:
+    """
+    Lightweight wrapper for tasks that don't need TaskExecution tracking.
+    Used by fan-out tasks like rescore_all_tenants_task.
+    """
+    async def runner() -> ResultT:
+        async with SessionLocal() as db:
+            result = await operation(db)
+            await db.commit()
+            return result
+
+    return asyncio.run(runner())

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import as_utc, utc_now
-from backend.modules.source_ingestion.models import RawArticle, Source, SourceFetchRun
+from backend.modules.source_ingestion.models import RawArticle, Source, SourceFetchRun, SourceHealthEvent
 
 
 class SourceRepository:
@@ -62,20 +62,56 @@ class SourceRepository:
         await self.db.flush()
         return run
 
+    async def create_health_event(self, event: SourceHealthEvent) -> SourceHealthEvent:
+        self.db.add(event)
+        await self.db.flush()
+        return event
+
     async def get_existing_article(
-        self, *, tenant_id: UUID, canonical_url: str, content_hash: str
+        self,
+        *,
+        tenant_id: UUID,
+        canonical_url: str,
+        content_hash: str,
+        dedupe_key: str | None = None,
+        title_normalized: str | None = None,
     ) -> RawArticle | None:
+        clauses = [
+            RawArticle.canonical_url == canonical_url,
+            RawArticle.content_hash == content_hash,
+        ]
+        if dedupe_key:
+            clauses.append(RawArticle.dedupe_key == dedupe_key)
+        if title_normalized:
+            clauses.append(RawArticle.title_normalized == title_normalized)
         result = await self.db.execute(
             select(RawArticle).where(
                 RawArticle.tenant_id == tenant_id,
                 RawArticle.deleted_at.is_(None),
-                or_(
-                    RawArticle.canonical_url == canonical_url,
-                    RawArticle.content_hash == content_hash,
-                ),
+                or_(*clauses),
             )
         )
         return result.scalar_one_or_none()
+
+    async def list_recent_raw_articles(
+        self,
+        *,
+        tenant_id: UUID,
+        within_hours: int = 24,
+        limit: int = 200,
+    ) -> list[RawArticle]:
+        since = datetime.now(timezone.utc) - timedelta(hours=within_hours)
+        result = await self.db.execute(
+            select(RawArticle)
+            .where(
+                RawArticle.tenant_id == tenant_id,
+                RawArticle.deleted_at.is_(None),
+                RawArticle.created_at >= since,
+            )
+            .order_by(RawArticle.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
     async def create_raw_article(self, article: RawArticle) -> RawArticle:
         self.db.add(article)

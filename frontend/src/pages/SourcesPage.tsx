@@ -3,12 +3,14 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import {
   createSource,
+  disableSource,
   deleteSource,
   getCatalog,
   getRawArticles,
   getSourceHealth,
   getSources,
   importCatalogSource,
+  triggerManualPoll,
   triggerIngestion,
   updateSource,
   type CatalogEntry,
@@ -28,11 +30,18 @@ type SourceForm = {
   url: string;
   source_type: string;
   category: string;
+  source_tier: string;
+  content_vertical: string;
 };
 
 type EditForm = {
   name: string;
   category: string;
+  source_tier: string;
+  content_vertical: string;
+  freshness_decay_hours: number;
+  legal_risk: boolean;
+  tier1_confirmation_required: boolean;
   polling_interval_minutes: number;
   trust_score: number;
 };
@@ -51,6 +60,24 @@ const SOURCE_CATEGORIES = [
   "gaming",
   "ai",
   "crypto",
+] as const;
+
+const SOURCE_TIERS = [
+  { value: "authoritative", label: "Authoritative (Tier 1)" },
+  { value: "signal", label: "Signal (Tier 2)" },
+  { value: "amplification", label: "Amplification (Tier 3)" },
+] as const;
+
+const CONTENT_VERTICALS = [
+  "general",
+  "politics",
+  "conflicts",
+  "economy",
+  "gaming",
+  "fashion",
+  "beauty",
+  "tech",
+  "entertainment",
 ] as const;
 
 const CATALOG_TABS = [
@@ -80,6 +107,11 @@ function SourceEditRow({
     defaultValues: {
       name: source.name,
       category: source.category,
+      source_tier: source.source_tier ?? "signal",
+      content_vertical: source.content_vertical ?? "general",
+      freshness_decay_hours: source.freshness_decay_hours ?? 24,
+      legal_risk: source.legal_risk ?? false,
+      tier1_confirmation_required: source.tier1_confirmation_required ?? false,
       polling_interval_minutes: source.polling_interval_minutes,
       trust_score: source.trust_score,
     },
@@ -105,6 +137,38 @@ function SourceEditRow({
           <Input {...form.register("category")} />
         </label>
         <label className="space-y-1 text-sm">
+          <span className="font-medium">Source Tier</span>
+          <select
+            aria-label="Source tier"
+            className="select-field"
+            {...form.register("source_tier")}
+          >
+            {SOURCE_TIERS.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Content Vertical</span>
+          <select
+            aria-label="Content vertical"
+            className="select-field"
+            {...form.register("content_vertical")}
+          >
+            {CONTENT_VERTICALS.map((v) => (
+              <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Freshness decay (h)</span>
+          <Input
+            type="number"
+            min={0}
+            {...form.register("freshness_decay_hours", { valueAsNumber: true })}
+          />
+        </label>
+        <label className="space-y-1 text-sm">
           <span className="font-medium">Poll interval (min)</span>
           <Input
             type="number"
@@ -123,6 +187,16 @@ function SourceEditRow({
             {...form.register("trust_score", { valueAsNumber: true })}
           />
         </label>
+        <div className="flex flex-col gap-2 sm:col-span-1 justify-center pt-4">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" {...form.register("legal_risk")} className="h-4 w-4 rounded" />
+            <span>Legal risk</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" {...form.register("tier1_confirmation_required")} className="h-4 w-4 rounded" />
+            <span>Require Tier 1 confirmation</span>
+          </label>
+        </div>
         <div className="flex gap-2 sm:col-span-4">
           <Button type="submit" disabled={isSaving}>
             {isSaving ? "Saving…" : "Save"}
@@ -185,7 +259,7 @@ function CatalogBrowser({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-sm">{entry.name}</p>
-                  <Badge variant="secondary" className="mt-1 text-xs capitalize">
+                  <Badge variant="muted" className="mt-1 text-xs capitalize">
                     {entry.category}
                   </Badge>
                 </div>
@@ -216,7 +290,7 @@ export default function SourcesPage() {
   const [importingCatalogId, setImportingCatalogId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState<AddMode>("catalog");
 
-  const form = useForm<SourceForm>({ defaultValues: { source_type: "rss", category: "technology" } });
+  const form = useForm<SourceForm>({ defaultValues: { source_type: "rss", category: "technology", source_tier: "signal", content_vertical: "general" } });
   const tenantSettings = useQuery({ queryKey: ["tenant-settings"], queryFn: getTenantSettings });
   const sources = useQuery({ queryKey: ["sources"], queryFn: getSources });
   const health = useQuery({ queryKey: ["sources", "health"], queryFn: getSourceHealth });
@@ -269,6 +343,24 @@ export default function SourcesPage() {
         queryClient.invalidateQueries({ queryKey: ["sources"] }),
         queryClient.invalidateQueries({ queryKey: ["sources", "health"] }),
         queryClient.invalidateQueries({ queryKey: ["sources", "articles"] }),
+      ]);
+    },
+  });
+  const manualPollMutation = useMutation({
+    mutationFn: triggerManualPoll,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sources", "articles"] }),
+        queryClient.invalidateQueries({ queryKey: ["stories"] }),
+      ]);
+    },
+  });
+  const disableMutation = useMutation({
+    mutationFn: disableSource,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sources"] }),
+        queryClient.invalidateQueries({ queryKey: ["sources", "health"] }),
       ]);
     },
   });
@@ -327,7 +419,7 @@ export default function SourcesPage() {
             />
           ) : (
             <form
-              className="grid gap-3 md:grid-cols-5"
+              className="grid gap-3 md:grid-cols-4"
               onSubmit={form.handleSubmit(async (values) => {
                 await createMutation.mutateAsync({
                   ...values,
@@ -337,7 +429,7 @@ export default function SourcesPage() {
                   config: {},
                   active: true,
                 });
-                form.reset({ source_type: "rss", category: "technology" });
+                form.reset({ source_type: "rss", category: "technology", source_tier: "signal", content_vertical: "general" });
               })}
             >
               <Input placeholder="Name" {...form.register("name")} />
@@ -345,7 +437,7 @@ export default function SourcesPage() {
               <Input placeholder="Type (rss/web/api/sitemap)" {...form.register("source_type")} />
               <select
                 aria-label="Category"
-                className="flex h-11 w-full rounded-xl border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="select-field"
                 {...form.register("category")}
               >
                 {SOURCE_CATEGORIES.map((cat) => (
@@ -354,7 +446,25 @@ export default function SourcesPage() {
                   </option>
                 ))}
               </select>
-              <Button type="submit" disabled={createMutation.isPending}>
+              <select
+                aria-label="Source tier"
+                className="select-field"
+                {...form.register("source_tier")}
+              >
+                {SOURCE_TIERS.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Content vertical"
+                className="select-field"
+                {...form.register("content_vertical")}
+              >
+                {CONTENT_VERTICALS.map((v) => (
+                  <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>
+                ))}
+              </select>
+              <Button type="submit" disabled={createMutation.isPending} className="md:col-span-2">
                 {createMutation.isPending ? "Creating…" : "Create Source"}
               </Button>
             </form>
@@ -390,27 +500,47 @@ export default function SourcesPage() {
                   className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
                 >
                   <div className="flex-1">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h2 className="font-semibold">{source.name}</h2>
                       <Badge variant={sourceHealth?.status === "healthy" ? "success" : "warning"}>
                         {sourceHealth?.status ?? "unknown"}
                       </Badge>
-                      <Badge variant="secondary" className="capitalize">
+                      <Badge variant="muted" className="capitalize">
                         {source.category}
                       </Badge>
+                      <Badge variant={source.source_tier === "authoritative" ? "default" : "muted"} className="capitalize">
+                        {source.source_tier ?? "signal"}
+                      </Badge>
+                      <Badge variant="muted" className="capitalize">
+                        {source.content_vertical ?? "general"}
+                      </Badge>
+                      {source.legal_risk && (
+                        <Badge variant="warning">Legal Risk</Badge>
+                      )}
+                      {source.tier1_confirmation_required && (
+                        <Badge variant="warning">Tier1 Required</Badge>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">{source.url}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {source.source_type} · every {source.polling_interval_minutes} min · {source.success_count} ok / {source.failure_count} fail
+                      {source.source_type} · every {source.polling_interval_minutes} min · freshness {source.freshness_decay_hours}h · {source.success_count} ok / {source.failure_count} fail
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" onClick={() => ingestMutation.mutate(source.id)}>
                       Ingest Now
                     </Button>
+                    <Button variant="outline" onClick={() => manualPollMutation.mutate(source.id)}>
+                      Manual Poll
+                    </Button>
                     <Button variant="outline" onClick={() => setEditingSourceId(source.id)}>
                       Edit
                     </Button>
+                    {source.active && (
+                      <Button variant="outline" onClick={() => disableMutation.mutate(source.id)}>
+                        Disable
+                      </Button>
+                    )}
                     <Button
                       variant="destructive"
                       onClick={async () => {
@@ -436,7 +566,7 @@ export default function SourcesPage() {
             <h2 className="text-lg font-semibold">Latest Raw Articles</h2>
             <div className="mt-4 space-y-3">
               {rawArticles.data?.slice(0, 8).map((article) => (
-                <div key={article.id} className="rounded-2xl border border-border bg-muted/40 p-4">
+                <div key={article.id} className="inset-panel">
                   <a
                     href={article.canonical_url}
                     target="_blank"

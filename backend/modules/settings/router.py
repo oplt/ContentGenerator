@@ -27,7 +27,9 @@ async def get_tenant_settings(
 ) -> TenantSettingsResponse:
     service = SettingsService(db)
     tenant = await service.get_tenant_settings(membership.tenant_id)
-    return TenantSettingsResponse.model_validate(tenant)
+    response = TenantSettingsResponse.model_validate(tenant)
+    response.rbac_mode = "role_based_placeholder"
+    return response
 
 
 @router.put("/tenant", response_model=TenantSettingsResponse)
@@ -39,7 +41,9 @@ async def update_tenant_settings(
     service = SettingsService(db)
     tenant = await service.update_tenant_settings(membership.tenant_id, payload)
     await db.commit()
-    return TenantSettingsResponse.model_validate(tenant)
+    response = TenantSettingsResponse.model_validate(tenant)
+    response.rbac_mode = "role_based_placeholder"
+    return response
 
 
 @router.get("/whatsapp", response_model=WhatsAppSettingsResponse)
@@ -102,5 +106,6 @@ async def register_telegram_webhook(
     webhook_url = f"{settings.PUBLIC_URL}/api/v1/approvals/telegram/webhook"
 
     provider = TelegramProvider(bot_token=str(config["bot_token"]), chat_id=str(config.get("chat_id", "")))
-    result = await provider.set_webhook(webhook_url)
+    secret_token = getattr(settings, "TELEGRAM_WEBHOOK_SECRET", "")
+    result = await provider.set_webhook(webhook_url, secret_token=secret_token)
     return {"webhook_url": webhook_url, "telegram_response": result}

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Boolean, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -25,12 +25,38 @@ class ContentFormat(str, enum.Enum):
     BOTH = "both"
 
 
-class BrandProfile(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, Base):
-    __tablename__ = "brand_profiles"
-    __table_args__ = (Index("ix_brand_profiles_tenant_id", "tenant_id"),)
+class Brand(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, Base):
+    __tablename__ = "brands"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_brands_tenant_id_name"),
+        Index("ix_brands_tenant_id_niche", "tenant_id", "niche"),
+    )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    niche: Mapped[str] = mapped_column(String(128), nullable=False, default="general")
+    style_guide: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    allowed_topics: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    blocked_topics: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    target_platforms: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    risk_policy: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    posting_policy: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+
+
+class BrandProfile(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, Base):
+    __tablename__ = "brand_profiles"
+    __table_args__ = (
+        Index("ix_brand_profiles_tenant_id", "tenant_id"),
+        Index("ix_brand_profiles_brand_id", "brand_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    brand_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("brands.id", ondelete="SET NULL"), nullable=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     niche: Mapped[str] = mapped_column(String(128), nullable=False, default="general")
@@ -44,6 +70,28 @@ class BrandProfile(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Version
     require_whatsapp_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     guardrails: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     visual_style: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
+
+
+class BrandSourcePolicy(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    __tablename__ = "brand_source_policies"
+    __table_args__ = (
+        UniqueConstraint("brand_id", "source_id", name="uq_brand_source_policies_brand_id_source_id"),
+        Index("ix_brand_source_policies_brand_id_enabled", "brand_id", "enabled"),
+        Index("ix_brand_source_policies_source_id_enabled", "source_id", "enabled"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    brand_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("brands.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), nullable=False
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(nullable=False, default=100)
+    policy_metadata: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
 
 
 class ContentPlan(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, Base):

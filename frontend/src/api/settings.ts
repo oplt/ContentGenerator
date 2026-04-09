@@ -8,6 +8,7 @@ export type TenantSettings = {
   timezone: string;
   status: string;
   settings: Record<string, string>;
+  rbac_mode: string;
 };
 
 export type WhatsAppSettings = {
@@ -18,6 +19,8 @@ export type WhatsAppSettings = {
   verify_token: string;
   access_token_configured: boolean;
   app_secret_configured: boolean;
+  access_token_secret_ref?: string | null;
+  app_secret_secret_ref?: string | null;
   using_tenant_recipient: boolean;
   using_tenant_credentials: boolean;
 };
@@ -56,6 +59,7 @@ export function updateWhatsAppSettings(payload: Record<string, unknown>) {
 
 export type TelegramSettings = {
   bot_token_configured: boolean;
+  bot_token_secret_ref?: string | null;
   chat_id: string;
   enabled: boolean;
 };

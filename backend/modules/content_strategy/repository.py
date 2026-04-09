@@ -5,12 +5,26 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.modules.content_strategy.models import BrandProfile, ContentPlan
+from backend.modules.content_strategy.models import Brand, BrandProfile, ContentPlan
 
 
 class ContentStrategyRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def get_brand(self, tenant_id: UUID) -> Brand | None:
+        result = await self.db.execute(
+            select(Brand)
+            .where(Brand.tenant_id == tenant_id, Brand.deleted_at.is_(None))
+            .order_by(Brand.created_at.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_brand(self, brand: Brand) -> Brand:
+        self.db.add(brand)
+        await self.db.flush()
+        return brand
 
     async def get_brand_profile(self, tenant_id: UUID) -> BrandProfile | None:
         result = await self.db.execute(
@@ -18,6 +32,16 @@ class ContentStrategyRepository:
             .where(BrandProfile.tenant_id == tenant_id, BrandProfile.deleted_at.is_(None))
             .order_by(BrandProfile.created_at.asc())
             .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_brand_profile_by_id(self, tenant_id: UUID, profile_id: UUID) -> BrandProfile | None:
+        result = await self.db.execute(
+            select(BrandProfile).where(
+                BrandProfile.tenant_id == tenant_id,
+                BrandProfile.id == profile_id,
+                BrandProfile.deleted_at.is_(None),
+            )
         )
         return result.scalar_one_or_none()
 

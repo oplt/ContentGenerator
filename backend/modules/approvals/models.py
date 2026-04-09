@@ -27,16 +27,25 @@ class ApprovalIntent(str, enum.Enum):
 
 class ApprovalRequest(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     __tablename__ = "approval_requests"
-    __table_args__ = (Index("ix_approval_requests_tenant_id_status", "tenant_id", "status"),)
+    __table_args__ = (
+        Index("ix_approval_requests_tenant_id_status", "tenant_id", "status"),
+        Index(
+            "ix_approval_requests_tenant_id_status_type_expires_at",
+            "tenant_id",
+            "status",
+            "approval_type",
+            "expires_at",
+        ),
+    )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
-    content_job_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("content_jobs.id", ondelete="CASCADE"), nullable=False
+    content_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("content_jobs.id", ondelete="CASCADE"), nullable=True
     )
     status: Mapped[ApprovalStatus] = mapped_column(String(32), nullable=False, default="pending")
-    channel: Mapped[str] = mapped_column(String(32), nullable=False, default="whatsapp")
+    channel: Mapped[str] = mapped_column(String(32), nullable=False, default="telegram")
     recipient: Mapped[str] = mapped_column(String(64), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="stub")
     provider_request_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -48,6 +57,16 @@ class ApprovalRequest(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     revision_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    related_entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    related_entity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    approval_type: Mapped[str] = mapped_column(String(32), nullable=False, default="asset")
+    buttons_json: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    # Telegram message_id of the approval card — stored so it can be edited in-place after action
+    telegram_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    callback_verification_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    callback_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    responded_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    response_payload_json: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
 
 
 class ApprovalMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -65,7 +84,7 @@ class ApprovalMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     parsed_intent: Mapped[ApprovalIntent] = mapped_column(String(32), nullable=False, default="unknown")
     intent_confidence: Mapped[float] = mapped_column(nullable=False, default=0.0)
     user_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
-    payload: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
 
 
 class WebhookInbox(UUIDPrimaryKeyMixin, TimestampMixin, Base):

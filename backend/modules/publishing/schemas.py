@@ -14,6 +14,7 @@ class SocialAccountUpsertRequest(BaseModel):
     handle: str | None = None
     account_external_id: str | None = None
     access_token: str | None = None
+    access_token_secret_ref: str | None = None
     refresh_token: str | None = None
     scopes: list[str] = []
     metadata: dict[str, str] = {}
@@ -29,6 +30,32 @@ class SocialAccountResponse(ORMModel):
     status: str
     capability_flags: dict[str, str]
     metadata: dict[str, str]
+
+
+class ConnectedAccountResponse(ORMModel):
+    id: UUID
+    social_account_id: UUID | None
+    platform: str
+    account_name: str
+    auth_type: str
+    credential_ref: str | None
+    scopes: list[str]
+    metadata: dict[str, object]
+    status: str
+
+
+class ConnectedAccountValidationResponse(BaseModel):
+    connected_account_id: UUID
+    platform: str
+    is_valid: bool
+    account_status: str
+    detail: str | None = None
+
+
+class PublishingJobActionResponse(BaseModel):
+    job_id: UUID
+    status: str
+    detail: str
 
 
 class PublishNowRequest(BaseModel):
@@ -56,6 +83,8 @@ class PublishingJobResponse(ORMModel):
     external_post_id: str | None
     external_post_url: str | None
     provider_payload: dict[str, str]
+    recovery_actions: list[str] = []
+    native_scheduling_supported: bool = False
 
 
 class PublishedPostResponse(ORMModel):

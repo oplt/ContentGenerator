@@ -11,12 +11,33 @@ export type SocialAccount = {
   metadata: Record<string, string>;
 };
 
+export type ConnectedAccount = {
+  id: string;
+  social_account_id: string | null;
+  platform: string;
+  account_name: string;
+  auth_type: string;
+  credential_ref: string | null;
+  scopes: string[];
+  metadata: Record<string, unknown>;
+  status: string;
+};
+
+export type ConnectedAccountValidation = {
+  connected_account_id: string;
+  platform: string;
+  is_valid: boolean;
+  account_status: string;
+  detail: string | null;
+};
+
 export type SocialAccountUpsertPayload = {
   platform: string;
   display_name: string;
   handle?: string | null;
   account_external_id?: string | null;
   access_token?: string | null;
+  access_token_secret_ref?: string | null;
   refresh_token?: string | null;
   scopes?: string[];
   metadata?: Record<string, string>;
@@ -40,6 +61,8 @@ export type PublishingJob = {
   external_post_id: string | null;
   external_post_url: string | null;
   provider_payload: Record<string, string>;
+  recovery_actions: string[];
+  native_scheduling_supported: boolean;
 };
 
 export type PublishedPost = {
@@ -76,4 +99,26 @@ export function publishNow(payload: Record<string, unknown>) {
 
 export function getPublishedPosts() {
   return apiFetch<PublishedPost[]>("/publishing/posts");
+}
+
+export function getConnectedAccounts() {
+  return apiFetch<ConnectedAccount[]>("/publishing/connected-accounts");
+}
+
+export function validateConnectedAccount(connectedAccountId: string) {
+  return apiFetch<ConnectedAccountValidation>(`/publishing/connected-accounts/${connectedAccountId}/validate`, {
+    method: "POST",
+  });
+}
+
+export function cancelPublishingJob(jobId: string) {
+  return apiFetch<{ job_id: string; status: string; detail: string }>(`/publishing/queue/${jobId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function retryPublishingJob(jobId: string) {
+  return apiFetch<{ job_id: string; status: string; detail: string }>(`/publishing/queue/${jobId}/retry`, {
+    method: "POST",
+  });
 }

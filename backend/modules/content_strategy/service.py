@@ -7,11 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.audit.service import AuditService
-from backend.modules.content_strategy.models import BrandProfile, ContentFormat, ContentPlan, ContentPlanStatus
+from backend.modules.content_strategy.models import Brand, BrandProfile, ContentFormat, ContentPlan, ContentPlanStatus
 from backend.modules.content_strategy.repository import ContentStrategyRepository
 from backend.modules.content_strategy.schemas import BrandProfileUpsertRequest, ContentPlanResponse
 from backend.modules.story_intelligence.models import StoryCluster
-from backend.modules.story_intelligence.providers import get_llm_provider
+from backend.modules.inference.providers import get_llm_provider
 from backend.modules.story_intelligence.repository import StoryIntelligenceRepository
 
 
@@ -26,9 +26,15 @@ class ContentStrategyService:
     async def get_or_create_brand_profile(self, tenant_id: UUID) -> BrandProfile:
         existing = await self.repo.get_brand_profile(tenant_id)
         if existing:
+            if existing.brand_id is None:
+                brand = await self._get_or_create_brand(tenant_id, existing)
+                existing.brand_id = brand.id
+                await self.db.flush()
             return existing
+        brand = await self._get_or_create_brand(tenant_id)
         profile = BrandProfile(
             tenant_id=tenant_id,
+            brand_id=brand.id,
             name="Default Brand",
             niche="general",
             tone="authoritative",
@@ -43,16 +49,95 @@ class ContentStrategyService:
         )
         return await self.repo.create_brand_profile(profile)
 
+    async def _get_or_create_brand(
+        self,
+        tenant_id: UUID,
+        profile: BrandProfile | None = None,
+    ) -> Brand:
+        existing = await self.repo.get_brand(tenant_id)
+        if existing:
+            return existing
+        seed_name = profile.name if profile else "Default Brand"
+        seed_niche = profile.niche if profile else "general"
+        seed_platforms = profile.preferred_platforms if profile else ["x", "bluesky", "instagram", "tiktok", "youtube"]
+        brand = Brand(
+            tenant_id=tenant_id,
+            name=seed_name,
+            niche=seed_niche,
+            style_guide={
+                "tone": profile.tone if profile else "authoritative",
+                "audience": profile.audience if profile else "Busy social media audience looking for concise updates",
+                "voice_notes": profile.voice_notes if profile else "",
+                "visual_style": profile.visual_style if profile else {"palette": "slate and cyan"},
+            },
+            allowed_topics=[],
+            blocked_topics=[],
+            target_platforms=seed_platforms,
+            risk_policy={
+                "risk_tolerance": profile.risk_tolerance if profile else "medium",
+                "guardrails": profile.guardrails if profile else {"factuality": "Only use sourced claims"},
+            },
+            posting_policy={
+                "default_cta": profile.default_cta if profile else "Follow for more timely updates.",
+                "hashtags_strategy": profile.hashtags_strategy if profile else "balanced",
+                "approval_channel": "telegram",
+            },
+        )
+        return await self.repo.create_brand(brand)
+
     async def upsert_brand_profile(
         self, tenant_id: UUID, payload: BrandProfileUpsertRequest
     ) -> BrandProfile:
         profile = await self.repo.get_brand_profile(tenant_id)
+        brand = await self._get_or_create_brand(tenant_id, profile)
         if profile:
             for key, value in payload.model_dump().items():
                 setattr(profile, key, value)
+            profile.brand_id = brand.id
+            brand.name = profile.name
+            brand.niche = profile.niche
+            brand.style_guide = {
+                **brand.style_guide,
+                "tone": profile.tone,
+                "audience": profile.audience,
+                "voice_notes": profile.voice_notes or "",
+                "visual_style": profile.visual_style,
+            }
+            brand.target_platforms = profile.preferred_platforms
+            brand.risk_policy = {
+                "risk_tolerance": profile.risk_tolerance,
+                "guardrails": profile.guardrails,
+            }
+            brand.posting_policy = {
+                "default_cta": profile.default_cta,
+                "hashtags_strategy": profile.hashtags_strategy,
+                "approval_channel": "telegram",
+            }
             await self.db.flush()
             return profile
-        return await self.repo.create_brand_profile(BrandProfile(tenant_id=tenant_id, **payload.model_dump()))
+        brand.name = payload.name
+        brand.niche = payload.niche
+        brand.style_guide = {
+            **brand.style_guide,
+            "tone": payload.tone,
+            "audience": payload.audience,
+            "voice_notes": payload.voice_notes or "",
+            "visual_style": payload.visual_style,
+        }
+        brand.target_platforms = payload.preferred_platforms
+        brand.risk_policy = {
+            "risk_tolerance": payload.risk_tolerance,
+            "guardrails": payload.guardrails,
+        }
+        brand.posting_policy = {
+            "default_cta": payload.default_cta,
+            "hashtags_strategy": payload.hashtags_strategy,
+            "approval_channel": "telegram",
+        }
+        await self.db.flush()
+        return await self.repo.create_brand_profile(
+            BrandProfile(tenant_id=tenant_id, brand_id=brand.id, **payload.model_dump())
+        )
 
     async def list_content_plans(self, tenant_id: UUID) -> list[ContentPlan]:
         return await self.repo.list_content_plans(tenant_id)

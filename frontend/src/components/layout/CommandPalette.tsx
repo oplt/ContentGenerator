@@ -32,7 +32,8 @@ export function CommandPalette() {
           {results.map((command) => (
             <button
               key={command.path}
-              className="flex w-full items-center justify-between rounded-2xl border border-border px-4 py-3 text-left hover:bg-muted"
+              className="flex w-full items-center justify-between border border-border px-4 py-3 text-left hover:bg-muted transition-colors"
+              style={{ borderRadius: "var(--radius-sm)" }}
               onClick={() => {
                 navigate(command.path);
                 setOpen(false);

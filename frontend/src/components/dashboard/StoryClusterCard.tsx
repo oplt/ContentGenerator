@@ -34,14 +34,26 @@ export function StoryClusterCard({ cluster }: { cluster: StoryCluster }) {
           <TrendScoreBadge score={cluster.latest_trend_score} />
         </div>
         <p className="mt-3 text-sm text-muted-foreground">{cluster.summary}</p>
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <Badge variant={cluster.worthy_for_content ? "success" : "muted"}>
-            {cluster.worthy_for_content ? "Generate" : "Hold"}
+            {cluster.worthy_for_content ? "Generate" : cluster.awaiting_confirmation ? "Awaiting Tier 1" : "Hold"}
           </Badge>
-          <Badge variant={cluster.risk_level === "safe" ? "default" : "warning"}>
+          <Badge variant="muted" className="capitalize">
+            {cluster.workflow_state.replace(/_/g, " ")}
+          </Badge>
+          <Badge variant={cluster.risk_level === "safe" ? "default" : cluster.risk_level === "unsafe" ? "danger" : "warning"}>
             {cluster.risk_level}
           </Badge>
+          {cluster.content_vertical && cluster.content_vertical !== "general" && (
+            <Badge variant="muted" className="capitalize">{cluster.content_vertical}</Badge>
+          )}
+          {cluster.tier1_sources_confirmed > 0 && (
+            <Badge variant="muted">T1: {cluster.tier1_sources_confirmed}</Badge>
+          )}
         </div>
+        {cluster.block_reason && (
+          <p className="mt-2 text-xs text-destructive">{cluster.block_reason.replace(/_/g, " ")}</p>
+        )}
       </Link>
       {cluster.worthy_for_content && (
         <div className="mt-4 border-t border-border pt-4">

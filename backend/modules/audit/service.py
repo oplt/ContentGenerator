@@ -22,8 +22,11 @@ class AuditService:
         entity_type: str,
         entity_id: str | None,
         message: str,
-        payload: dict[str, str] | None = None,
+        payload: dict[str, object] | None = None,
         correlation_id: str | None = None,
+        severity: str = "info",
+        outcome: str | None = None,
+        payload_schema: str | None = None,
     ) -> AuditLog:
         log = AuditLog(
             tenant_id=tenant_id,
@@ -34,6 +37,9 @@ class AuditService:
             message=message,
             payload=payload or {},
             correlation_id=correlation_id,
+            severity=severity,
+            outcome=outcome,
+            payload_schema=payload_schema,
         )
         return await self.repo.create(log)
 

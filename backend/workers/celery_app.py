@@ -31,21 +31,28 @@ celery_app.conf.update(
         "backend.workers.tasks.send_approval_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
         "backend.workers.tasks.process_webhook_inbox_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
         "backend.workers.tasks.expire_stale_approvals_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
+        "backend.workers.tasks.expire_stale_briefs_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
         "backend.workers.tasks.rescore_clusters_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
+        "backend.workers.tasks.rescore_all_tenants_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
         "backend.workers.tasks.publish_due_jobs_task": {"queue": settings.CELERY_QUEUE_PUBLISHING},
         "backend.workers.tasks.sync_analytics_task": {"queue": settings.CELERY_QUEUE_ANALYTICS},
+        "backend.workers.tasks.fetch_trending_repos_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
+        "backend.workers.tasks.send_trending_repos_digest_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
+        "backend.workers.tasks.trending_repos_daily_fanout_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
     },
     beat_schedule={
-        # Poll RSS/web sources every 15 minutes
-        "poll-sources-every-15-min": {
+        # Poll RSS/web sources every 5 minutes (reduced from 15 for faster signal pickup)
+        "poll-sources-every-5-min": {
             "task": "backend.workers.tasks.poll_sources_task",
-            "schedule": crontab(minute="*/15"),
+            "schedule": crontab(minute="*/5"),
         },
-        # Re-score story clusters every 15 minutes (velocity signal decays fast)
-        # NOTE: rescore_clusters_task requires a tenant_id — this beat entry
-        # is intentionally omitted here because it must be dispatched per-tenant.
-        # Call rescore_clusters_task.delay(tenant_id=...) from your tenant management code.
-
+        # Re-score story clusters every 30 minutes for all tenants.
+        # rescore_all_tenants_task fetches active tenants and fans out
+        # per-tenant rescore_clusters_task jobs automatically.
+        "rescore-all-tenants-every-30-min": {
+            "task": "backend.workers.tasks.rescore_all_tenants_task",
+            "schedule": crontab(minute="*/30"),
+        },
         # Expire stale pending approval requests every 30 minutes
         "expire-stale-approvals-every-30-min": {
             "task": "backend.workers.tasks.expire_stale_approvals_task",
@@ -55,6 +62,11 @@ celery_app.conf.update(
         "publish-due-jobs-every-minute": {
             "task": "backend.workers.tasks.publish_due_jobs_task",
             "schedule": crontab(minute="*"),
+        },
+        # Fetch trending GitHub repos + send digest daily at 08:00 UTC
+        "trending-repos-daily-8am": {
+            "task": "backend.workers.tasks.trending_repos_daily_fanout_task",
+            "schedule": crontab(hour=8, minute=0),
         },
     },
 )

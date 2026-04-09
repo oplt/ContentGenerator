@@ -23,6 +23,20 @@ export default function AnalyticsPage() {
         <Button onClick={() => syncMutation.mutate()}>Sync Analytics</Button>
       </Card>
       <AnalyticsCharts data={analytics.data} />
+      <Card className="p-6">
+        <h2 className="text-lg font-semibold">Learning Log</h2>
+        <div className="mt-4 space-y-3">
+          {analytics.data.learning_log.map((entry) => (
+            <div key={`${entry.category}-${entry.message}`} className="rounded-2xl border border-border p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{entry.category}</p>
+              <p className="mt-2 font-medium">{entry.message}</p>
+              {entry.recommendation && (
+                <p className="mt-1 text-sm text-muted-foreground">{entry.recommendation}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }

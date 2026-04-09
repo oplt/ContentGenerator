@@ -1,6 +1,9 @@
 export function ErrorState({ message }: { message: string }) {
   return (
-    <div className="rounded-[1.5rem] border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive">
+    <div
+      className="border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive"
+      style={{ borderRadius: "var(--radius-card)" }}
+    >
       {message}
     </div>
   );

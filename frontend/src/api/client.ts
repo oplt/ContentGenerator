@@ -1,24 +1,26 @@
-import { authStore } from "../features/auth/authStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api/v1";
 
-let refreshPromise: Promise<string | null> | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
+function getCookie(name: string): string | null {
+  const match = document.cookie
+    .split("; ")
+    .find((item) => item.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.split("=")[1] ?? "") : null;
+}
+
+async function refreshAccessToken(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       credentials: "include",
+      headers: getCookie("csrf_token") ? { "X-CSRF-Token": getCookie("csrf_token") as string } : undefined,
     });
-    if (!response.ok) {
-      return null;
-    }
-    const data = await response.json();
-    authStore.setAccessToken(data.access_token ?? null);
-    return data.access_token ?? null;
+    return response.ok;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -28,12 +30,13 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
   if (!isFormData && options.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  if (authStore.accessToken) {
-    headers.set("Authorization", `Bearer ${authStore.accessToken}`);
-  }
   const tenantId = useWorkspaceStore.getState().tenantId;
   if (tenantId) {
     headers.set("X-Tenant-ID", tenantId);
+  }
+  const csrfToken = getCookie("csrf_token");
+  if (csrfToken) {
+    headers.set("X-CSRF-Token", csrfToken);
   }
 
   const response = await fetch(`${API_BASE}${path}`, {
@@ -42,14 +45,26 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
     credentials: "include",
   });
 
-  if (response.status === 401 && retry) {
+  const canRetryWithRefresh =
+    retry &&
+    response.status === 401 &&
+    ![
+      "/auth/sign-in",
+      "/auth/sign-up",
+      "/auth/forgot-password",
+      "/auth/reset-password",
+      "/auth/verify-email",
+      "/auth/refresh",
+    ].includes(path);
+
+  if (canRetryWithRefresh) {
     if (!refreshPromise) {
       refreshPromise = refreshAccessToken().finally(() => {
         refreshPromise = null;
       });
     }
-    const newToken = await refreshPromise;
-    if (!newToken) {
+    const refreshed = await refreshPromise;
+    if (!refreshed) {
       throw new Error("Session expired. Please sign in again.");
     }
     return apiFetch<T>(path, options, false);

@@ -37,6 +37,20 @@ class ApprovalRepository:
         )
         return list(result.scalars().all())
 
+    async def list_requests_by_status(
+        self,
+        tenant_id: UUID,
+        statuses: list[str],
+        limit: int = 100,
+    ) -> list[ApprovalRequest]:
+        result = await self.db.execute(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.tenant_id == tenant_id, ApprovalRequest.status.in_(statuses))
+            .order_by(ApprovalRequest.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def get_request(self, tenant_id: UUID, request_id: UUID) -> ApprovalRequest | None:
         result = await self.db.execute(
             select(ApprovalRequest).where(
@@ -93,6 +107,26 @@ class ApprovalRepository:
         result = await self.db.execute(
             select(ApprovalRequest)
             .where(ApprovalRequest.content_job_id == content_job_id)
+            .order_by(ApprovalRequest.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_request_for_related_entity(
+        self,
+        tenant_id: UUID,
+        related_entity_type: str,
+        related_entity_id: str,
+        approval_type: str,
+    ) -> ApprovalRequest | None:
+        result = await self.db.execute(
+            select(ApprovalRequest)
+            .where(
+                ApprovalRequest.tenant_id == tenant_id,
+                ApprovalRequest.related_entity_type == related_entity_type,
+                ApprovalRequest.related_entity_id == related_entity_id,
+                ApprovalRequest.approval_type == approval_type,
+            )
             .order_by(ApprovalRequest.created_at.desc())
             .limit(1)
         )

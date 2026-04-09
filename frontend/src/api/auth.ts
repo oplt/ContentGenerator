@@ -21,13 +21,14 @@ export type AuthUser = {
   is_admin: boolean;
   mfa_enabled: boolean;
   default_tenant_id: string | null;
+  rbac_mode: string;
   memberships: Membership[];
 };
 
 export type AuthResponse = {
-  access_token: string;
-  token_type: string;
-  user: AuthUser;
+  user?: AuthUser | null;
+  requires_email_verification?: boolean;
+  message?: string | null;
 };
 
 export function signUp(payload: {
@@ -42,7 +43,7 @@ export function signUp(payload: {
   });
 }
 
-export function signIn(payload: { email: string; password: string }) {
+export function signIn(payload: { email: string; password: string; mfa_code?: string }) {
   return apiFetch<AuthResponse>("/auth/sign-in", {
     method: "POST",
     body: JSON.stringify(payload),

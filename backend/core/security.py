@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -12,7 +13,13 @@ from passlib.context import CryptContext
 from backend.core.config import settings
 
 
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["argon2"],
+    deprecated="auto",
+    argon2__memory_cost=65536,
+    argon2__time_cost=3,
+    argon2__parallelism=4,
+)
 
 
 def hash_password(password: str) -> str:
@@ -23,11 +30,11 @@ def verify_password(password: str, hashed_password: str) -> bool:
     return pwd_context.verify(password, hashed_password)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, session_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
-    payload = {"sub": subject, "exp": expire, "type": "access"}
+    payload = {"sub": subject, "sid": session_id, "exp": expire, "type": "access"}
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -56,3 +63,22 @@ def decrypt_secret(encrypted: str) -> str:
         return _fernet().decrypt(encrypted.encode("utf-8")).decode("utf-8")
     except InvalidToken as exc:
         raise ValueError("Invalid encrypted secret") from exc
+
+
+def generate_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def verify_csrf_token(expected: str | None, provided: str | None) -> bool:
+    if not expected or not provided:
+        return False
+    return hmac.compare_digest(expected, provided)
+
+
+def resolve_secret_reference(reference: str | None) -> str | None:
+    if not reference:
+        return None
+    normalized = reference.strip()
+    if not normalized:
+        return None
+    return settings.external_secret_references.get(normalized)

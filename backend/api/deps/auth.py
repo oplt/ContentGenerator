@@ -3,32 +3,48 @@ from __future__ import annotations
 from typing import Callable
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Cookie, Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.db import get_db
-from backend.core.security import decode_token
+from backend.core.security import decode_token, verify_csrf_token
+from backend.core.time_utils import as_utc, utc_now
 from backend.modules.identity_access.models import Tenant, TenantUser, User
 from backend.modules.identity_access.repository import IdentityRepository
 
-bearer_scheme = HTTPBearer()
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 async def get_current_user(
-        credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+        request: Request,
+        access_token: str | None = Cookie(default=None),
+        csrf_token: str | None = Cookie(default=None),
+        x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
         db: AsyncSession = Depends(get_db),
 ) -> User:
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if request.method not in _SAFE_METHODS and not verify_csrf_token(csrf_token, x_csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF verification failed")
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(access_token)
         user_id = payload["sub"]
+        session_id = payload["sid"]
+        token_type = payload["type"]
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid token") from exc
+    if token_type != "access":
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     repo = IdentityRepository(db)
+    session = await repo.get_session_by_id(session_id)
+    if not session or session.is_revoked or as_utc(session.expires_at) < utc_now():
+        raise HTTPException(status_code=401, detail="Session expired")
     user = await repo.get_user_by_id(user_id)
-    if not user:
+    if not user or session.user_id != user.id or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found")
+    if not user.is_verified and not request.url.path.startswith("/api/v1/auth/"):
+        raise HTTPException(status_code=403, detail="Email verification required")
 
     return user
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import subprocess
 import tempfile
 import wave
@@ -8,7 +9,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from backend.core.config import settings
-from backend.modules.story_intelligence.providers import get_llm_provider
+from backend.modules.inference.providers import get_llm_provider
+from backend.modules.video_pipeline.schemas import BrandingConfig, MediaSequenceItem, RenderArtifacts, RendererInput, RenderPreset
 
 
 class ResearchProvider:
@@ -40,11 +42,10 @@ class RenderService:
     async def render(
         self,
         *,
-        headline: str,
-        script: str,
+        renderer_input: RendererInput,
         captions: str,
         voiceover_bytes: bytes,
-    ) -> tuple[bytes, bytes]:
+    ) -> RenderArtifacts:
         raise NotImplementedError
 
 
@@ -100,52 +101,221 @@ class MockCaptionProvider(CaptionProvider):
 
 
 class FFmpegRenderService(RenderService):
-    async def render(
+    def _dimensions(self, preset: RenderPreset) -> tuple[int, int]:
+        if preset == RenderPreset.SQUARE:
+            return (1080, 1080)
+        if preset == RenderPreset.HORIZONTAL:
+            return (1920, 1080)
+        return (1080, 1920)
+
+    def _safe_drawtext(self, text: str) -> str:
+        sanitized = re.sub(r"[\r\n]+", " ", text).strip()
+        return sanitized.replace("\\", "\\\\").replace(":", r"\:").replace("'", r"\'")
+
+    def _run_ffmpeg(self, args: list[str]) -> None:
+        subprocess.run(args, check=True, capture_output=True)
+
+    def _create_segment_clip(
         self,
         *,
-        headline: str,
-        script: str,
-        captions: str,
-        voiceover_bytes: bytes,
-    ) -> tuple[bytes, bytes]:
-        safe_text = headline.replace(":", "").replace("'", "")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            audio_path = temp_path / f"{uuid4()}.wav"
-            video_path = temp_path / f"{uuid4()}.mp4"
-            thumb_path = temp_path / f"{uuid4()}.png"
-            audio_path.write_bytes(voiceover_bytes)
-            command = [
+        item: MediaSequenceItem,
+        index: int,
+        temp_path: Path,
+        dimensions: tuple[int, int],
+        branding: BrandingConfig,
+    ) -> Path:
+        width, height = dimensions
+        clip_path = temp_path / f"segment_{index}.mp4"
+        font_size = max(34, min(width, height) // 18)
+        overlay_y = int(height * 0.18)
+        background = item.background_color.lstrip("#") or "0f172a"
+        if item.source_path and Path(item.source_path).exists():
+            source = Path(item.source_path)
+            if source.suffix.lower() in {".mp4", ".mov", ".webm", ".mkv"}:
+                cmd = [
+                    settings.FFMPEG_BIN,
+                    "-y",
+                    "-i",
+                    str(source),
+                    "-t",
+                    str(item.duration_seconds),
+                    "-vf",
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
+                    "-an",
+                    str(clip_path),
+                ]
+            else:
+                cmd = [
+                    settings.FFMPEG_BIN,
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-i",
+                    str(source),
+                    "-t",
+                    str(item.duration_seconds),
+                    "-vf",
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}",
+                    "-an",
+                    str(clip_path),
+                ]
+        else:
+            text = self._safe_drawtext(item.text)
+            alpha = max(0.05, min(branding.overlay_opacity, 0.9))
+            vf = (
+                f"drawbox=x=0:y=0:w={width}:h={height}:color={background}@1:t=fill,"
+                f"drawbox=x={int(width*0.08)}:y={overlay_y}:w={int(width*0.84)}:h={int(height*0.24)}:color=black@{alpha}:t=fill,"
+                f"drawtext=text='{text[:120]}':fontcolor={branding.text_color}:fontsize={font_size}:"
+                f"x=(w-text_w)/2:y=(h-text_h)/2"
+            )
+            cmd = [
                 settings.FFMPEG_BIN,
                 "-y",
                 "-f",
                 "lavfi",
                 "-i",
-                "color=c=0x0f172a:s=1080x1920:d=8",
-                "-i",
-                str(audio_path),
-                "-shortest",
+                f"color=c=0x{background}:s={width}x{height}:d={item.duration_seconds}",
                 "-vf",
-                f"drawtext=text='{safe_text[:60]}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
-                str(video_path),
+                vf,
+                "-an",
+                str(clip_path),
             ]
+        self._run_ffmpeg(cmd)
+        return clip_path
+
+    def _concat_segments(self, segment_paths: list[Path], concat_file: Path, output_path: Path) -> None:
+        concat_file.write_text(
+            "\n".join(f"file '{segment_path.as_posix()}'" for segment_path in segment_paths),
+            encoding="utf-8",
+        )
+        self._run_ffmpeg(
+            [
+                settings.FFMPEG_BIN,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-c",
+                "copy",
+                str(output_path),
+            ]
+        )
+
+    def _build_video_filter(
+        self,
+        *,
+        renderer_input: RendererInput,
+        duration: float,
+        subtitle_path: Path | None,
+    ) -> str:
+        width, height = self._dimensions(renderer_input.preset)
+        filters: list[str] = []
+        if renderer_input.branding.progress_bar:
+            filters.append(
+                "drawbox="
+                f"x=0:y={height-24}:w='min(w,max(0,w*(t/{max(duration, 0.1)})))':h=24:"
+                f"color={renderer_input.branding.accent_color}@0.95:t=fill"
+            )
+        if subtitle_path and renderer_input.branding.subtitle_burn_in:
+            filters.append(f"subtitles={subtitle_path.as_posix()}")
+        return ",".join(filters) if filters else "null"
+
+    async def render(
+        self,
+        *,
+        renderer_input: RendererInput,
+        captions: str,
+        voiceover_bytes: bytes,
+    ) -> RenderArtifacts:
+        dimensions = self._dimensions(renderer_input.preset)
+        media_sequence = renderer_input.media_sequence or [
+            MediaSequenceItem(kind="title", duration_seconds=renderer_input.output_duration_seconds, text=renderer_input.title_card or renderer_input.script)
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            audio_path = temp_path / f"{uuid4()}.wav"
+            base_video_path = temp_path / f"{uuid4()}_base.mp4"
+            video_path = temp_path / f"{uuid4()}.mp4"
+            preview_path = temp_path / f"{uuid4()}_preview.mp4"
+            thumb_path = temp_path / f"{uuid4()}.png"
+            captions_path = temp_path / f"{uuid4()}.srt"
+            concat_manifest = temp_path / "segments.txt"
+            audio_path.write_bytes(voiceover_bytes)
+            captions_path.write_text(captions, encoding="utf-8")
+            segment_paths = [
+                self._create_segment_clip(
+                    item=item,
+                    index=index,
+                    temp_path=temp_path,
+                    dimensions=dimensions,
+                    branding=renderer_input.branding,
+                )
+                for index, item in enumerate(media_sequence, start=1)
+            ]
+            self._concat_segments(segment_paths, concat_manifest, base_video_path)
+            video_filter = self._build_video_filter(
+                renderer_input=renderer_input,
+                duration=renderer_input.output_duration_seconds,
+                subtitle_path=captions_path if captions.strip() else None,
+            )
             with contextlib.suppress(Exception):
-                subprocess.run(command, check=True, capture_output=True)
-            if not video_path.exists():
-                subprocess.run(
+                self._run_ffmpeg(
                     [
                         settings.FFMPEG_BIN,
                         "-y",
-                        "-f",
-                        "lavfi",
                         "-i",
-                        "color=c=0x0f172a:s=1080x1920:d=8",
+                        str(base_video_path),
+                        "-i",
+                        str(audio_path),
+                        "-vf",
+                        video_filter,
+                        "-shortest",
+                        "-c:v",
+                        "libx264",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "192k",
                         str(video_path),
-                    ],
-                    check=True,
-                    capture_output=True,
+                    ]
                 )
-            subprocess.run(
+            if not video_path.exists():
+                self._run_ffmpeg(
+                    [
+                        settings.FFMPEG_BIN,
+                        "-y",
+                        "-i",
+                        str(base_video_path),
+                        "-c:v",
+                        "libx264",
+                        "-pix_fmt",
+                        "yuv420p",
+                        str(video_path),
+                    ]
+                )
+            self._run_ffmpeg(
+                [
+                    settings.FFMPEG_BIN,
+                    "-y",
+                    "-i",
+                    str(video_path),
+                    "-t",
+                    str(min(renderer_input.preview_duration_seconds, renderer_input.output_duration_seconds)),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    str(preview_path),
+                ]
+            )
+            self._run_ffmpeg(
                 [
                     settings.FFMPEG_BIN,
                     "-y",
@@ -154,11 +324,13 @@ class FFmpegRenderService(RenderService):
                     "-frames:v",
                     "1",
                     str(thumb_path),
-                ],
-                check=True,
-                capture_output=True,
+                ]
             )
-            return video_path.read_bytes(), thumb_path.read_bytes()
+            return RenderArtifacts(
+                video_bytes=video_path.read_bytes(),
+                preview_bytes=preview_path.read_bytes(),
+                thumbnail_bytes=thumb_path.read_bytes(),
+            )
 
 
 def get_video_providers() -> tuple[ResearchProvider, ScriptProvider, VisualProvider, VoiceProvider, CaptionProvider, RenderService]:

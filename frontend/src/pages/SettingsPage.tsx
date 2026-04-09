@@ -11,6 +11,7 @@ import { Input } from "../components/ui/input";
 import { PasswordInput } from "../components/ui/PasswordInput";
 import { LoadingState } from "../components/ui/LoadingState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { useAuth } from "../features/auth/AuthContext";
 import { queryClient } from "../lib/queryClient";
 
 type WorkspaceSettingsForm = {
@@ -32,11 +33,14 @@ type WhatsAppSettingsForm = {
   business_account_id: string;
   verify_token: string;
   access_token: string;
+  access_token_secret_ref: string;
   app_secret: string;
+  app_secret_secret_ref: string;
 };
 
 type TelegramSettingsForm = {
   bot_token: string;
+  bot_token_secret_ref: string;
   chat_id: string;
   enabled: boolean;
 };
@@ -119,6 +123,7 @@ const SOCIAL_PLATFORM_DEFINITIONS: SocialPlatformDefinition[] = [
 
 export default function SettingsPage() {
   const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
+  const { currentUser } = useAuth();
   const tenantSettings = useQuery({ queryKey: ["tenant-settings"], queryFn: getTenantSettings });
   const whatsappSettings = useQuery({
     queryKey: ["settings", "whatsapp"],
@@ -152,11 +157,13 @@ export default function SettingsPage() {
       business_account_id: "",
       verify_token: "",
       access_token: "",
+      access_token_secret_ref: "",
       app_secret: "",
+      app_secret_secret_ref: "",
     },
   });
   const telegramForm = useForm<TelegramSettingsForm>({
-    defaultValues: { bot_token: "", chat_id: "", enabled: false },
+    defaultValues: { bot_token: "", bot_token_secret_ref: "", chat_id: "", enabled: false },
   });
 
   useEffect(() => {
@@ -189,7 +196,9 @@ export default function SettingsPage() {
       business_account_id: whatsappSettings.data.business_account_id ?? "",
       verify_token: whatsappSettings.data.verify_token ?? "",
       access_token: "",
+      access_token_secret_ref: whatsappSettings.data.access_token_secret_ref ?? "",
       app_secret: "",
+      app_secret_secret_ref: whatsappSettings.data.app_secret_secret_ref ?? "",
     });
   }, [whatsappForm, whatsappSettings.data]);
 
@@ -197,10 +206,22 @@ export default function SettingsPage() {
     if (!telegramSettings.data) return;
     telegramForm.reset({
       bot_token: "",
+      bot_token_secret_ref: telegramSettings.data.bot_token_secret_ref ?? "",
       chat_id: telegramSettings.data.chat_id,
       enabled: telegramSettings.data.enabled,
     });
   }, [telegramForm, telegramSettings.data]);
+
+  const activeMembership = useMemo(() => {
+    if (!currentUser) {
+      return null;
+    }
+    return (
+      currentUser.memberships.find((item) => item.tenant_id === currentUser.default_tenant_id) ??
+      currentUser.memberships[0] ??
+      null
+    );
+  }, [currentUser]);
 
   const tenantMutation = useMutation({
     mutationFn: updateTenantSettings,
@@ -312,6 +333,36 @@ export default function SettingsPage() {
                   <p className="mt-2 font-medium">{tenantSettings.data.status}</p>
                 </div>
               </div>
+              <div className="grid gap-3 rounded-2xl border border-border bg-muted/40 p-4 text-sm md:col-span-2 md:grid-cols-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">RBAC Mode</p>
+                  <p className="mt-2 font-medium">{tenantSettings.data.rbac_mode}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Active Role</p>
+                  <p className="mt-2 font-medium">{activeMembership?.role?.name ?? "Workspace operator"}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Permission Count</p>
+                  <p className="mt-2 font-medium">{activeMembership?.role?.permission_codes.length ?? 0}</p>
+                </div>
+                <div className="md:col-span-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Permission Placeholders</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(activeMembership?.role?.permission_codes ?? []).length > 0 ? (
+                      (activeMembership?.role?.permission_codes ?? []).map((code) => (
+                        <Badge key={code} variant="muted" className="font-mono normal-case tracking-normal">
+                          {code}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-muted-foreground">
+                        No explicit permission codes are assigned yet. API and UI are exposing the placeholder contract now.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
               <Button type="submit" className="md:col-span-2" disabled={tenantMutation.isPending}>
                 Save Workspace Settings
               </Button>
@@ -364,9 +415,9 @@ export default function SettingsPage() {
                 </p>
               </label>
               <div className="rounded-2xl border border-border bg-muted/40 p-4 text-sm md:col-span-2">
-                <p className="font-medium">WhatsApp routing moved</p>
+                <p className="font-medium">Telegram is the primary approval channel</p>
                 <p className="mt-1 text-muted-foreground">
-                  Manage the approval recipient and optional Meta Cloud API credentials under the WhatsApp tab.
+                  Configure Telegram for topic, brief, asset, and publish approvals. Keep WhatsApp only as a legacy or fallback delivery path.
                 </p>
               </div>
               <Button type="submit" className="md:col-span-2" disabled={tenantMutation.isPending}>
@@ -380,10 +431,9 @@ export default function SettingsPage() {
           <Card className="space-y-6 p-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <h2 className="text-xl font-semibold">WhatsApp Approval Delivery</h2>
+                <h2 className="text-xl font-semibold">Legacy WhatsApp Delivery</h2>
                 <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                  Content approvals are sent to this tenant-level WhatsApp recipient automatically whenever a draft is ready.
-                  Switch to Meta Cloud API only when you have the required provider credentials configured.
+                  Telegram is the primary editorial approval channel. Use WhatsApp only when you need a secondary operator delivery path or an older tenant workflow.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -463,7 +513,7 @@ export default function SettingsPage() {
                     Meta Cloud API
                   </Button>
                   <p className="text-sm text-muted-foreground">
-                    Stub is safe for local development. Meta mode sends real WhatsApp messages and verifies webhook signatures.
+                    Stub is safe for local development. Meta mode sends real WhatsApp messages only for legacy fallback workflows.
                   </p>
                 </div>
               </div>
@@ -504,10 +554,30 @@ export default function SettingsPage() {
                 </p>
               </label>
               <label className="space-y-2 text-sm">
+                <span className="font-medium">Access token secret reference</span>
+                <Input
+                  placeholder="vault://meta/whatsapp/access-token"
+                  {...whatsappForm.register("access_token_secret_ref")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional external secret reference. When present, runtime delivery resolves this reference instead of using the stored tenant token.
+                </p>
+              </label>
+              <label className="space-y-2 text-sm">
                 <span className="font-medium">App secret</span>
                 <PasswordInput placeholder="Meta app secret" {...whatsappForm.register("app_secret")} />
                 <p className="text-xs text-muted-foreground">
                   {whatsappSettings.data.app_secret_configured ? "A tenant app secret is already stored." : "No tenant app secret is stored yet."}
+                </p>
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">App secret reference</span>
+                <Input
+                  placeholder="vault://meta/whatsapp/app-secret"
+                  {...whatsappForm.register("app_secret_secret_ref")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use this to keep the webhook verification secret in an external secret manager and only store the reference here.
                 </p>
               </label>
               <Button type="submit" className="md:col-span-2" disabled={whatsappMutation.isPending}>
@@ -521,9 +591,9 @@ export default function SettingsPage() {
           <Card className="p-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <h2 className="text-xl font-semibold">Telegram Approval Delivery</h2>
+                <h2 className="text-xl font-semibold">Telegram Editorial Approvals</h2>
                 <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                  Send content approval notifications to a Telegram chat. Create a bot via
+                  Route topic, brief, asset, and publish approvals to a Telegram chat. Create a bot via
                   <span className="mx-1 font-mono text-xs">@BotFather</span>
                   on Telegram, then add the bot to your group or use the direct chat ID.
                 </p>
@@ -560,6 +630,7 @@ export default function SettingsPage() {
               onSubmit={telegramForm.handleSubmit(async (values) => {
                 await telegramMutation.mutateAsync({
                   bot_token: values.bot_token || undefined,
+                  bot_token_secret_ref: values.bot_token_secret_ref || undefined,
                   chat_id: values.chat_id || undefined,
                   enabled: values.enabled,
                 });
@@ -575,6 +646,16 @@ export default function SettingsPage() {
                   {telegramSettings.data?.bot_token_configured
                     ? "A bot token is already stored. Leave blank to keep it."
                     : "Get this from @BotFather on Telegram after creating a bot."}
+                </p>
+              </label>
+              <label className="space-y-2 text-sm">
+                <span className="font-medium">Bot token secret reference</span>
+                <Input
+                  placeholder="vault://telegram/editorial/bot-token"
+                  {...telegramForm.register("bot_token_secret_ref")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional external secret reference. When set, the Telegram provider resolves the bot token from that reference at runtime.
                 </p>
               </label>
               <label className="space-y-2 text-sm">

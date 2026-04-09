@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { getTrendDashboard } from "../api/stories";
 import { getAnalyticsOverview } from "../api/analytics";
+import { getHealthReadiness } from "../api/health";
 import { getSources } from "../api/sources";
 import { getStoryClusters } from "../api/stories";
 import { getContentPlans, getContentJobs } from "../api/content";
@@ -54,6 +55,7 @@ export default function DashboardPage() {
   const jobs = useQuery({ queryKey: ["content", "jobs"], queryFn: getContentJobs });
   const approvals = useQuery({ queryKey: ["approvals"], queryFn: getApprovalRequests });
   const posts = useQuery({ queryKey: ["publishing", "posts"], queryFn: getPublishedPosts });
+  const health = useQuery({ queryKey: ["health", "ready"], queryFn: getHealthReadiness, refetchInterval: 15_000 });
 
   if (trends.isLoading || analytics.isLoading) {
     return <LoadingState label="Loading dashboard" />;
@@ -91,6 +93,23 @@ export default function DashboardPage() {
           </Card>
         ))}
       </section>
+
+      {health.data && (
+        <section className="grid gap-4 lg:grid-cols-3">
+          <Card className="p-5">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Readiness</p>
+            <p className="mt-3 text-2xl font-semibold capitalize">{health.data.status}</p>
+          </Card>
+          <Card className="p-5">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Worker Queues</p>
+            <p className="mt-3 text-2xl font-semibold">{health.data.worker_status.length}</p>
+          </Card>
+          <Card className="p-5">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Inference</p>
+            <p className="mt-3 text-2xl font-semibold">{health.data.checks.inference}</p>
+          </Card>
+        </section>
+      )}
 
       <section className="grid gap-4 xl:grid-cols-3">
         {trends.data.clusters.slice(0, 6).map((cluster) => (

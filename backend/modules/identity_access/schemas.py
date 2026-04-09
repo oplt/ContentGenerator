@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class SignUpRequest(BaseModel):
@@ -15,6 +15,15 @@ class SignUpRequest(BaseModel):
 class SignInRequest(BaseModel):
     email: EmailStr
     password: str
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=6)
+
+    @field_validator("mfa_code", mode="before")
+    @classmethod
+    def normalize_mfa_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
 
 
 class MembershipRoleResponse(BaseModel):
@@ -43,12 +52,13 @@ class AuthUserResponse(BaseModel):
     mfa_enabled: bool = False
     default_tenant_id: UUID | None = None
     memberships: list[MembershipResponse] = []
+    rbac_mode: str = "role_based_placeholder"
 
 
-class AuthTokensResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: AuthUserResponse
+class AuthSessionResponse(BaseModel):
+    user: AuthUserResponse | None = None
+    requires_email_verification: bool = False
+    message: str | None = None
 
 
 class VerifyEmailRequest(BaseModel):

@@ -1,13 +1,13 @@
-# ADR 0004: WhatsApp As The Human Approval Channel
+# ADR 0004: Legacy WhatsApp Approval Fallback
 
 ## Status
-Accepted
+Superseded by ADR 0008
 
 ## Context
-The core product promise is that drafts are routed to operators where they already respond quickly. Email is too slow, dashboard-only approval misses mobile behavior, and approvals must support conversational revision loops.
+The repository initially shipped with WhatsApp as the primary approval surface. The product direction is now Telegram-first with multi-stage approval gates, but some tenants may still need WhatsApp as a secondary or legacy delivery channel.
 
 ## Decision
-Use WhatsApp as the primary approval channel for v1.
+Retain WhatsApp as an optional fallback channel, not the primary editorial approval system.
 
 Implementation details:
 
@@ -21,11 +21,11 @@ Implementation details:
 
 Positive:
 
-- Human-in-the-loop flow matches how operators actually respond
-- Approval and revision history is fully auditable
+- Backward compatibility remains available for legacy tenants
+- Approval and revision history stays auditable across channels
 - Stub mode keeps local development unblocked
 
 Trade-offs:
 
-- Webhook verification and payload parsing become correctness-critical
-- Message UX must remain concise because the medium is constrained
+- The codebase must support two approval transports
+- Telegram remains the primary editorial UX, so WhatsApp should not drive product decisions

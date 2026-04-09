@@ -63,3 +63,37 @@ class OperationsService:
         task.progress = 100 if status == "completed" else task.progress
         task.finished_at = datetime.now(timezone.utc)
         await self.db.flush()
+
+    async def worker_status(self) -> list[dict[str, object]]:
+        recent = await self.repo.list_recent(limit=100)
+        grouped: dict[str, dict[str, object]] = {}
+        for task in recent:
+            bucket = grouped.setdefault(
+                task.queue_name,
+                {
+                    "queue_name": task.queue_name,
+                    "running": 0,
+                    "failed": 0,
+                    "completed": 0,
+                    "recent_tasks": [],
+                },
+            )
+            if task.status == "running":
+                bucket["running"] = int(bucket["running"]) + 1
+            elif task.status == "failed":
+                bucket["failed"] = int(bucket["failed"]) + 1
+            elif task.status == "completed":
+                bucket["completed"] = int(bucket["completed"]) + 1
+            recent_tasks = list(bucket["recent_tasks"])
+            if len(recent_tasks) < 5:
+                recent_tasks.append(
+                    {
+                        "task_name": task.task_name,
+                        "status": task.status,
+                        "progress": task.progress,
+                        "started_at": task.started_at.isoformat() if task.started_at else None,
+                        "finished_at": task.finished_at.isoformat() if task.finished_at else None,
+                    }
+                )
+                bucket["recent_tasks"] = recent_tasks
+        return list(grouped.values())

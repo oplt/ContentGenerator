@@ -27,9 +27,13 @@ class SocialAccountStatus(str, enum.Enum):
 class PublishingJobStatus(str, enum.Enum):
     PENDING = "pending"
     SCHEDULED = "scheduled"
+    CLAIMED = "claimed"          # Locked by a worker — prevents double-publish
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    SUCCEEDED_DRY_RUN = "succeeded_dry_run"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+    DEAD = "dead"                # Max retries exceeded
     MANUAL_REQUIRED = "manual_required"
 
 
@@ -38,6 +42,12 @@ class PublishedPostStatus(str, enum.Enum):
     FAILED = "failed"
     SCHEDULED = "scheduled"
     MANUAL = "manual"
+
+
+class ConnectedAccountStatus(str, enum.Enum):
+    ACTIVE = "active"
+    NEEDS_REAUTH = "needs_reauth"
+    DISCONNECTED = "disconnected"
 
 
 class SocialAccount(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, Base):
@@ -65,6 +75,36 @@ class SocialAccount(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Versio
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ConnectedAccount(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, Base):
+    __tablename__ = "connected_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "platform",
+            "account_name",
+            name="uq_connected_accounts_tenant_id_platform_account_name",
+        ),
+        Index("ix_connected_accounts_tenant_id_platform_status", "tenant_id", "platform", "status"),
+        Index("ix_connected_accounts_social_account_id", "social_account_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    social_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    platform: Mapped[SocialPlatform] = mapped_column(String(32), nullable=False)
+    account_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth_type: Mapped[str] = mapped_column(String(64), nullable=False, default="oauth")
+    credential_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    scopes: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    account_metadata: Mapped[dict[str, object]] = mapped_column("metadata", default=dict, nullable=False)
+    status: Mapped[ConnectedAccountStatus] = mapped_column(
+        String(32), nullable=False, default=ConnectedAccountStatus.ACTIVE.value
+    )
+
+
 class SocialAccountToken(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "social_account_tokens"
     __table_args__ = (Index("ix_social_account_tokens_social_account_id", "social_account_id"),)
@@ -84,6 +124,8 @@ class PublishingJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_publishing_jobs_idempotency_key"),
         Index("ix_publishing_jobs_tenant_id_status", "tenant_id", "status"),
+        Index("ix_publishing_jobs_status_retry_count", "status", "retry_count"),
+        Index("ix_publishing_jobs_status_dead_lettered_at", "status", "dead_lettered_at"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -95,6 +137,9 @@ class PublishingJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     social_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True
     )
+    connected_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("connected_accounts.id", ondelete="SET NULL"), nullable=True
+    )
     approval_request_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("approval_requests.id", ondelete="SET NULL"), nullable=True
     )
@@ -105,7 +150,12 @@ class PublishingJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Race-condition safety: claimed_at + worker_id set atomically via FOR UPDATE SKIP LOCKED
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dead_letter_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_payload: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     external_post_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -13,6 +13,7 @@ from backend.modules.source_ingestion.schemas import (
     CatalogEntryResponse,
     IngestionTriggerResponse,
     RawArticleResponse,
+    SourceActionResponse,
     SourceCreateRequest,
     SourceFetchRunResponse,
     SourceHealthResponse,
@@ -70,6 +71,18 @@ async def delete_source(
     return Response(status_code=204)
 
 
+@router.post("/{source_id}/disable", response_model=SourceActionResponse)
+async def disable_source(
+    source_id: UUID,
+    membership: TenantUser = Depends(require_permission("sources:write")),
+    db: AsyncSession = Depends(get_db),
+) -> SourceActionResponse:
+    service = SourceIngestionService(db)
+    result = await service.disable_source(membership.tenant_id, source_id)
+    await db.commit()
+    return result
+
+
 @router.post("/{source_id}/ingest", response_model=IngestionTriggerResponse)
 async def ingest_source(
     source_id: UUID,
@@ -78,6 +91,16 @@ async def ingest_source(
 ) -> IngestionTriggerResponse:
     service = SourceIngestionService(db)
     return await service.run_ingestion(membership.tenant_id, source_id)
+
+
+@router.post("/{source_id}/manual-poll", response_model=IngestionTriggerResponse)
+async def manual_poll_source(
+    source_id: UUID,
+    membership: TenantUser = Depends(require_permission("sources:write")),
+    db: AsyncSession = Depends(get_db),
+) -> IngestionTriggerResponse:
+    service = SourceIngestionService(db)
+    return await service.trigger_manual_poll(membership.tenant_id, source_id)
 
 
 @router.get("/health", response_model=list[SourceHealthResponse])

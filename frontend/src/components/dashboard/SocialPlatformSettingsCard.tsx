@@ -29,6 +29,7 @@ type PlatformFormState = {
   handle: string;
   accountExternalId: string;
   accessToken: string;
+  accessTokenSecretRef: string;
   refreshToken: string;
   scopesCsv: string;
   useStub: boolean;
@@ -49,6 +50,7 @@ function buildInitialState(
     handle: account?.handle ?? "",
     accountExternalId: account?.account_external_id ?? "",
     accessToken: "",
+    accessTokenSecretRef: "",
     refreshToken: "",
     scopesCsv: "",
     useStub: account?.metadata.mode !== "real",
@@ -102,7 +104,7 @@ export function SocialPlatformSettingsCard({
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
         </div>
         {account ? (
-          <div className="rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm">
+          <div className="inset-panel px-4 py-3 text-sm">
             <p className="font-medium">{account.display_name}</p>
             <p className="mt-1 text-muted-foreground">{account.handle ?? "No handle configured"}</p>
           </div>
@@ -165,6 +167,7 @@ export function SocialPlatformSettingsCard({
             handle: toOptionalString(state.handle),
             account_external_id: toOptionalString(state.accountExternalId),
             access_token: toOptionalString(state.accessToken),
+            access_token_secret_ref: toOptionalString(state.accessTokenSecretRef),
             refresh_token: toOptionalString(state.refreshToken),
             scopes: toScopes(state.scopesCsv),
             metadata: { ...extraMetadata, ...state.metadata },
@@ -221,6 +224,19 @@ export function SocialPlatformSettingsCard({
             value={state.refreshToken}
             onChange={(event) => setState((current) => ({ ...current, refreshToken: event.target.value }))}
           />
+        </label>
+        <label className="space-y-2 text-sm md:col-span-2">
+          <span className="font-medium">Access token secret reference</span>
+          <Input
+            placeholder="vault://platform/account/access-token"
+            value={state.accessTokenSecretRef}
+            onChange={(event) =>
+              setState((current) => ({ ...current, accessTokenSecretRef: event.target.value }))
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Optional external secret reference. Use this instead of storing a live platform token directly in the database.
+          </p>
         </label>
 
         <div className="space-y-3 md:col-span-2">

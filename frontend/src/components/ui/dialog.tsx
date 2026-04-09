@@ -21,16 +21,22 @@ export function DialogContent({
 }: DialogPrimitive.DialogContentProps) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm" />
+      {/* Warm-tinted dark overlay */}
+      <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-overlay/70 backdrop-blur-sm" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[min(92vw,760px)] -translate-x-1/2 -translate-y-1/2 rounded-[1.5rem] border border-border bg-card p-6 shadow-soft",
+          "fixed left-1/2 top-1/2 z-50 w-[min(92vw,760px)] -translate-x-1/2 -translate-y-1/2",
+          "bg-card p-6 shadow-overlay",
           className
         )}
+        style={{ borderRadius: "var(--radius-card)" }}
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full border border-border p-2 text-muted-foreground transition hover:bg-muted">
+        <DialogPrimitive.Close
+          className="absolute right-4 top-4 border border-border p-2 text-muted-foreground transition hover:bg-muted"
+          style={{ borderRadius: "var(--radius-sm)" }}
+        >
           <X className="size-4" />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>

@@ -7,7 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.auth import get_current_membership, require_permission
 from backend.api.deps.db import get_db
-from backend.modules.content_generation.schemas import ContentJobResponse, GenerateContentRequest, RegenerateContentRequest
+from backend.modules.content_generation.schemas import (
+    ContentJobResponse,
+    GenerateContentRequest,
+    RegenerateAssetGroupRequest,
+    RegenerateContentRequest,
+)
 from backend.modules.content_generation.service import ContentGenerationService
 from backend.modules.identity_access.models import TenantUser
 
@@ -60,6 +65,25 @@ async def regenerate_content(
         feedback=payload.feedback,
         requested_by_user_id=membership.user_id,
         source_channel="dashboard",
+    )
+    await db.commit()
+    return await service.get_job_detail(membership.tenant_id, job.id)
+
+
+@router.post("/asset-groups/{asset_group_id}/regenerate", response_model=ContentJobResponse)
+async def regenerate_asset_group(
+    asset_group_id: UUID,
+    payload: RegenerateAssetGroupRequest,
+    membership: TenantUser = Depends(require_permission("content:write")),
+    db: AsyncSession = Depends(get_db),
+) -> ContentJobResponse:
+    service = ContentGenerationService(db)
+    job = await service.regenerate_asset_group(
+        tenant_id=membership.tenant_id,
+        asset_group_id=asset_group_id,
+        instruction=payload.instruction,
+        requested_by_user_id=membership.user_id,
+        source_channel="dashboard_asset_group",
     )
     await db.commit()
     return await service.get_job_detail(membership.tenant_id, job.id)

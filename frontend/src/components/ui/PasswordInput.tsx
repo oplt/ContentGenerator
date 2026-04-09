@@ -9,12 +9,13 @@ export const PasswordInput = React.forwardRef<
   const [visible, setVisible] = React.useState(false);
 
   return (
-    <div className="relative">
+    <div className="relative" style={{ borderRadius: "var(--radius-sm)" }}>
       <input
         ref={ref}
         type={visible ? "text" : "password"}
+        style={{ borderRadius: "var(--radius-sm)" }}
         className={cn(
-          "flex h-11 w-full rounded-xl border border-input bg-card px-3 py-2 pr-10 text-sm text-foreground shadow-sm transition placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex h-11 w-full border border-input bg-input px-3 py-2 pr-10 text-sm text-foreground transition placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           className
         )}
         {...props}

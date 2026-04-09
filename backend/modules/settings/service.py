@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
-from backend.core.security import decrypt_secret, encrypt_secret
+from backend.core.security import decrypt_secret, encrypt_secret, resolve_secret_reference
 from backend.modules.approvals.providers import WhatsAppRuntimeConfig
 from backend.modules.settings.repository import SettingsRepository
 from backend.modules.settings.schemas import (
@@ -29,6 +29,9 @@ WHATSAPP_BUSINESS_ACCOUNT_ID_KEY = "approval.whatsapp_business_account_id"
 WHATSAPP_VERIFY_TOKEN_KEY = "approval.whatsapp_verify_token"
 WHATSAPP_ACCESS_TOKEN_KEY = "approval.whatsapp_access_token_encrypted"
 WHATSAPP_APP_SECRET_KEY = "approval.whatsapp_app_secret_encrypted"
+WHATSAPP_ACCESS_TOKEN_SECRET_REF_KEY = "approval.whatsapp_access_token_secret_ref"
+WHATSAPP_APP_SECRET_SECRET_REF_KEY = "approval.whatsapp_app_secret_secret_ref"
+TELEGRAM_BOT_TOKEN_SECRET_REF_KEY = "approval.telegram_bot_token_secret_ref"
 
 
 class SettingsService:
@@ -80,6 +83,8 @@ class SettingsService:
             verify_token=runtime.verify_token,
             access_token_configured=bool(runtime.access_token),
             app_secret_configured=bool(runtime.app_secret),
+            access_token_secret_ref=current_settings.get(WHATSAPP_ACCESS_TOKEN_SECRET_REF_KEY),
+            app_secret_secret_ref=current_settings.get(WHATSAPP_APP_SECRET_SECRET_REF_KEY),
             using_tenant_recipient=WHATSAPP_RECIPIENT_KEY in current_settings,
             using_tenant_credentials=any(
                 key in current_settings
@@ -114,6 +119,10 @@ class SettingsService:
             "access_token": WHATSAPP_ACCESS_TOKEN_KEY,
             "app_secret": WHATSAPP_APP_SECRET_KEY,
         }
+        secret_ref_field_map = {
+            "access_token_secret_ref": WHATSAPP_ACCESS_TOKEN_SECRET_REF_KEY,
+            "app_secret_secret_ref": WHATSAPP_APP_SECRET_SECRET_REF_KEY,
+        }
 
         for field_name, setting_key in plain_field_map.items():
             if field_name not in fields_set:
@@ -130,6 +139,15 @@ class SettingsService:
             normalized = self._normalize_setting_value(getattr(payload, field_name))
             if normalized:
                 current_settings[setting_key] = encrypt_secret(normalized)
+            else:
+                current_settings.pop(setting_key, None)
+
+        for field_name, setting_key in secret_ref_field_map.items():
+            if field_name not in fields_set:
+                continue
+            normalized = self._normalize_setting_value(getattr(payload, field_name))
+            if normalized:
+                current_settings[setting_key] = normalized
             else:
                 current_settings.pop(setting_key, None)
 
@@ -152,16 +170,12 @@ class SettingsService:
 
         encrypted_access_token = current_settings.get(WHATSAPP_ACCESS_TOKEN_KEY)
         encrypted_app_secret = current_settings.get(WHATSAPP_APP_SECRET_KEY)
-        access_token = (
-            decrypt_secret(encrypted_access_token)
-            if encrypted_access_token
-            else base.access_token
-        )
-        app_secret = (
-            decrypt_secret(encrypted_app_secret)
-            if encrypted_app_secret
-            else base.app_secret
-        )
+        access_token = decrypt_secret(encrypted_access_token) if encrypted_access_token else base.access_token
+        app_secret = decrypt_secret(encrypted_app_secret) if encrypted_app_secret else base.app_secret
+        access_token_secret_ref = current_settings.get(WHATSAPP_ACCESS_TOKEN_SECRET_REF_KEY)
+        app_secret_secret_ref = current_settings.get(WHATSAPP_APP_SECRET_SECRET_REF_KEY)
+        access_token = resolve_secret_reference(access_token_secret_ref) or access_token
+        app_secret = resolve_secret_reference(app_secret_secret_ref) or app_secret
 
         return WhatsAppRuntimeConfig(
             recipient=recipient,
@@ -188,6 +202,7 @@ class SettingsService:
         s = tenant.settings or {}
         return TelegramSettingsResponse(
             bot_token_configured=bool(s.get(TELEGRAM_BOT_TOKEN_KEY)),
+            bot_token_secret_ref=s.get(TELEGRAM_BOT_TOKEN_SECRET_REF_KEY),
             chat_id=s.get(TELEGRAM_CHAT_ID_KEY, ""),
             enabled=s.get(TELEGRAM_ENABLED_KEY, "false").lower() == "true",
         )
@@ -205,6 +220,12 @@ class SettingsService:
                 current_settings[TELEGRAM_BOT_TOKEN_KEY] = encrypt_secret(normalized)
             else:
                 current_settings.pop(TELEGRAM_BOT_TOKEN_KEY, None)
+        if "bot_token_secret_ref" in fields_set:
+            normalized = self._normalize_setting_value(payload.bot_token_secret_ref)
+            if normalized:
+                current_settings[TELEGRAM_BOT_TOKEN_SECRET_REF_KEY] = normalized
+            else:
+                current_settings.pop(TELEGRAM_BOT_TOKEN_SECRET_REF_KEY, None)
 
         if "chat_id" in fields_set:
             normalized = self._normalize_setting_value(payload.chat_id)
@@ -224,8 +245,9 @@ class SettingsService:
         tenant = await self.get_tenant_settings(tenant_id)
         s = tenant.settings or {}
         encrypted_token = s.get(TELEGRAM_BOT_TOKEN_KEY)
+        secret_ref = s.get(TELEGRAM_BOT_TOKEN_SECRET_REF_KEY)
         return {
-            "bot_token": decrypt_secret(encrypted_token) if encrypted_token else "",
+            "bot_token": resolve_secret_reference(secret_ref) or (decrypt_secret(encrypted_token) if encrypted_token else ""),
             "chat_id": s.get(TELEGRAM_CHAT_ID_KEY, ""),
             "enabled": s.get(TELEGRAM_ENABLED_KEY, "false").lower() == "true",
         }

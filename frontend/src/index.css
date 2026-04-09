@@ -4,54 +4,119 @@
 
 @layer base {
   :root {
-    /* ── Light theme — dark navy & cyan palette ─────────────────────────────
-       #EEEEEE → background   light grey page canvas
-       #222831 → foreground   near-black navy text
-       #393E46 → muted        dark grey-blue quiet surfaces
-       #00ADB5 → primary      vibrant cyan brand / action colour
-    ────────────────────────────────────────────────────────────────────────── */
-    --background: 0 0% 93%;
-    --foreground: 216 18% 16%;
+    /* ── Mistral-inspired warm palette ──────────────────────────────────────
+       Source of truth: DESIGN.md
+       Warm Ivory  #fffaeb → background canvas
+       Cream       #fff0c2 → card / elevated surface
+       Mistral Black #1f1f1f → foreground text & dark CTA
+       Mistral Orange #fa520f → primary brand action
+       Sunshine 700  #ffa110 → accent / warning
+    ─────────────────────────────────────────────────────────────────────── */
 
-    /* Cards sit above the grey background as pure white surfaces */
-    --card: 0 0% 100%;
-    --card-foreground: 216 18% 16%;
+    --background: 48 100% 95%;          /* Warm Ivory  #fffaeb */
+    --foreground: 0 0% 12%;             /* Mistral Black #1f1f1f */
 
-    --muted: 216 12% 88%;
-    --muted-foreground: 217 10% 46%;
+    --card: 47 100% 88%;                /* Cream  #fff0c2 */
+    --card-foreground: 0 0% 12%;
 
-    /* Cyan primary — primary-foreground is dark navy (5.6:1 contrast) not white */
-    --primary: 183 100% 35%;
-    --primary-foreground: 216 18% 12%;
+    --muted: 45 55% 82%;                /* mid-warm tint */
+    --muted-foreground: 0 0% 36%;       /* warm medium gray */
 
-    --border: 216 10% 82%;
-    --input: 216 12% 96%;
-    --ring: 183 100% 35%;
+    /* Mistral Orange — the primary brand action */
+    --primary: 17 96% 52%;              /* #fa520f */
+    --primary-foreground: 0 0% 100%;    /* white on orange */
 
-    /* Very light cyan tint for hover fills, badges, active tab */
-    --accent: 183 60% 88%;
-    --accent-foreground: 216 18% 16%;
+    --border: 43 38% 76%;               /* warm amber border */
+    --input: 48 80% 91%;                /* warm input surface */
+    --ring: 17 96% 52%;                 /* orange focus ring */
 
-    --destructive: 0 84% 60%;
+    /* Sunshine 700 #ffa110 as accent */
+    --accent: 37 100% 53%;
+    --accent-foreground: 0 0% 12%;
+
+    --destructive: 0 84% 50%;
     --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 38%;
+    --warning: 37 100% 53%;             /* same hue as accent */
+
+    /* Modal backdrop — warm-tinted near-black */
+    --overlay: 30 20% 6%;
+
+    /* ── Semantic alias tokens ─────────────────────────────────────────── */
+    --color-chart-1: hsl(17 96% 52%);   /* Mistral Orange */
+    --color-chart-2: hsl(37 100% 53%);  /* Sunshine Amber */
+    --color-chart-3: hsl(152 55% 38%);  /* muted green */
+
+    --color-bg:          hsl(var(--background));
+    --color-surface:     hsl(var(--card));
+    --color-text:        hsl(var(--foreground));
+    --color-text-muted:  hsl(var(--muted-foreground));
+    --color-border:      hsl(var(--border));
+    --color-accent:      hsl(var(--accent));
+    --color-primary:     hsl(var(--primary));
+    --color-destructive: hsl(var(--destructive));
+
+    /* ── Radius — near-zero architectural corners (DESIGN.md §5) ─────── */
+    --radius-sm:   2px;
+    --radius-md:   2px;
+    --radius-lg:   2px;
+    --radius-card: 2px;
+
+    /* ── Warm amber shadow system (DESIGN.md §6) ─────────────────────── */
+    /* Multi-layer golden shadow: rgba(127,99,21,…) — the "golden hour" effect */
+    --shadow-card:
+      rgba(127, 99, 21, 0.12) -8px 16px 39px,
+      rgba(127, 99, 21, 0.10) -33px 64px 72px,
+      rgba(127, 99, 21, 0.06) -73px 144px 97px;
+    --shadow-overlay:
+      rgba(127, 99, 21, 0.22) 0px 8px 32px,
+      rgba(127, 99, 21, 0.14) 0px 32px 64px;
+
+    /* ── Chart palette tokens ──────────────────────────────────────────── */
+    --chart-1: 17 96% 52%;
+    --chart-2: 37 100% 53%;
+    --chart-3: 152 55% 38%;
   }
 
+  /* ── Dark theme — Mistral Black surfaces ────────────────────────────── */
   .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 96%;
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 96%;
-    --muted: 217 33% 18%;
-    --muted-foreground: 215 20% 65%;
-    --primary: 188 92% 42%;
-    --primary-foreground: 222 47% 11%;
-    --border: 217 33% 18%;
-    --input: 217 33% 18%;
-    --ring: 188 92% 42%;
-    --accent: 43 96% 56%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 63% 44%;
-    --destructive-foreground: 210 40% 96%;
+    --background: 0 0% 12%;            /* Mistral Black #1f1f1f */
+    --foreground: 0 0% 100%;           /* Pure White */
+
+    --card: 0 0% 17%;
+    --card-foreground: 0 0% 100%;
+
+    --muted: 0 0% 22%;
+    --muted-foreground: 0 0% 60%;
+
+    --primary: 17 96% 58%;             /* slightly brighter on dark */
+    --primary-foreground: 0 0% 100%;
+
+    --border: 0 0% 26%;
+    --input: 0 0% 19%;
+    --ring: 17 96% 58%;
+
+    --accent: 37 100% 55%;
+    --accent-foreground: 0 0% 12%;
+
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 44%;
+    --warning: 37 100% 55%;
+
+    --overlay: 0 0% 4%;
+
+    --shadow-card:
+      rgba(0, 0, 0, 0.45) 0px 16px 40px,
+      rgba(127, 99, 21, 0.08) -8px 24px 48px;
+    --shadow-overlay:
+      rgba(0, 0, 0, 0.65) 0px 8px 32px;
+
+    --chart-1: 17 96% 62%;
+    --chart-2: 37 100% 58%;
+    --chart-3: 152 55% 50%;
   }
 
   * {
@@ -60,27 +125,64 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    background-image:
-      radial-gradient(circle at top left, rgba(0, 173, 181, 0.10), transparent 28%),
-      radial-gradient(circle at right 20%, rgba(34, 40, 49, 0.05), transparent 24%);
     min-height: 100vh;
   }
 
   #root {
     min-height: 100vh;
   }
+
+  /* ── Typography: weight 400, size drives hierarchy (DESIGN.md §3) ───── */
+  /* "Single weight, maximum impact — even at 82px" */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 400;
+    line-height: 1.1;
+    @apply text-foreground tracking-tight;
+  }
 }
 
 @layer components {
+  /* ── Warm surface gradient — subtle warmth on card surfaces ─────────── */
+  /* Mistral uses flat surfaces defined by bg color, not glass effects */
   .panel-gradient {
-    background:
-      linear-gradient(135deg, rgba(255,255,255,0.92), rgba(238,238,238,0.78)),
-      radial-gradient(circle at top right, rgba(0,173,181,0.12), transparent 26%);
+    background: hsl(var(--card));
   }
 
   .dark .panel-gradient {
-    background:
-      linear-gradient(135deg, rgba(15,23,42,0.9), rgba(15,23,42,0.72)),
-      radial-gradient(circle at top right, rgba(6,182,212,0.12), transparent 26%);
+    background: hsl(var(--card));
+  }
+
+  /* ── Native <select> styled to match Input ───────────────────────────── */
+  .select-field {
+    @apply flex h-11 w-full border border-input bg-input px-3 py-2 text-sm
+           text-foreground transition
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    border-radius: var(--radius-sm) !important;
+  }
+
+  /* ── Inset metadata panel ────────────────────────────────────────────── */
+  .inset-panel {
+    @apply border border-border bg-muted/50 p-4;
+    border-radius: var(--radius-sm);
+  }
+
+  /* ── Eyebrow — uppercase section label ───────────────────────────────── */
+  /* DESIGN.md: "Uppercase typography used strategically for section labels" */
+  .eyebrow {
+    @apply text-xs font-normal uppercase tracking-[0.18em] text-muted-foreground;
+  }
+
+  /* ── Mistral block gradient strip ────────────────────────────────────── */
+  /* The signature yellow → amber → orange identity element */
+  .block-gradient {
+    background: linear-gradient(
+      to right,
+      #ffd900,
+      #ffe295,
+      #ffa110,
+      #ff8105,
+      #fb6424,
+      #fa520f
+    );
   }
 }

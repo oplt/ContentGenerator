@@ -21,16 +21,19 @@ class TenantSettingsResponse(ORMModel):
     timezone: str
     status: str
     settings: dict[str, str]
+    rbac_mode: str = "role_based_placeholder"
 
 
 class TelegramSettingsRequest(BaseModel):
     bot_token: str | None = None
+    bot_token_secret_ref: str | None = None
     chat_id: str | None = None
     enabled: bool | None = None
 
 
 class TelegramSettingsResponse(BaseModel):
     bot_token_configured: bool
+    bot_token_secret_ref: str | None = None
     chat_id: str
     enabled: bool
 
@@ -42,7 +45,9 @@ class WhatsAppSettingsRequest(BaseModel):
     business_account_id: str | None = None
     verify_token: str | None = None
     access_token: str | None = None
+    access_token_secret_ref: str | None = None
     app_secret: str | None = None
+    app_secret_secret_ref: str | None = None
 
 
 class WhatsAppSettingsResponse(BaseModel):
@@ -53,5 +58,7 @@ class WhatsAppSettingsResponse(BaseModel):
     verify_token: str
     access_token_configured: bool
     app_secret_configured: bool
+    access_token_secret_ref: str | None = None
+    app_secret_secret_ref: str | None = None
     using_tenant_recipient: bool
     using_tenant_credentials: bool

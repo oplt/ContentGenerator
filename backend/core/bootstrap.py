@@ -12,10 +12,20 @@ def _assert_production_secrets() -> None:
         return
     if settings.JWT_SECRET in _WEAK_SECRETS:
         raise RuntimeError("JWT_SECRET must be set to a strong secret in production")
+    if settings.csrf_secret in _WEAK_SECRETS:
+        raise RuntimeError("CSRF_SECRET must be set to a strong secret in production")
+    if not settings.ENCRYPTION_KEY:
+        raise RuntimeError("ENCRYPTION_KEY must be explicitly set in production")
     if not settings.COOKIE_SECURE:
         raise RuntimeError("COOKIE_SECURE must be True in production")
     if not settings.STORAGE_USE_SSL:
         raise RuntimeError("STORAGE_USE_SSL must be True in production")
+    if not settings.PUBLIC_URL.startswith("https://"):
+        raise RuntimeError("PUBLIC_URL must use https in production")
+    if settings.TELEGRAM_WEBHOOK_SECRET in _WEAK_SECRETS:
+        raise RuntimeError("TELEGRAM_WEBHOOK_SECRET must be set to a strong secret in production")
+    if settings.TELEGRAM_CALLBACK_SIGNING_SECRET in _WEAK_SECRETS:
+        raise RuntimeError("TELEGRAM_CALLBACK_SIGNING_SECRET must be set to a strong secret in production")
 from backend.modules.content_strategy.service import ContentStrategyService
 from backend.modules.identity_access.repository import IdentityRepository
 from backend.modules.identity_access.service import IdentityService
