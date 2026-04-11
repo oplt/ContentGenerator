@@ -81,6 +81,12 @@ export function registerTelegramWebhook() {
   });
 }
 
+export function sendTelegramDailyDigestTest() {
+  return apiFetch<{ status: string }>("/settings/telegram/send-daily-digest-test", {
+    method: "POST",
+  });
+}
+
 export function getAuditLogs() {
   return apiFetch<AuditLog[]>("/audit/logs");
 }

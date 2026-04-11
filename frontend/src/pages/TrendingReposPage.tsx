@@ -4,6 +4,7 @@ import {
   ExternalLink,
   GitFork,
   RefreshCw,
+  Send,
   Sparkles,
   Star,
   TrendingUp,
@@ -12,6 +13,7 @@ import {
   getTrendingRepos,
   refreshTrendingRepos,
   generateProductIdeas,
+  sendTelegramDigest,
   type Period,
   type TrendingRepo,
   type ProductIdea,
@@ -47,6 +49,10 @@ export default function TrendingReposPage() {
     },
   });
 
+  const digestMutation = useMutation({
+    mutationFn: sendTelegramDigest,
+  });
+
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
@@ -61,16 +67,27 @@ export default function TrendingReposPage() {
             Daily digest with AI product ideas sent to your Telegram.
           </p>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => refreshMutation.mutate()}
-          disabled={refreshMutation.isPending}
-          className="shrink-0"
-        >
-          <RefreshCw className={`size-4 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => digestMutation.mutate()}
+            disabled={digestMutation.isPending || digestMutation.isSuccess}
+            title="Send today's digest to Telegram"
+          >
+            <Send className={`size-4 ${digestMutation.isPending ? "animate-pulse" : ""}`} />
+            {digestMutation.isPending ? "Sending…" : digestMutation.isSuccess ? "Sent!" : "Send to Telegram"}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => refreshMutation.mutate()}
+            disabled={refreshMutation.isPending}
+          >
+            <RefreshCw className={`size-4 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Period tabs */}
@@ -117,11 +134,13 @@ export default function TrendingReposPage() {
 
 function RepoCard({ repo }: { repo: TrendingRepo }) {
   const [showIdeas, setShowIdeas] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const ideasMutation = useMutation({
     mutationFn: () => generateProductIdeas(repo.id),
     onSuccess: async (updatedRepo) => {
+      setGenerationError(null);
       setShowIdeas(true);
       queryClient.setQueriesData(
         { queryKey: ["trending-repos"] },
@@ -139,10 +158,14 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
       );
       await queryClient.invalidateQueries({ queryKey: ["trending-repos"] });
     },
+    onError: (error) => {
+      setGenerationError(error instanceof Error ? error.message : "Could not generate ideas.");
+    },
   });
 
   const visibleIdeas =
     repo.product_ideas.length > 0 ? repo.product_ideas : (ideasMutation.data?.product_ideas ?? []);
+  const visibleAssessment = repo.repo_assessment ?? ideasMutation.data?.repo_assessment ?? null;
   const hasIdeas = visibleIdeas.length > 0;
 
   return (
@@ -231,7 +254,7 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
               </Button>
               {ideasMutation.isError && (
                 <p className="max-w-56 text-right text-[11px] uppercase tracking-wide text-destructive">
-                  Could not generate ideas. Check backend logs or LLM configuration.
+                  {generationError ?? "Could not generate ideas."}
                 </p>
               )}
             </div>
@@ -251,6 +274,30 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
       {/* Product ideas panel */}
       {hasIdeas && showIdeas && (
         <div className="mt-4 border-t border-border pt-4">
+          {visibleAssessment && (
+            <div className="mb-4 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+              <div className="bg-muted p-4" style={{ borderRadius: "var(--radius-sm)" }}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Repo Assessment
+                  </p>
+                  <Badge variant="muted">{visibleAssessment.confidence}</Badge>
+                </div>
+                <p className="text-sm text-foreground leading-relaxed">
+                  {visibleAssessment.what_it_does}
+                </p>
+                {visibleAssessment.best_commercial_angle && (
+                  <p className="mt-3 text-xs text-primary">
+                    Best angle: {visibleAssessment.best_commercial_angle}
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                <AssessmentList label="Assets" items={visibleAssessment.strongest_assets} />
+                <AssessmentList label="Limitations" items={visibleAssessment.main_limitations} />
+              </div>
+            </div>
+          )}
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
             AI-Generated Product Ideas
           </p>
@@ -265,42 +312,103 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
   );
 }
 
+function AssessmentList({ label, items }: { label: string; items: string[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="bg-muted p-4" style={{ borderRadius: "var(--radius-sm)" }}>
+      <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
+      <div className="flex flex-col gap-2">
+        {items.slice(0, 3).map((item) => (
+          <p key={item} className="text-xs text-foreground leading-relaxed">
+            {item}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Idea card
 // ---------------------------------------------------------------------------
 
 function IdeaCard({ idea, index }: { idea: ProductIdea; index: number }) {
+  const scoreEntries = [
+    ["Revenue", idea.scores.revenue_potential],
+    ["Urgency", idea.scores.customer_urgency],
+    ["Leverage", idea.scores.repo_leverage],
+    ["MVP", idea.scores.speed_to_mvp],
+  ] as const;
+
   return (
     <div
       className="bg-muted p-4 flex flex-col gap-2"
       style={{ borderRadius: "var(--radius-sm)" }}
     >
       <div className="flex items-baseline gap-2">
-        <span className="text-xs text-muted-foreground">#{index}</span>
+        <span className="text-xs text-muted-foreground">#{idea.rank || index}</span>
         <h3 className="text-sm font-normal text-foreground">{idea.title}</h3>
       </div>
 
-      <p className="text-xs text-muted-foreground leading-relaxed">{idea.problem}</p>
+      {idea.positioning && (
+        <p className="text-xs text-primary italic leading-relaxed">{idea.positioning}</p>
+      )}
 
-      <p className="text-xs text-foreground leading-relaxed">{idea.solution}</p>
+      <p className="text-xs text-muted-foreground leading-relaxed">{idea.pain_point}</p>
+
+      <p className="text-xs text-foreground leading-relaxed">{idea.product_concept}</p>
+
+      {idea.why_this_repo_fits && (
+        <p className="text-xs text-foreground/80 leading-relaxed">
+          Why this repo fits: {idea.why_this_repo_fits}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        {scoreEntries.map(([label, score]) => (
+          <div
+            key={label}
+            className="border border-border px-2 py-1"
+            style={{ borderRadius: "var(--radius-sm)" }}
+          >
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+            <div className="text-sm text-foreground">{score}/10</div>
+          </div>
+        ))}
+      </div>
 
       <div className="mt-auto pt-2 border-t border-border flex flex-col gap-1">
-        {idea.target_audience && (
+        {idea.target_customer && (
           <div className="flex items-start gap-1.5 text-xs">
             <span className="text-muted-foreground shrink-0">Audience:</span>
-            <span className="text-foreground">{idea.target_audience}</span>
+            <span className="text-foreground">{idea.target_customer}</span>
           </div>
         )}
-        {idea.monetization && (
+        {idea.monetization.model && (
           <div className="flex items-start gap-1.5 text-xs">
             <span className="text-muted-foreground shrink-0">Model:</span>
-            <span className="text-foreground">{idea.monetization}</span>
+            <span className="text-foreground">{idea.monetization.model}</span>
           </div>
         )}
-        {idea.wow_factor && (
+        {idea.monetization.pricing_logic && (
+          <div className="flex items-start gap-1.5 text-xs">
+            <span className="text-muted-foreground shrink-0">Pricing:</span>
+            <span className="text-foreground">{idea.monetization.pricing_logic}</span>
+          </div>
+        )}
+        {idea.time_to_mvp && (
+          <div className="flex items-start gap-1.5 text-xs">
+            <span className="text-muted-foreground shrink-0">Time:</span>
+            <span className="text-foreground">{idea.time_to_mvp}</span>
+          </div>
+        )}
+        {idea.why_now && (
           <div className="flex items-start gap-1.5 text-xs mt-1">
             <Sparkles className="size-3 text-primary shrink-0 mt-0.5" />
-            <span className="text-primary italic">{idea.wow_factor}</span>
+            <span className="text-primary italic">{idea.why_now}</span>
           </div>
         )}
       </div>

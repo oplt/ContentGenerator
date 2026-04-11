@@ -12,7 +12,7 @@ from backend.modules.trending_repos.schemas import (
     TrendingRepoResponse,
     TrendingReposListResponse,
 )
-from backend.modules.trending_repos.service import TrendingReposService
+from backend.modules.trending_repos.service import TrendingReposService, _serialize_trending_repo_response
 
 router = APIRouter()
 
@@ -45,6 +45,19 @@ async def refresh_trending_repos(
     return await svc.get_trending(membership.tenant_id, period)
 
 
+@router.post("/send-digest", status_code=204)
+async def send_telegram_digest(
+    db: AsyncSession = Depends(get_db),
+    membership: TenantUser = Depends(get_current_membership),
+) -> None:
+    """Send today's trending digest with product ideas to the tenant's Telegram."""
+    svc = TrendingReposService(db)
+    try:
+        await svc.send_daily_digest_to_telegram(membership.tenant_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/{repo_id}/generate-ideas", response_model=TrendingRepoResponse)
 async def generate_product_ideas(
     repo_id: uuid.UUID,
@@ -59,4 +72,4 @@ async def generate_product_ideas(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return TrendingRepoResponse.model_validate(record)
+    return _serialize_trending_repo_response(record)

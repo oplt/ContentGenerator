@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import math
 import re
 from collections import Counter
@@ -9,10 +8,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+import structlog
 
 from backend.core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -88,7 +88,7 @@ class InferenceMetrics:
 
 DEFAULT_PROVIDER_CAPABILITIES: dict[str, ProviderCapabilities] = {
     "mock": ProviderCapabilities(json_mode=True, long_context=True, review_only=True),
-    "ollama": ProviderCapabilities(long_context=True, review_only=True),
+    "ollama": ProviderCapabilities(json_mode=True, long_context=True, review_only=True),
     "vllm": ProviderCapabilities(json_mode=True, long_context=True, review_only=True),
     "llamacpp": ProviderCapabilities(json_mode=True, long_context=True, review_only=True),
     "openai": ProviderCapabilities(json_mode=True, long_context=True, review_only=True),
@@ -108,9 +108,17 @@ DEFAULT_TASK_REQUIREMENTS: dict[str, TaskRequirements] = {
     "reviewer": TaskRequirements(json_mode=True, review_only=True),
     "optimizer": TaskRequirements(json_mode=True),
     "editorial_brief": TaskRequirements(json_mode=True, long_context=True),
+    "product_hunter": TaskRequirements(json_mode=True, long_context=True),
 }
 
 inference_metrics = InferenceMetrics()
+
+
+def _format_exception_detail(exc: Exception) -> str:
+    detail = str(exc).strip()
+    if detail:
+        return detail
+    return exc.__class__.__name__
 
 
 def _load_capability_overrides() -> dict[str, ProviderCapabilities]:
@@ -178,20 +186,36 @@ def get_inference_metrics_snapshot() -> dict[str, dict[str, int]]:
     return inference_metrics.snapshot()
 
 
+def _timeout_for_task(task: str) -> float:
+    return float(settings.llm_task_timeouts.get(task, settings.LLM_TIMEOUT_SECONDS))
+
+
 def _parse_json_object(raw: str, default: dict[str, Any] | None = None) -> StructuredGenerationResult:
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         lines = cleaned.splitlines()
         cleaned = "\n".join(lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:])
+
+    # First try: extract first JSON object via regex (handles prose-wrapped output)
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     candidate = match.group(0) if match else cleaned
     try:
         parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return StructuredGenerationResult(data=parsed, parsed=True, raw=raw)
     except json.JSONDecodeError:
-        return StructuredGenerationResult(data=default or {}, parsed=False, raw=raw)
-    if not isinstance(parsed, dict):
-        return StructuredGenerationResult(data=default or {}, parsed=False, raw=raw)
-    return StructuredGenerationResult(data=parsed, parsed=True, raw=raw)
+        pass
+
+    # Second try: parse the full cleaned string as-is (handles model-returned arrays or
+    # cases where the regex candidate was broken by multiple top-level objects)
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return StructuredGenerationResult(data=parsed, parsed=True, raw=raw)
+    except json.JSONDecodeError:
+        pass
+
+    return StructuredGenerationResult(data=default or {}, parsed=False, raw=raw)
 
 
 class LLMProvider:
@@ -351,7 +375,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         }
         if response_format:
             body["response_format"] = response_format
-        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=_timeout_for_task(task)) as client:
             response = await client.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
             response.raise_for_status()
             return str(response.json()["choices"][0]["message"]["content"]).strip()
@@ -420,16 +444,6 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         return ProviderHealth(provider_name=self.provider_name, status="ok", detail=detail, models=models)
 
 
-class VLLMProvider(OpenAICompatibleLLMProvider):
-    def __init__(self, *, base_url: str | None = None, model: str | None = None) -> None:
-        super().__init__(base_url=base_url or settings.VLLM_BASE_URL, model=model, provider_name="vllm")
-
-
-class LlamaCppProvider(OpenAICompatibleLLMProvider):
-    def __init__(self, *, base_url: str | None = None, model: str | None = None) -> None:
-        super().__init__(base_url=base_url or settings.LLAMACPP_BASE_URL, model=model, provider_name="llamacpp")
-
-
 class OllamaCompatibleLLMProvider(LLMProvider):
     provider_name = "ollama"
 
@@ -437,20 +451,49 @@ class OllamaCompatibleLLMProvider(LLMProvider):
         self.model = model or settings.LLM_MODEL
         self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
 
-    async def _call(self, prompt: str, *, temperature: float, task: str) -> str:
+    async def _call(
+        self,
+        prompt: str,
+        *,
+        temperature: float,
+        task: str,
+        max_tokens: int | None = None,
+        response_format: str | None = None,
+    ) -> str:
         model = settings.llm_task_models.get(task, self.model)
-        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
-            response = await client.post(
+        payload: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "stream": True,
+            "options": {"temperature": temperature},
+        }
+        if max_tokens is not None and max_tokens > 0:
+            payload["options"]["num_predict"] = max_tokens
+        if response_format is not None:
+            payload["format"] = response_format
+        task_timeout = _timeout_for_task(task)
+        # Use a short connect timeout but allow the full task timeout for reading,
+        # since Ollama streams tokens incrementally and the total generation can be slow.
+        timeout = httpx.Timeout(connect=15.0, read=task_timeout, write=15.0, pool=15.0)
+        chunks: list[str] = []
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
                 f"{self.base_url}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": temperature},
-                },
-            )
-            response.raise_for_status()
-            return str(response.json().get("response", "")).strip()
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    chunks.append(event.get("response", ""))
+                    if event.get("done"):
+                        break
+        return "".join(chunks).strip()
 
     async def summarize(self, prompt: str, *, max_words: int = 120) -> str:
         return await self._call(f"Summarize in {max_words} words or less:\n{prompt}", temperature=0.2, task="summarize")
@@ -458,7 +501,25 @@ class OllamaCompatibleLLMProvider(LLMProvider):
     async def generate_text(
         self, prompt: str, *, max_tokens: int = 800, temperature: float = 0.7, task: str = "default"
     ) -> str:
-        return await self._call(prompt, temperature=temperature, task=task)
+        return await self._call(prompt, temperature=temperature, task=task, max_tokens=max_tokens)
+
+    async def _generate_structured_json_result(
+        self,
+        prompt: str,
+        *,
+        schema_hint: dict[str, Any] | None = None,
+        max_tokens: int = 800,
+        temperature: float = 0.2,
+        task: str = "structured_json",
+    ) -> StructuredGenerationResult:
+        raw = await self._call(
+            prompt,
+            temperature=temperature,
+            task=task,
+            max_tokens=max_tokens,
+            response_format="json" if settings.LLM_JSON_ENFORCEMENT != "off" else None,
+        )
+        return _parse_json_object(raw, default=schema_hint or {})
 
     async def healthcheck(self) -> ProviderHealth:
         if not self.base_url:
@@ -543,65 +604,37 @@ class HashingEmbeddingsProvider(EmbeddingsProvider):
         return vector
 
 
-def _dedupe(sequence: list[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for item in sequence:
-        if item and item not in seen:
-            ordered.append(item)
-            seen.add(item)
-    return ordered
-
-
 def _build_provider(provider_name: str) -> LLMProvider:
     name = provider_name.lower()
     if name == "ollama":
         return OllamaCompatibleLLMProvider()
     if name == "vllm":
-        return VLLMProvider()
+        return OpenAICompatibleLLMProvider(
+            base_url=settings.VLLM_BASE_URL,
+            provider_name="vllm",
+        )
     if name == "llamacpp":
-        return LlamaCppProvider()
+        return OpenAICompatibleLLMProvider(
+            base_url=settings.LLAMACPP_BASE_URL,
+            provider_name="llamacpp",
+        )
     if name in {"openai", "openai_compatible"} and settings.LLM_BASE_URL:
         return OpenAICompatibleLLMProvider(provider_name="openai_compatible")
     return MockLLMProvider()
 
 
-class RoutedLLMProvider(LLMProvider):
-    provider_name = "router"
+class ConfiguredLLMProvider(LLMProvider):
+    provider_name = "configured"
 
-    def __init__(self, default_provider_name: str | None = None) -> None:
-        self.default_provider_name = (default_provider_name or settings.LLM_PROVIDER).lower()
+    def __init__(self, provider_name: str | None = None) -> None:
+        self.selected_provider_name = _ensure_provider_supports_task(
+            provider_name or settings.LLM_PROVIDER,
+            "default",
+        )
+        self.provider = _build_provider(self.selected_provider_name)
+        self.provider_name = self.provider.provider_name
 
-    def _task_provider_overrides(self) -> dict[str, str]:
-        raw = getattr(settings, "LLM_TASK_PROVIDER_OVERRIDES_JSON", "") or "{}"
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-        return {str(task): str(name).lower() for task, name in parsed.items() if task and name}
-
-    def _provider_names_for_task(self, task: str) -> list[str]:
-        requirements = get_task_requirements(task)
-        override = self._task_provider_overrides().get(task)
-        ordered = [override] if override else []
-        ordered.extend(requirements.preferred_providers)
-        ordered.append(self.default_provider_name)
-        ordered.extend(settings.llm_fallback_order)
-        provider_names = _dedupe([name.lower() for name in ordered if name])
-        compatible = [name for name in provider_names if self._supports_task(name, requirements)]
-        return compatible or provider_names or ["mock"]
-
-    def _supports_task(self, provider_name: str, requirements: TaskRequirements) -> bool:
-        capabilities = get_provider_capabilities(provider_name)
-        if requirements.json_mode and not capabilities.json_mode:
-            return False
-        if requirements.long_context and not capabilities.long_context:
-            return False
-        if requirements.review_only and not capabilities.review_only:
-            return False
-        return True
-
-    async def _run_with_fallback(
+    async def _execute(
         self,
         *,
         task: str,
@@ -609,44 +642,57 @@ class RoutedLLMProvider(LLMProvider):
         executor: Any,
         schema_hint: dict[str, Any] | None = None,
     ) -> Any:
+        _ensure_provider_supports_task(self.selected_provider_name, task)
         last_error: Exception | None = None
-        attempts_per_provider = max(settings.LLM_MAX_RETRIES, 0) + 1
-        fallback_used = False
-        for index, provider_name in enumerate(self._provider_names_for_task(task)):
-            provider = _build_provider(provider_name)
-            for attempt in range(attempts_per_provider):
-                try:
-                    result = await executor(provider)
-                    if operation == "structured" and isinstance(result, StructuredGenerationResult):
-                        if result.parsed:
-                            if fallback_used or index > 0 or attempt > 0:
-                                inference_metrics.record_recovery(provider.provider_name, task)
-                            return result.data
-                        inference_metrics.record_parse_failure(provider.provider_name, task)
-                        fallback_used = True
-                        break
-                    return result
-                except Exception as exc:
-                    last_error = exc
-                    inference_metrics.record_provider_failure(provider.provider_name, task)
+        attempts = max(settings.LLM_MAX_RETRIES, 0) + 1
+        for attempt in range(attempts):
+            try:
+                result = await executor(self.provider)
+                if operation == "structured" and isinstance(result, StructuredGenerationResult):
+                    if result.parsed:
+                        if attempt > 0:
+                            inference_metrics.record_recovery(self.provider.provider_name, task)
+                        return result.data
+                    inference_metrics.record_parse_failure(self.provider.provider_name, task)
+                    last_error = RuntimeError(
+                        f"Provider '{self.provider.provider_name}' returned invalid structured output for task={task}"
+                    )
+                    raw_preview = (result.raw[:500] + "…") if len(result.raw) > 500 else result.raw
                     logger.warning(
                         "Inference provider failed",
-                        extra={
-                            "provider": provider.provider_name,
-                            "task": task,
-                            "attempt": attempt + 1,
-                            "operation": operation,
-                        },
+                        provider=self.provider.provider_name,
+                        task=task,
+                        attempt=attempt + 1,
+                        operation=operation,
+                        reason="invalid_structured_output",
+                        raw_preview=raw_preview,
                     )
-            fallback_used = True
+                    continue
+                return result
+            except Exception as exc:
+                last_error = exc
+                inference_metrics.record_provider_failure(self.provider.provider_name, task)
+                logger.warning(
+                    "Inference provider failed",
+                    provider=self.provider.provider_name,
+                    task=task,
+                    attempt=attempt + 1,
+                    operation=operation,
+                    exc_info=exc,
+                )
+
         if operation == "structured":
+            if last_error is not None:
+                raise RuntimeError(
+                    f"Structured inference failed for task={task}: {_format_exception_detail(last_error)}"
+                ) from last_error
             return schema_hint or {}
         if last_error is not None:
             raise last_error
-        raise RuntimeError(f"No inference providers available for task={task}")
+        raise RuntimeError(f"No inference provider available for task={task}")
 
     async def summarize(self, prompt: str, *, max_words: int = 120) -> str:
-        return await self._run_with_fallback(
+        return await self._execute(
             task="summarize",
             operation="text",
             executor=lambda provider: provider.summarize(prompt, max_words=max_words),
@@ -655,7 +701,7 @@ class RoutedLLMProvider(LLMProvider):
     async def generate_text(
         self, prompt: str, *, max_tokens: int = 800, temperature: float = 0.7, task: str = "default"
     ) -> str:
-        return await self._run_with_fallback(
+        return await self._execute(
             task=task,
             operation="text",
             executor=lambda provider: provider.generate_text(
@@ -675,7 +721,7 @@ class RoutedLLMProvider(LLMProvider):
         temperature: float = 0.2,
         task: str = "structured_json",
     ) -> StructuredGenerationResult:
-        data = await self._run_with_fallback(
+        data = await self._execute(
             task=task,
             operation="structured",
             schema_hint=schema_hint,
@@ -690,19 +736,33 @@ class RoutedLLMProvider(LLMProvider):
         return StructuredGenerationResult(data=data, parsed=True, raw=json.dumps(data))
 
     async def healthcheck(self) -> ProviderHealth:
-        candidates = self._provider_names_for_task("default")
-        provider = _build_provider(candidates[0] if candidates else "mock")
-        return await provider.healthcheck()
+        return await self.provider.healthcheck()
+
+
+def _ensure_provider_supports_task(provider_name: str, task: str) -> str:
+    normalized = (provider_name or "mock").lower()
+    requirements = get_task_requirements(task)
+    capabilities = get_provider_capabilities(normalized)
+    if requirements.json_mode and not capabilities.json_mode:
+        raise RuntimeError(
+            f"Inference provider '{normalized}' does not support task='{task}'. "
+            "Change LLM_PROVIDER to a compatible backend."
+        )
+    if requirements.long_context and not capabilities.long_context:
+        raise RuntimeError(
+            f"Inference provider '{normalized}' does not support task='{task}'. "
+            "Change LLM_PROVIDER to a compatible backend."
+        )
+    if requirements.review_only and not capabilities.review_only:
+        raise RuntimeError(
+            f"Inference provider '{normalized}' does not support task='{task}'. "
+            "Change LLM_PROVIDER to a compatible backend."
+        )
+    return normalized
 
 
 def get_llm_provider(provider_name: str | None = None) -> LLMProvider:
-    if provider_name:
-        return _build_provider(provider_name)
-    return RoutedLLMProvider()
-
-
-def get_llm_provider_with_fallback(task: str = "default") -> LLMProvider:
-    return RoutedLLMProvider(default_provider_name=settings.LLM_PROVIDER if task else settings.LLM_PROVIDER)
+    return ConfiguredLLMProvider(provider_name or settings.LLM_PROVIDER)
 
 
 def get_embeddings_provider() -> EmbeddingsProvider:
@@ -722,8 +782,14 @@ def get_embeddings_provider() -> EmbeddingsProvider:
 async def collect_inference_readiness() -> dict[str, ProviderHealth]:
     providers = {
         "ollama": OllamaCompatibleLLMProvider(),
-        "vllm": VLLMProvider(),
-        "llamacpp": LlamaCppProvider(),
+        "vllm": OpenAICompatibleLLMProvider(
+            base_url=settings.VLLM_BASE_URL,
+            provider_name="vllm",
+        ),
+        "llamacpp": OpenAICompatibleLLMProvider(
+            base_url=settings.LLAMACPP_BASE_URL,
+            provider_name="llamacpp",
+        ),
     }
     results: dict[str, ProviderHealth] = {}
     for name, provider in providers.items():

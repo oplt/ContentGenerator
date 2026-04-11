@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.middleware.correlation_id import CorrelationIdMiddleware
 from backend.api.middleware.request_logging import RequestLoggingMiddleware
 from backend.api.router import api_router
-from backend.api.v1.health import health_router
 from backend.core.bootstrap import bootstrap_application
 from backend.core.cache import redis_client
 from backend.core.config import settings
@@ -51,4 +50,3 @@ app.add_middleware(
 
 register_exception_handlers(app)
 app.include_router(api_router)
-app.include_router(health_router)

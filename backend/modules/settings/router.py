@@ -16,6 +16,7 @@ from backend.modules.settings.schemas import (
 )
 from backend.modules.settings.service import SettingsService
 from backend.core.config import settings
+from backend.modules.trending_repos.service import TrendingReposService
 
 router = APIRouter()
 
@@ -109,3 +110,13 @@ async def register_telegram_webhook(
     secret_token = getattr(settings, "TELEGRAM_WEBHOOK_SECRET", "")
     result = await provider.set_webhook(webhook_url, secret_token=secret_token)
     return {"webhook_url": webhook_url, "telegram_response": result}
+
+
+@router.post("/telegram/send-daily-digest-test")
+async def send_telegram_daily_digest_test(
+    membership: TenantUser = Depends(require_permission("settings:write")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    svc = TrendingReposService(db)
+    await svc.send_daily_digest_to_telegram(membership.tenant_id)
+    return {"status": "sent"}

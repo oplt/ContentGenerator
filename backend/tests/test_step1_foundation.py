@@ -20,11 +20,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.modules.story_intelligence.providers import (
+    ConfiguredLLMProvider,
     HashingEmbeddingsProvider,
-    LlamaCppProvider,
     OllamaEmbeddingsProvider,
-    RoutedLLMProvider,
-    VLLMProvider,
+    OpenAICompatibleLLMProvider,
     cosine_similarity,
     get_embeddings_provider,
     get_llm_provider,
@@ -206,17 +205,16 @@ def test_get_llm_provider_returns_router_by_default(monkeypatch: pytest.MonkeyPa
             LLM_API_KEY="",
             LLM_MODEL="model",
             LLM_MAX_RETRIES=0,
-            LLM_TASK_PROVIDER_OVERRIDES_JSON="{}",
             LLM_TASK_REQUIREMENTS_JSON="{}",
             LLM_PROVIDER_CAPABILITIES_JSON="{}",
-            llm_fallback_order=["llamacpp", "mock"],
             llm_task_models={},
             LLM_TIMEOUT_SECONDS=30.0,
             LLM_JSON_ENFORCEMENT="best_effort",
         ),
     )
     provider = get_llm_provider()
-    assert isinstance(provider, RoutedLLMProvider)
+    assert isinstance(provider, ConfiguredLLMProvider)
+    assert provider.provider.provider_name == "vllm"
 
 
 def test_get_llm_provider_returns_named_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -230,20 +228,22 @@ def test_get_llm_provider_returns_named_provider(monkeypatch: pytest.MonkeyPatch
             LLM_API_KEY="",
             LLM_MODEL="model",
             LLM_MAX_RETRIES=0,
-            LLM_TASK_PROVIDER_OVERRIDES_JSON="{}",
             LLM_TASK_REQUIREMENTS_JSON="{}",
             LLM_PROVIDER_CAPABILITIES_JSON="{}",
-            llm_fallback_order=["vllm", "mock"],
             llm_task_models={},
             LLM_TIMEOUT_SECONDS=30.0,
             LLM_JSON_ENFORCEMENT="best_effort",
         ),
     )
     provider = get_llm_provider("llamacpp")
-    assert isinstance(provider, LlamaCppProvider)
+    assert isinstance(provider, ConfiguredLLMProvider)
+    assert isinstance(provider.provider, OpenAICompatibleLLMProvider)
+    assert provider.provider.provider_name == "llamacpp"
 
     provider = get_llm_provider("vllm")
-    assert isinstance(provider, VLLMProvider)
+    assert isinstance(provider, ConfiguredLLMProvider)
+    assert isinstance(provider.provider, OpenAICompatibleLLMProvider)
+    assert provider.provider.provider_name == "vllm"
 
 
 # ---------------------------------------------------------------------------

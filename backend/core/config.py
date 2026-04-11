@@ -113,16 +113,15 @@ class Settings(BaseSettings):
 
     # LLM provider: "mock" (default/tests), "ollama", "vllm", "llamacpp", "openai_compatible"
     # Override in .env or docker-compose environment section for real deployments.
-    LLM_PROVIDER: str = "mock"
+    LLM_PROVIDER: str = "ollama"
     LLM_MODEL: str = "llama3.2:3b"
     LLM_BASE_URL: str = ""
     LLM_API_KEY: str = ""
     LLM_TIMEOUT_SECONDS: float = 45.0
     LLM_MAX_RETRIES: int = 2
     LLM_JSON_ENFORCEMENT: str = "best_effort"
-    LLM_FALLBACK_ORDER: str = "ollama,vllm,llamacpp,openai_compatible,mock"
     LLM_TASK_MODELS_JSON: str = "{}"
-    LLM_TASK_PROVIDER_OVERRIDES_JSON: str = "{}"
+    LLM_TASK_TIMEOUTS_JSON: str = "{}"
     LLM_TASK_REQUIREMENTS_JSON: str = "{}"
     LLM_PROVIDER_CAPABILITIES_JSON: str = "{}"
     VLLM_BASE_URL: str = "http://localhost:8001/v1"
@@ -234,8 +233,23 @@ class Settings(BaseSettings):
         return {str(key): str(value) for key, value in parsed.items() if key and value}
 
     @cached_property
-    def llm_fallback_order(self) -> list[str]:
-        return [item.strip().lower() for item in self.LLM_FALLBACK_ORDER.split(",") if item.strip()]
+    def llm_task_timeouts(self) -> dict[str, float]:
+        import json
+
+        try:
+            parsed = json.loads(self.LLM_TASK_TIMEOUTS_JSON or "{}")
+        except json.JSONDecodeError:
+            return {}
+
+        timeouts: dict[str, float] = {}
+        for key, value in parsed.items():
+            try:
+                timeout = float(value)
+            except (TypeError, ValueError):
+                continue
+            if timeout > 0:
+                timeouts[str(key)] = timeout
+        return timeouts
 
     @cached_property
     def telegram_callback_signing_secret(self) -> str:

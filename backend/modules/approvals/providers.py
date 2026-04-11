@@ -171,8 +171,14 @@ class TelegramProvider:
         self.bot_token = bot_token
         self.chat_id = chat_id
 
-    async def send_message(self, text: str, approval_request_id: str | None = None) -> dict[str, str]:
-        payload: dict[str, Any] = {"chat_id": self.chat_id, "text": text, "parse_mode": "HTML"}
+    async def send_message(
+        self,
+        text: str,
+        approval_request_id: str | None = None,
+        *,
+        parse_mode: str = "HTML",
+    ) -> dict[str, str]:
+        payload: dict[str, Any] = {"chat_id": self.chat_id, "text": text, "parse_mode": parse_mode}
         if approval_request_id:
             payload["reply_markup"] = {
                 "inline_keyboard": [[

@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from backend.api.v1.health import health_router
 from backend.modules.analytics.router import router as analytics_router
 from backend.modules.approvals.router import router as approvals_router
 from backend.modules.audit.router import router as audit_router
@@ -31,3 +32,4 @@ api_router.include_router(analytics_router, prefix="/analytics", tags=["analytic
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
 api_router.include_router(audit_router, prefix="/audit", tags=["audit"])
 api_router.include_router(trending_repos_router, prefix="/trending-repos", tags=["trending-repos"])
+api_router.include_router(health_router)

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { getSocialAccounts, upsertSocialAccount, type SocialAccountUpsertPayload } from "../api/publishing";
-import { getTelegramSettings, getTenantSettings, getWhatsAppSettings, registerTelegramWebhook, updateTelegramSettings, updateTenantSettings, updateWhatsAppSettings } from "../api/settings";
+import { getTelegramSettings, getTenantSettings, getWhatsAppSettings, registerTelegramWebhook, sendTelegramDailyDigestTest, updateTelegramSettings, updateTenantSettings, updateWhatsAppSettings } from "../api/settings";
 import { SocialPlatformSettingsCard, type SocialPlatformConfigField } from "../components/dashboard/SocialPlatformSettingsCard";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -244,6 +244,7 @@ export default function SettingsPage() {
     },
   });
   const registerWebhookMutation = useMutation({ mutationFn: registerTelegramWebhook });
+  const sendTelegramDigestTestMutation = useMutation({ mutationFn: sendTelegramDailyDigestTest });
 
   const socialMutation = useMutation({
     mutationFn: upsertSocialAccount,
@@ -692,6 +693,19 @@ export default function SettingsPage() {
               >
                 {registerWebhookMutation.isPending ? "Registering…" : "Register Webhook"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  sendTelegramDigestTestMutation.isPending ||
+                  !telegramSettings.data?.bot_token_configured ||
+                  !telegramSettings.data?.chat_id ||
+                  !telegramSettings.data?.enabled
+                }
+                onClick={() => sendTelegramDigestTestMutation.mutate()}
+              >
+                {sendTelegramDigestTestMutation.isPending ? "Sending…" : "Send Test Daily Digest"}
+              </Button>
               {registerWebhookMutation.isSuccess && (
                 <p className="text-xs text-muted-foreground md:col-span-2">
                   ✅ Webhook registered: {registerWebhookMutation.data?.webhook_url}
@@ -700,6 +714,16 @@ export default function SettingsPage() {
               {registerWebhookMutation.isError && (
                 <p className="text-xs text-destructive md:col-span-2">
                   Failed to register webhook. Make sure the bot token is saved and the server is publicly reachable.
+                </p>
+              )}
+              {sendTelegramDigestTestMutation.isSuccess && (
+                <p className="text-xs text-muted-foreground md:col-span-2">
+                  ✅ Test daily digest sent to the configured Telegram chat.
+                </p>
+              )}
+              {sendTelegramDigestTestMutation.isError && (
+                <p className="text-xs text-destructive md:col-span-2">
+                  Failed to send the test daily digest. Check that Telegram is enabled, the bot token is valid, the chat ID is correct, and daily repos exist.
                 </p>
               )}
             </form>

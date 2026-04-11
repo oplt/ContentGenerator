@@ -14,7 +14,7 @@ def test_live_health_endpoint(monkeypatch):
     monkeypatch.setattr(main_module.redis_client, "aclose", noop)
 
     with TestClient(main_module.app) as client:
-        response = client.get("/health/live")
+        response = client.get("/api/v1/health/live")
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import uuid
@@ -13,7 +14,10 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
-from backend.modules.inference.providers import RoutedLLMProvider
+from backend.modules.inference.providers import (
+    OpenAICompatibleLLMProvider,
+    collect_inference_readiness,
+)
 from backend.modules.trending_repos.models import TrendingRepo
 from backend.modules.trending_repos.repository import TrendingReposRepository
 from backend.modules.trending_repos.schemas import TrendingRepoResponse, TrendingReposListResponse
@@ -218,7 +222,7 @@ class TrendingReposService:
         records = await self.repo.get_latest_by_period(tenant_id, period)
         snapshot_date = records[0].snapshot_date if records else date.today()
         return TrendingReposListResponse(
-            repos=[TrendingRepoResponse.model_validate(r) for r in records],
+            repos=[_serialize_trending_repo_response(r) for r in records],
             period=period,
             snapshot_date=snapshot_date,
             total=len(records),
@@ -244,13 +248,35 @@ class TrendingReposService:
     #         )
     #     return OpenAICompatibleLLMProvider(provider_name="openai_compatible")
 
-    def _get_product_ideas_llm(self) -> RoutedLLMProvider:
+    def _get_product_ideas_llm(self):
         if not settings.LLM_PROVIDER:
             raise RuntimeError(
                 "Generate Ideas requires a local LLM model. "
                 "Configure LLM_PROVIDER in the backend environment."
             )
-        return RoutedLLMProvider()
+        return get_llm_provider(settings.LLM_PROVIDER)
+
+    async def _ensure_product_ideas_llm_ready(self) -> None:
+        provider_name = str(settings.LLM_PROVIDER or "mock").strip().lower() or "mock"
+        if provider_name == "mock":
+            return
+
+        health = await self._get_llm_provider_health(provider_name)
+        if health.ready:
+            return
+
+        raise RuntimeError(
+            f"Generate Ideas LLM provider '{provider_name}' is unavailable: {health.detail}. "
+            "Start the configured LLM service or update LLM_PROVIDER to a reachable provider."
+        )
+
+    async def _get_llm_provider_health(self, provider_name: str):
+        if provider_name in {"ollama", "vllm", "llamacpp"}:
+            readiness = await collect_inference_readiness()
+            return readiness[provider_name]
+        if provider_name in {"openai", "openai_compatible"}:
+            return await OpenAICompatibleLLMProvider(provider_name="openai_compatible").healthcheck()
+        return await get_llm_provider(provider_name).healthcheck()
 
     async def _fetch_repo_readme_excerpt(self, full_name: str) -> str | None:
         try:
@@ -279,35 +305,74 @@ class TrendingReposService:
             raise ValueError(f"TrendingRepo {repo_id} not found for tenant {tenant_id}")
 
         llm = self._get_product_ideas_llm()
+        await self._ensure_product_ideas_llm_ready()
         system_prompt = self._load_product_hunter_prompt()
         readme_excerpt = await self._fetch_repo_readme_excerpt(record.full_name)
         user_prompt = _build_ideas_prompt(record, readme_excerpt=readme_excerpt)
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
         schema_hint = {
+            "repo_assessment": {
+                "what_it_does": "string",
+                "evidence": ["string"],
+                "strongest_assets": ["string"],
+                "main_limitations": ["string"],
+                "best_commercial_angle": "string",
+                "confidence": "medium",
+            },
             "ideas": [
                 {
+                    "rank": 1,
                     "title": "string",
-                    "problem": "string",
-                    "solution": "string",
-                    "target_audience": "string",
-                    "monetization": "string",
-                    "wow_factor": "string",
+                    "positioning": "string",
+                    "target_customer": "string",
+                    "pain_point": "string",
+                    "product_concept": "string",
+                    "why_this_repo_fits": "string",
+                    "required_extensions": ["string"],
+                    "monetization": {
+                        "model": "string",
+                        "pricing_logic": "string",
+                        "estimated_willingness_to_pay": "string",
+                    },
+                    "scores": {
+                        "revenue_potential": 0,
+                        "customer_urgency": 0,
+                        "repo_leverage": 0,
+                        "speed_to_mvp": 0,
+                        "competitive_intensity": 0,
+                    },
+                    "time_to_mvp": "string",
+                    "key_risks": ["string"],
+                    "why_now": "string",
+                    "investor_angle": "string",
+                    "v1_scope": ["string"],
+                    "not_for_v1": ["string"],
                 }
-            ]
+            ],
         }
 
         result = await llm.generate_structured_json(
             full_prompt,
             schema_hint=schema_hint,
-            max_tokens=2000,
-            temperature=0.8,
+            max_tokens=8192,
+            temperature=0.2,
             task="product_hunter",
         )
 
+        repo_assessment = _normalize_repo_assessment(result.get("repo_assessment"))
         ideas = _normalize_generated_ideas(result.get("ideas") or [])
         if not ideas:
-            ideas = _build_fallback_ideas(record)
+            logger.warning(
+                "Product hunter returned unusable structured output for repo %s (%s): %s",
+                record.name,
+                repo_id,
+                _format_product_hunter_result_preview(result),
+            )
+            raise RuntimeError(
+                "Idea generation returned unusable output. No ideas were saved."
+            )
+        record.repo_assessment = repo_assessment
         record.product_ideas = ideas
         record.ideas_generated_at = datetime.now(timezone.utc)
         await self.repo.save(record)
@@ -359,11 +424,11 @@ class TrendingReposService:
             logger.info("No daily trending repos to send for tenant %s", tenant_id)
             return
 
-        today = date.today().isoformat()
+        today = _escape_md(date.today().isoformat())
         lines = [f"*🔥 Trending GitHub Repos — {today}*\n"]
 
         for r in records[:10]:
-            lang = f" · {r.language}" if r.language else ""
+            lang = f" · {_escape_md(r.language)}" if r.language else ""
             lines.append(
                 f"{r.rank}\\. [{_escape_md(r.name)}]({r.html_url}) "
                 f"⭐ {r.stars_count:,}{lang}\n"
@@ -377,12 +442,14 @@ class TrendingReposService:
                 ideas_lines.append(f"\n*💡 Ideas from [{_escape_md(r.name)}]({r.html_url})*")
                 for idx, idea in enumerate(r.product_ideas[:2], start=1):
                     title = idea.get("title", "")
-                    wow = idea.get("wow_factor", "")
-                    ideas_lines.append(f"  {idx}\\. *{_escape_md(title)}* — {_escape_md(wow)}")
+                    positioning = str(idea.get("positioning") or idea.get("wow_factor") or "")
+                    ideas_lines.append(
+                        f"  {idx}\\. *{_escape_md(title)}* — {_escape_md(positioning)}"
+                    )
 
         message = "\n".join(lines + ideas_lines)
 
-        await provider.send_message(message)
+        await provider.send_message(message, parse_mode="MarkdownV2")
         logger.info(
             "Sent daily trending digest to Telegram for tenant %s (%d repos)",
             tenant_id,
@@ -414,29 +481,134 @@ def _build_ideas_prompt(record: TrendingRepo, *, readme_excerpt: str | None = No
         f"Stars: {record.stars_count:,} (gained {record.stars_gained:,} in this period)\n"
         f"URL: {record.html_url}\n"
         f"{readme_section}\n"
+        "CRITICAL INSTRUCTION: You MUST return ONLY a valid JSON object. "
+        "Do not include any explanatory text, markdown formatting, or code blocks. "
+        "Do not wrap the JSON in ```json or ``` tags. Just raw JSON.\n\n"
         "Using the repository metadata and README content above, generate exactly 5 of the most valuable "
         "product ideas that could realistically be built from this repo's capabilities. "
         "Prioritize ideas with clear customer demand, revenue potential, and a strong wedge to market. "
-        "Return them as JSON with the key 'ideas' containing an array of objects, each with: "
-        "title, problem, solution, target_audience, monetization, wow_factor."
+        "Return valid JSON matching the Product Hunter output schema, including repo_assessment "
+        "and the full ranked ideas objects.\n\n"
+        "EXPECTED JSON STRUCTURE:\n"
+        "{\n"
+        '  "repo_assessment": {\n'
+        '    "what_it_does": "string",\n'
+        '    "evidence": ["string"],\n'
+        '    "strongest_assets": ["string"],\n'
+        '    "main_limitations": ["string"],\n'
+        '    "best_commercial_angle": "string",\n'
+        '    "confidence": "high|medium|low"\n'
+        "  },\n"
+        '  "ideas": [\n'
+        "    {\n"
+        '      "rank": 1,\n'
+        '      "title": "string",\n'
+        '      "positioning": "string",\n'
+        '      "target_customer": "string",\n'
+        '      "pain_point": "string",\n'
+        '      "product_concept": "string",\n'
+        '      "why_this_repo_fits": "string",\n'
+        '      "required_extensions": ["string"],\n'
+        '      "monetization": {\n'
+        '        "model": "string",\n'
+        '        "pricing_logic": "string",\n'
+        '        "estimated_willingness_to_pay": "string"\n'
+        "      },\n"
+        '      "scores": {\n'
+        '        "revenue_potential": 0,\n'
+        '        "customer_urgency": 0,\n'
+        '        "repo_leverage": 0,\n'
+        '        "speed_to_mvp": 0,\n'
+        '        "competitive_intensity": 0\n'
+        "      },\n"
+        '      "time_to_mvp": "string",\n'
+        '      "key_risks": ["string"],\n'
+        '      "why_now": "string",\n'
+        '      "investor_angle": "string",\n'
+        '      "v1_scope": ["string"],\n'
+        '      "not_for_v1": ["string"]\n'
+        "    }\n"
+        "  ]\n"
+        "}"
     )
 
 
-def _normalize_generated_ideas(raw_ideas: Any) -> list[dict[str, str]]:
+def _serialize_trending_repo_response(record: TrendingRepo) -> TrendingRepoResponse:
+    payload = {
+        "id": record.id,
+        "period": record.period,
+        "snapshot_date": record.snapshot_date,
+        "github_id": record.github_id,
+        "name": record.name,
+        "full_name": record.full_name,
+        "description": record.description,
+        "html_url": record.html_url,
+        "language": record.language,
+        "topics": record.topics,
+        "stars_count": record.stars_count,
+        "forks_count": record.forks_count,
+        "watchers_count": record.watchers_count,
+        "open_issues_count": record.open_issues_count,
+        "stars_gained": record.stars_gained,
+        "rank": record.rank,
+        "repo_assessment": _normalize_repo_assessment(getattr(record, "repo_assessment", None)),
+        "product_ideas": _normalize_generated_ideas(getattr(record, "product_ideas", [])),
+        "ideas_generated_at": record.ideas_generated_at,
+        "created_at": record.created_at,
+    }
+    return TrendingRepoResponse.model_validate(payload)
+
+
+def _normalize_repo_assessment(raw_assessment: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_assessment, dict):
+        return None
+
+    assessment = {
+        "what_it_does": _stringify_idea_value(raw_assessment.get("what_it_does")),
+        "evidence": _normalize_text_list(raw_assessment.get("evidence")),
+        "strongest_assets": _normalize_text_list(raw_assessment.get("strongest_assets")),
+        "main_limitations": _normalize_text_list(raw_assessment.get("main_limitations")),
+        "best_commercial_angle": _stringify_idea_value(raw_assessment.get("best_commercial_angle")),
+        "confidence": _normalize_confidence(raw_assessment.get("confidence")),
+    }
+    if not any(
+        [
+            assessment["what_it_does"],
+            assessment["evidence"],
+            assessment["strongest_assets"],
+            assessment["main_limitations"],
+            assessment["best_commercial_angle"],
+        ]
+    ):
+        return None
+    return assessment
+
+
+def _normalize_generated_ideas(raw_ideas: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_ideas, list):
         return []
 
-    normalized: list[dict[str, str]] = []
-    for item in raw_ideas:
+    normalized: list[dict[str, Any]] = []
+    for idx, item in enumerate(raw_ideas, start=1):
         if not isinstance(item, dict):
             continue
         idea = {
-            "title": str(item.get("title") or "").strip(),
-            "problem": str(item.get("problem") or "").strip(),
-            "solution": str(item.get("solution") or "").strip(),
-            "target_audience": str(item.get("target_audience") or "").strip(),
-            "monetization": str(item.get("monetization") or "").strip(),
-            "wow_factor": str(item.get("wow_factor") or "").strip(),
+            "rank": _normalize_rank(item.get("rank"), idx),
+            "title": _pick_idea_text(item, "title"),
+            "positioning": _pick_idea_text(item, "positioning", "wow_factor"),
+            "target_customer": _pick_idea_text(item, "target_customer", "target_audience"),
+            "pain_point": _pick_idea_text(item, "pain_point", "problem"),
+            "product_concept": _pick_idea_text(item, "product_concept", "solution"),
+            "why_this_repo_fits": _pick_idea_text(item, "why_this_repo_fits"),
+            "required_extensions": _normalize_text_list(item.get("required_extensions")),
+            "monetization": _normalize_monetization(item.get("monetization")),
+            "scores": _normalize_scores(item.get("scores")),
+            "time_to_mvp": _pick_idea_text(item, "time_to_mvp"),
+            "key_risks": _normalize_text_list(item.get("key_risks")),
+            "why_now": _pick_idea_text(item, "why_now"),
+            "investor_angle": _pick_idea_text(item, "investor_angle"),
+            "v1_scope": _normalize_text_list(item.get("v1_scope")),
+            "not_for_v1": _normalize_text_list(item.get("not_for_v1")),
         }
         if _is_placeholder_idea(idea):
             continue
@@ -444,82 +616,123 @@ def _normalize_generated_ideas(raw_ideas: Any) -> list[dict[str, str]]:
     return normalized
 
 
-def _is_placeholder_idea(idea: dict[str, str]) -> bool:
-    values = [value.strip().lower() for value in idea.values()]
+def _pick_idea_text(item: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = item.get(key)
+        text = _stringify_idea_value(value)
+        if text:
+            return text
+    return ""
+
+
+def _stringify_idea_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value).strip()
+    if isinstance(value, dict):
+        parts = [_stringify_idea_value(part) for part in value.values()]
+        return "; ".join(part for part in parts if part)
+    if isinstance(value, list):
+        parts = [_stringify_idea_value(part) for part in value]
+        return "; ".join(part for part in parts if part)
+    return str(value).strip()
+
+
+def _normalize_text_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [text for item in value if (text := _stringify_idea_value(item))]
+    text = _stringify_idea_value(value)
+    return [text] if text else []
+
+
+def _normalize_confidence(value: Any) -> str:
+    normalized = _stringify_idea_value(value).lower()
+    if normalized in {"high", "medium", "low"}:
+        return normalized
+    return "medium"
+
+
+def _normalize_rank(value: Any, fallback: int) -> int:
+    try:
+        rank = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return rank if rank > 0 else fallback
+
+
+def _normalize_monetization(value: Any) -> dict[str, str]:
+    if isinstance(value, dict):
+        return {
+            "model": _stringify_idea_value(value.get("model")),
+            "pricing_logic": _stringify_idea_value(value.get("pricing_logic")),
+            "estimated_willingness_to_pay": _stringify_idea_value(
+                value.get("estimated_willingness_to_pay")
+            ),
+        }
+    text = _stringify_idea_value(value)
+    return {
+        "model": text,
+        "pricing_logic": "",
+        "estimated_willingness_to_pay": "",
+    }
+
+
+def _normalize_score(value: Any) -> int:
+    try:
+        score = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(score, 10))
+
+
+def _normalize_scores(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        value = {}
+    return {
+        "revenue_potential": _normalize_score(value.get("revenue_potential")),
+        "customer_urgency": _normalize_score(value.get("customer_urgency")),
+        "repo_leverage": _normalize_score(value.get("repo_leverage")),
+        "speed_to_mvp": _normalize_score(value.get("speed_to_mvp")),
+        "competitive_intensity": _normalize_score(value.get("competitive_intensity")),
+    }
+
+
+def _format_product_hunter_result_preview(result: Any) -> str:
+    if not isinstance(result, dict):
+        return f"type={type(result).__name__}"
+
+    payload = {
+        "keys": sorted(str(key) for key in result.keys()),
+        "repo_assessment_type": type(result.get("repo_assessment")).__name__,
+        "ideas_type": type(result.get("ideas")).__name__,
+        "ideas_count": len(result.get("ideas")) if isinstance(result.get("ideas"), list) else None,
+        "first_idea_keys": (
+            sorted(str(key) for key in result["ideas"][0].keys())
+            if isinstance(result.get("ideas"), list)
+            and result["ideas"]
+            and isinstance(result["ideas"][0], dict)
+            else []
+        ),
+        "preview": _stringify_idea_value(result)[:800],
+    }
+    return json.dumps(payload, ensure_ascii=True)
+
+
+def _is_placeholder_idea(idea: dict[str, Any]) -> bool:
+    values = [
+        _stringify_idea_value(idea.get("title")).strip().lower(),
+        _stringify_idea_value(idea.get("positioning")).strip().lower(),
+        _stringify_idea_value(idea.get("target_customer")).strip().lower(),
+        _stringify_idea_value(idea.get("pain_point")).strip().lower(),
+        _stringify_idea_value(idea.get("product_concept")).strip().lower(),
+    ]
     non_empty = [value for value in values if value]
     if not non_empty:
         return True
     return all(value in PLACEHOLDER_IDEA_VALUES for value in non_empty)
-
-
-def _build_fallback_ideas(record: TrendingRepo) -> list[dict[str, str]]:
-    repo_name = record.full_name.split("/")[-1].replace("-", " ").replace("_", " ").title()
-    audience = _repo_audience(record)
-    model = _repo_monetization(record)
-    capabilities = _repo_capability_phrase(record)
-    topics = ", ".join(record.topics[:3]) if record.topics else "automation"
-    return [
-        {
-            "title": f"{repo_name} Cloud",
-            "problem": f"{audience} want {capabilities} without self-hosting or stitching together infra.",
-            "solution": f"Ship a hosted product around {record.full_name} with setup, auth, observability, and usage analytics included.",
-            "target_audience": audience,
-            "monetization": model,
-            "wow_factor": f"Turn this repo into a production-ready service teams can adopt in one afternoon.",
-        },
-        {
-            "title": f"{repo_name} for Teams",
-            "problem": f"Teams using {topics} tools struggle with governance, onboarding, and shared workflows.",
-            "solution": f"Package collaborative workspaces, role-based access, templates, and audit history on top of {record.full_name}.",
-            "target_audience": audience,
-            "monetization": "Per-seat team plan with enterprise SSO and admin controls",
-            "wow_factor": "Solo open-source utility becomes an org-wide operating layer.",
-        },
-        {
-            "title": f"{repo_name} API",
-            "problem": f"Product teams need {capabilities} as an API, but maintaining the underlying stack is slow and brittle.",
-            "solution": f"Expose the repo's core capability through metered REST and webhook APIs with hosted docs and SDKs.",
-            "target_audience": "Developers and SaaS teams embedding this capability into existing products",
-            "monetization": "Usage-based API billing with premium SLAs",
-            "wow_factor": "Customers get the core value in hours instead of months of platform work.",
-        },
-        {
-            "title": f"{repo_name} Launchpad",
-            "problem": f"Founders and internal teams can see the promise in {record.full_name} but do not know the fastest commercial wedge.",
-            "solution": f"Offer verticalized starter kits, opinionated defaults, and deployment templates tuned for {topics}.",
-            "target_audience": "Startups, agencies, and innovation teams validating new products quickly",
-            "monetization": "Starter-kit license plus optional implementation services",
-            "wow_factor": "A repo becomes a revenue-ready business in a weekend sprint.",
-        },
-        {
-            "title": f"{repo_name} Insights",
-            "problem": f"Operators adopting {record.full_name} lack visibility into quality, usage patterns, and ROI.",
-            "solution": f"Add dashboards, benchmarking, alerts, and recommendation loops that show how the capability performs in production.",
-            "target_audience": audience,
-            "monetization": "Analytics add-on sold on top of a core subscription",
-            "wow_factor": "The product does the work and proves the business case at the same time.",
-        },
-    ]
-
-
-def _repo_audience(record: TrendingRepo) -> str:
-    if record.language:
-        return f"{record.language} teams and developer platforms"
-    return "Developer teams and technical operators"
-
-
-def _repo_monetization(record: TrendingRepo) -> str:
-    if "agent" in " ".join(record.topics).lower():
-        return "Monthly SaaS subscription with usage-based overages for heavy workloads"
-    return "Tiered SaaS subscription with enterprise support"
-
-
-def _repo_capability_phrase(record: TrendingRepo) -> str:
-    if record.description:
-        return record.description[0].lower() + record.description[1:]
-    if record.topics:
-        return f"{', '.join(record.topics[:2])} workflows"
-    return "this capability"
 
 
 _FALLBACK_PRODUCT_HUNTER_PROMPT = """\

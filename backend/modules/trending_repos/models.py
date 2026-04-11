@@ -43,7 +43,8 @@ class TrendingRepo(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # Rank within this snapshot (1 = most trending)
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # LLM-generated product ideas (list of idea dicts)
+    # LLM-generated repo assessment + product ideas
+    repo_assessment: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     product_ideas: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     ideas_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

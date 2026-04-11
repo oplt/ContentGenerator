@@ -74,7 +74,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
     const error = await response
       .json()
       .catch(() => ({ error: { message: "Request failed" } }));
-    throw new Error(error.error?.message ?? "Request failed");
+    const message =
+      error.error?.message ??
+      error.detail ??
+      error.message ??
+      "Request failed";
+    throw new Error(message);
   }
 
   if (response.status === 204) {
