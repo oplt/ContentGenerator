@@ -604,3 +604,44 @@ async def test_fetch_repo_readme_excerpt_returns_none_on_http_error() -> None:
         excerpt = await svc._fetch_repo_readme_excerpt("acme/rocket")
 
     assert excerpt is None
+
+
+@pytest.mark.asyncio
+async def test_post_to_twitter_returns_actionable_message_on_x_403() -> None:
+    svc = _svc()
+    svc.db = AsyncMock()
+
+    social_account = SimpleNamespace(
+        id=uuid4(),
+        handle="acme",
+        account_metadata={"mode": "real"},
+    )
+    token_row = SimpleNamespace(access_token_encrypted="enc-token")
+
+    request = httpx.Request("POST", "https://api.x.com/2/tweets")
+    response = httpx.Response(
+        403,
+        request=request,
+        json={"title": "Forbidden", "detail": "You are not permitted to perform this action."},
+    )
+    http_error = httpx.HTTPStatusError("403 Forbidden", request=request, response=response)
+
+    with (
+        patch(
+            "backend.modules.publishing.repository.PublishingRepository.get_social_account_by_platform",
+            new=AsyncMock(return_value=social_account),
+        ),
+        patch(
+            "backend.modules.publishing.repository.PublishingRepository.get_token_for_account",
+            new=AsyncMock(return_value=token_row),
+        ),
+        patch("backend.core.security.decrypt_secret", return_value="x-user-token"),
+        patch("backend.modules.publishing.providers.XPublishingProvider._post_tweet", new=AsyncMock(side_effect=http_error)),
+    ):
+        with pytest.raises(ValueError) as exc_info:
+            await svc.post_to_twitter(uuid4(), "Ship it")
+
+    message = str(exc_info.value)
+    assert "tweet.write" in message
+    assert "Read and Write permissions" in message
+    assert "App-only bearer tokens cannot post tweets" in message

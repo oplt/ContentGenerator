@@ -362,3 +362,4 @@ frontend/dist
 frontend/node_modules
 .gitnexus
 .omx/
+.claude

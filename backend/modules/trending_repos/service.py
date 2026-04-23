@@ -398,8 +398,242 @@ class TrendingReposService:
         return updated
 
     # ------------------------------------------------------------------
+    # Twitter post Telegram callback handling
+    # ------------------------------------------------------------------
+
+    def _build_x_publish_error_message(self, exc: httpx.HTTPStatusError) -> str:
+        status_code = exc.response.status_code
+        detail = ""
+        try:
+            payload = exc.response.json()
+        except ValueError:
+            payload = None
+
+        if isinstance(payload, dict):
+            detail = str(
+                payload.get("detail")
+                or payload.get("title")
+                or (
+                    payload["errors"][0].get("message")
+                    if isinstance(payload.get("errors"), list) and payload["errors"]
+                    else ""
+                )
+            ).strip()
+
+        if status_code == 401:
+            return (
+                "X rejected the stored access token. Open Settings -> Social Accounts -> Twitter "
+                "and save a valid OAuth 2.0 user access token."
+            )
+
+        if status_code == 403:
+            suffix = f" X says: {detail}." if detail else ""
+            return (
+                "X refused to create the tweet. Save an OAuth 2.0 user access token for the same "
+                "account with `tweet.write` and `users.read` scopes, and make sure the X app has "
+                "Read and Write permissions. App-only bearer tokens cannot post tweets."
+                f"{suffix}"
+            )
+
+        if detail:
+            return f"X API error ({status_code}): {detail}"
+        return f"X API error ({status_code})."
+
+    async def _post_to_twitter_for_tenant(self, tenant_id: uuid.UUID, post_text: str) -> None:
+        """Internal: post text to Twitter on behalf of tenant. Raises on failure."""
+        from backend.core.security import decrypt_secret, resolve_secret_reference
+        from backend.modules.publishing.providers import XPublishingProvider
+        from backend.modules.publishing.repository import PublishingRepository
+        import httpx
+
+        pub_repo = PublishingRepository(self.db)
+        social_account = await pub_repo.get_social_account_by_platform(tenant_id, "x")
+        if not social_account:
+            raise ValueError("No Twitter account configured. Add one in Settings → Social Accounts.")
+
+        if social_account.account_metadata.get("mode") != "real":
+            raise ValueError(
+                "Twitter account is in Stub mode. Switch to Manual / Live in Settings to post for real."
+            )
+
+        token_row = await pub_repo.get_token_for_account(social_account.id)
+        access_token = decrypt_secret(token_row.access_token_encrypted) if token_row else ""
+        if access_token.startswith("secret-ref:"):
+            access_token = resolve_secret_reference(access_token.partition(":")[2]) or ""
+        if not access_token:
+            raise ValueError(
+                "No access token stored. Re-open Twitter settings and save with a valid access token."
+            )
+
+        provider = XPublishingProvider(access_token=access_token, dry_run=False)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                await provider._post_tweet(client, post_text)
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(self._build_x_publish_error_message(exc)) from exc
+
+    # ------------------------------------------------------------------
     # Telegram notifications
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Twitter post generation
+    # ------------------------------------------------------------------
+
+    def _load_twitter_post_prompt(self) -> str:
+        prompt_path = Path(__file__).resolve().parents[2] / "prompts" / "generate_twitter_post.md"
+        if prompt_path.exists():
+            return prompt_path.read_text(encoding="utf-8")
+        raise RuntimeError("Twitter post prompt file not found at prompts/generate_twitter_post.md")
+
+    def _extract_best_post(self, text: str) -> str:
+        """Extract the post text from the LLM output.
+
+        Tries to pull the content under '### A. Best Post' or 'BEST POST:'.
+        Falls back to the full output stripped of obvious section headers.
+        """
+        import re
+
+        # Try markdown header: ### A. Best Post
+        m = re.search(
+            r"#{1,3}\s*A\.?\s*Best Post\s*\n+(.*?)(?=#{1,3}|\Z)",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if m:
+            return m.group(1).strip()
+
+        # Try plain label: BEST POST:
+        m = re.search(
+            r"BEST\s+POST\s*:\s*\n*(.*?)(?=#{1,3}|[A-Z]{2,}[\s]*(?:PACK|BOOSTERS|POST)|$)",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if m:
+            return m.group(1).strip()
+
+        # Fallback: return the whole output as-is
+        return text.strip()
+
+    async def generate_twitter_post(
+        self, tenant_id: uuid.UUID, repo_id: uuid.UUID
+    ) -> str:
+        record = await self.repo.get_by_id(tenant_id, repo_id)
+        if record is None:
+            raise ValueError(f"TrendingRepo {repo_id} not found for tenant {tenant_id}")
+
+        system_prompt = self._load_twitter_post_prompt()
+        topics = ", ".join(record.topics[:8]) if record.topics else "N/A"
+        user_prompt = (
+            f"Repository name: {record.full_name}\n"
+            f"GitHub URL: {record.html_url}\n"
+            f"Description: {record.description or 'N/A'}\n"
+            f"Language: {record.language or 'N/A'}\n"
+            f"Topics: {topics}\n"
+            f"Stars: {record.stars_count:,} (gained {record.stars_gained:,} in this period)\n"
+        )
+
+        llm = self._get_product_ideas_llm()
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        raw_text = await llm.generate_text(full_prompt, max_tokens=1024, temperature=0.7)
+        post_text = self._extract_best_post(raw_text)
+
+        try:
+            await self._send_twitter_post_to_telegram(tenant_id, record, post_text)
+        except Exception:
+            logger.exception("Failed to send Twitter post to Telegram for repo %s", record.name)
+
+        return post_text
+
+    async def _send_twitter_post_to_telegram(
+        self,
+        tenant_id: uuid.UUID,
+        record: TrendingRepo,
+        post_text: str,
+    ) -> None:
+        import json as _json
+        from backend.core.cache import redis_client
+        from backend.modules.approvals.providers import get_telegram_provider
+        from backend.modules.settings.service import SettingsService
+
+        svc = SettingsService(self.db)
+        config = await svc.resolve_telegram_runtime_config(tenant_id)
+
+        bot_token = str(config.get("bot_token") or "")
+        chat_id = str(config.get("chat_id") or "")
+        enabled = bool(config.get("enabled", False))
+
+        if not enabled or not bot_token or not chat_id:
+            logger.info("Telegram not configured for tenant %s — skipping Twitter post", tenant_id)
+            return
+
+        post_id = str(uuid.uuid4())
+        redis_key = f"twitter_post:{post_id}"
+        await redis_client.set(
+            redis_key,
+            _json.dumps({
+                "tenant_id": str(tenant_id),
+                "post_text": post_text,
+                "repo_full_name": record.full_name,
+                "repo_url": record.html_url,
+                "bot_token": bot_token,
+                "chat_id": chat_id,
+            }),
+            ex=86400,  # 24h TTL
+        )
+
+        provider = get_telegram_provider(bot_token=bot_token, chat_id=chat_id)
+        await provider.send_twitter_post_card(
+            repo_name=record.full_name,
+            repo_url=record.html_url,
+            post_text=post_text,
+            post_id=post_id,
+        )
+
+    async def post_to_twitter(
+        self, tenant_id: uuid.UUID, post_text: str
+    ) -> dict[str, str]:
+        from backend.core.security import decrypt_secret, resolve_secret_reference
+        from backend.modules.publishing.providers import XPublishingProvider
+        from backend.modules.publishing.repository import PublishingRepository
+        import httpx
+
+        pub_repo = PublishingRepository(self.db)
+        social_account = await pub_repo.get_social_account_by_platform(tenant_id, "x")
+        if not social_account:
+            raise ValueError(
+                "No Twitter account configured. Add one in Settings → Social Accounts → Twitter."
+            )
+
+        if social_account.account_metadata.get("mode") != "real":
+            raise ValueError(
+                "Twitter account is in Stub mode. Open Settings → Social Accounts → Twitter "
+                "and switch to Manual / Live, then save with your access token."
+            )
+
+        token_row = await pub_repo.get_token_for_account(social_account.id)
+        access_token = decrypt_secret(token_row.access_token_encrypted) if token_row else ""
+        if access_token.startswith("secret-ref:"):
+            access_token = resolve_secret_reference(access_token.partition(":")[2]) or ""
+        if not access_token:
+            raise ValueError(
+                "No access token found. Re-open Twitter settings and save with a valid access token."
+            )
+
+        provider = XPublishingProvider(access_token=access_token, dry_run=False)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                data = await provider._post_tweet(client, post_text)
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(self._build_x_publish_error_message(exc)) from exc
+
+        tweet_id = data.get("data", {}).get("id")
+        handle = social_account.handle or "user"
+        return {
+            "status": "succeeded",
+            "external_post_id": tweet_id or "",
+            "external_post_url": f"https://x.com/{handle}/status/{tweet_id}" if tweet_id else "",
+        }
 
     async def send_daily_digest_to_telegram(self, tenant_id: uuid.UUID) -> None:
         """Send today's top trending repos + product ideas to the tenant's Telegram."""
@@ -827,3 +1061,144 @@ def _stable_repo_id(full_name: str) -> int:
     # GitHub Trending markup does not consistently expose a repo id. Use a
     # deterministic fallback so snapshots remain stable when API enrichment is off.
     return int(hashlib.sha1(full_name.encode("utf-8")).hexdigest()[:12], 16)
+
+
+# ---------------------------------------------------------------------------
+# Telegram callback handlers (module-level, called from approvals router)
+# ---------------------------------------------------------------------------
+
+async def handle_twitter_post_callback(
+    callback_query: dict,
+    db: "AsyncSession",
+) -> None:
+    """
+    Handle tw_post / tw_edit / tw_reject inline button callbacks from Telegram.
+    Always calls answerCallbackQuery to dismiss the loading spinner.
+    """
+    import json as _json
+    from backend.core.cache import redis_client
+    from backend.modules.approvals.providers import (
+        TelegramProvider,
+        get_telegram_provider,
+        verify_signed_callback_data,
+    )
+
+    callback_data: str = callback_query.get("data", "")
+    callback_query_id: str = str(callback_query.get("id", ""))
+    # chat_id from the incoming message (used for edit session key)
+    incoming_chat_id: str = str(callback_query.get("message", {}).get("chat", {}).get("id", ""))
+    message_id: str = str(callback_query.get("message", {}).get("message_id", ""))
+
+    valid, action, post_id = verify_signed_callback_data(callback_data)
+
+    redis_key = f"twitter_post:{post_id}" if post_id else ""
+    raw = await redis_client.get(redis_key) if redis_key else None
+
+    if not raw:
+        # Try to answer using a raw API call if we can't build a provider
+        if valid and not raw:
+            # expired or already handled — best-effort answer via httpx
+            import httpx as _httpx
+            from backend.core.config import settings as _settings
+            # We can't do much without the bot token, log and return
+            logger.warning("Twitter post callback: Redis key missing for post_id=%s", post_id)
+        return
+
+    stored = _json.loads(raw)
+    tenant_id = uuid.UUID(stored["tenant_id"])
+    post_text: str = stored["post_text"]
+    repo_name: str = stored.get("repo_full_name", "")
+    repo_url: str = stored.get("repo_url", "")
+    bot_token: str = stored.get("bot_token", "")
+    chat_id: str = stored.get("chat_id", incoming_chat_id)
+
+    provider = get_telegram_provider(bot_token=bot_token, chat_id=chat_id)
+
+    if not valid:
+        await provider.answer_callback(callback_query_id, "⚠️ Invalid request signature.")
+        return
+
+    if action == "tw_post":
+        await redis_client.delete(redis_key)
+        try:
+            svc = TrendingReposService(db)
+            await svc._post_to_twitter_for_tenant(tenant_id, post_text)
+            await provider.answer_callback(callback_query_id, "✅ Posted to Twitter!")
+            await provider.edit_message(
+                chat_id=chat_id,
+                message_id=message_id,
+                new_text=f"<b>✅ Posted to Twitter</b>\n\n{post_text}",
+            )
+        except Exception as exc:
+            logger.exception("Failed to post to Twitter from Telegram callback")
+            await provider.answer_callback(callback_query_id, f"❌ Failed: {str(exc)[:200]}")
+
+    elif action == "tw_reject":
+        await redis_client.delete(redis_key)
+        await provider.answer_callback(callback_query_id, "❌ Post rejected.")
+        await provider.edit_message(
+            chat_id=chat_id,
+            message_id=message_id,
+            new_text=f"<b>❌ Rejected</b>\n\n<s>{post_text}</s>",
+        )
+
+    elif action == "tw_edit":
+        edit_session_key = f"twitter_post:edit_session:{incoming_chat_id}"
+        await redis_client.set(edit_session_key, post_id, ex=3600)
+        await provider.answer_callback(callback_query_id, "✏️ Send your updated post text now.")
+
+
+async def handle_twitter_edit_message(
+    payload: dict,
+    db: "AsyncSession",
+) -> bool:
+    """
+    If a Twitter edit session is active for this chat, apply the incoming message
+    as the new post text and re-send the card with updated content.
+    Returns True if the message was consumed.
+    """
+    import json as _json
+    from backend.core.cache import redis_client
+    from backend.modules.approvals.providers import get_telegram_provider
+    from backend.modules.settings.service import SettingsService
+
+    message = payload.get("message", {})
+    text = message.get("text", "").strip()
+    chat_id = str(message.get("chat", {}).get("id", ""))
+    if not text or not chat_id:
+        return False
+
+    edit_session_key = f"twitter_post:edit_session:{chat_id}"
+    post_id = await redis_client.get(edit_session_key)
+    if not post_id:
+        return False
+
+    redis_key = f"twitter_post:{post_id}"
+    raw = await redis_client.get(redis_key)
+    if not raw:
+        await redis_client.delete(edit_session_key)
+        return False
+
+    stored = _json.loads(raw)
+    tenant_id = uuid.UUID(stored["tenant_id"])
+    repo_name: str = stored.get("repo_full_name", "")
+    repo_url: str = stored.get("repo_url", "")
+
+    # Update stored post text
+    stored["post_text"] = text
+    await redis_client.set(redis_key, _json.dumps(stored), ex=86400)
+    await redis_client.delete(edit_session_key)
+
+    # Re-send the card with the new text
+    svc_settings = SettingsService(db)
+    config = await svc_settings.resolve_telegram_runtime_config(tenant_id)
+    bot_token = str(config.get("bot_token") or "")
+    telegram_chat_id = str(config.get("chat_id") or "")
+    provider = get_telegram_provider(bot_token=bot_token, chat_id=telegram_chat_id)
+    await provider.send_twitter_post_card(
+        repo_name=repo_name,
+        repo_url=repo_url,
+        post_text=text,
+        post_id=post_id,
+    )
+    return True

@@ -82,3 +82,12 @@ class TrendingReposListResponse(BaseModel):
 class GenerateIdeasRequest(BaseModel):
     """Request to trigger product-idea generation for a specific repo."""
     repo_id: uuid.UUID
+
+
+class GenerateTwitterPostResponse(BaseModel):
+    repo_id: uuid.UUID
+    post_text: str
+
+
+class PostToTwitterRequest(BaseModel):
+    post_text: str

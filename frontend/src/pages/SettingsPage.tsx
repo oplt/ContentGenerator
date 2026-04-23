@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { getSocialAccounts, upsertSocialAccount, type SocialAccountUpsertPayload } from "../api/publishing";
 import { getTelegramSettings, getTenantSettings, getWhatsAppSettings, registerTelegramWebhook, sendTelegramDailyDigestTest, updateTelegramSettings, updateTenantSettings, updateWhatsAppSettings } from "../api/settings";
-import { SocialPlatformSettingsCard, type SocialPlatformConfigField } from "../components/dashboard/SocialPlatformSettingsCard";
+import { SocialPlatformSettingsCard, type AccessTokenConfig, type SocialPlatformConfigField } from "../components/dashboard/SocialPlatformSettingsCard";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -50,6 +50,7 @@ type SocialPlatformDefinition = {
   label: string;
   description: string;
   configFields: SocialPlatformConfigField[];
+  hiddenFields?: string[];
 };
 
 const WHATSAPP_CONFIG_VARIABLES = [
@@ -98,15 +99,17 @@ const SOCIAL_PLATFORM_DEFINITIONS: SocialPlatformDefinition[] = [
   },
   {
     platform: "x",
-    label: "X",
+    label: "Twitter",
     description:
-      "Manage X account and app credentials for text, media upload, and API v2 / legacy token workflows.",
-    configFields: [
-      { key: "user_id", label: "User ID", placeholder: "Numeric X user ID", description: "The numeric account ID that publishing jobs will target." },
-      { key: "client_id", label: "Client ID", placeholder: "X OAuth client ID", description: "OAuth 2 client identifier for your X application." },
-      { key: "client_secret", label: "Client Secret", placeholder: "X OAuth client secret", description: "OAuth 2 secret paired with the X app.", secret: true },
-      { key: "access_token_secret", label: "Access Token Secret", placeholder: "Legacy token secret", description: "Needed when the account uses X OAuth 1.0a style publishing.", secret: true },
-    ],
+      "Connect your Twitter account for automatic posting. Provide your handle and an OAuth 2.0 user access token with tweet.write scope.",
+    configFields: [],
+    hiddenFields: ["accountExternalId", "scopesCsv", "refreshToken", "accessTokenSecretRef"],
+    accessTokenConfig: {
+      label: "Access Token (OAuth 2.0 User Token)",
+      placeholder: "Paste your OAuth 2.0 user access token",
+      description:
+        "Required. From Twitter Developer Portal → your app → Keys and Tokens → OAuth 2.0 User Access Token. Must have tweet.write and users.read scopes.",
+    },
   },
   {
     platform: "bluesky",
@@ -758,6 +761,8 @@ export default function SettingsPage() {
                     description={definition.description}
                     account={account}
                     configFields={definition.configFields}
+                    hiddenFields={definition.hiddenFields}
+                    accessTokenConfig={definition.accessTokenConfig}
                     isSaving={savingPlatform === definition.platform && socialMutation.isPending}
                     onSave={async (payload: SocialAccountUpsertPayload) => {
                       setSavingPlatform(definition.platform);

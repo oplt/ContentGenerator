@@ -14,12 +14,20 @@ export type SocialPlatformConfigField = {
   secret?: boolean;
 };
 
+export type AccessTokenConfig = {
+  label: string;
+  placeholder: string;
+  description?: string;
+};
+
 type SocialPlatformSettingsCardProps = {
   platform: string;
   label: string;
   description: string;
   account?: SocialAccount;
   configFields: SocialPlatformConfigField[];
+  hiddenFields?: string[];
+  accessTokenConfig?: AccessTokenConfig;
   isSaving: boolean;
   onSave: (payload: SocialAccountUpsertPayload) => Promise<unknown>;
 };
@@ -53,7 +61,8 @@ function buildInitialState(
     accessTokenSecretRef: "",
     refreshToken: "",
     scopesCsv: "",
-    useStub: account?.metadata.mode !== "real",
+    // For an existing account respect the saved mode; new accounts default to real
+    useStub: account ? account.metadata.mode !== "real" : false,
     metadata,
   };
 }
@@ -76,9 +85,15 @@ export function SocialPlatformSettingsCard({
   description,
   account,
   configFields,
+  hiddenFields = [],
+  accessTokenConfig,
   isSaving,
   onSave,
 }: SocialPlatformSettingsCardProps) {
+  const hide = (field: string) => hiddenFields.includes(field);
+  const tokenLabel = accessTokenConfig?.label ?? "Access token";
+  const tokenPlaceholder = accessTokenConfig?.placeholder ?? "Optional access token";
+  const tokenDescription = accessTokenConfig?.description;
   const [state, setState] = useState<PlatformFormState>(() => buildInitialState(account, label, configFields));
 
   useEffect(() => {
@@ -111,6 +126,7 @@ export function SocialPlatformSettingsCard({
         ) : null}
       </div>
 
+      {configFields.length > 0 && (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -156,6 +172,7 @@ export function SocialPlatformSettingsCard({
           ))}
         </div>
       </div>
+      )}
 
       <form
         className="grid gap-4 md:grid-cols-2"
@@ -191,6 +208,7 @@ export function SocialPlatformSettingsCard({
             onChange={(event) => setState((current) => ({ ...current, handle: event.target.value }))}
           />
         </label>
+        {!hide("accountExternalId") && (
         <label className="space-y-2 text-sm">
           <span className="font-medium">External account ID</span>
           <Input
@@ -201,6 +219,8 @@ export function SocialPlatformSettingsCard({
             }
           />
         </label>
+        )}
+        {!hide("scopesCsv") && (
         <label className="space-y-2 text-sm">
           <span className="font-medium">Scopes</span>
           <Input
@@ -209,14 +229,19 @@ export function SocialPlatformSettingsCard({
             onChange={(event) => setState((current) => ({ ...current, scopesCsv: event.target.value }))}
           />
         </label>
+        )}
         <label className="space-y-2 text-sm">
-          <span className="font-medium">Access token</span>
+          <span className="font-medium">{tokenLabel}</span>
           <PasswordInput
-            placeholder="Optional access token"
+            placeholder={tokenPlaceholder}
             value={state.accessToken}
             onChange={(event) => setState((current) => ({ ...current, accessToken: event.target.value }))}
           />
+          {tokenDescription && (
+            <p className="text-xs text-muted-foreground">{tokenDescription}</p>
+          )}
         </label>
+        {!hide("refreshToken") && (
         <label className="space-y-2 text-sm">
           <span className="font-medium">Refresh token</span>
           <PasswordInput
@@ -225,6 +250,8 @@ export function SocialPlatformSettingsCard({
             onChange={(event) => setState((current) => ({ ...current, refreshToken: event.target.value }))}
           />
         </label>
+        )}
+        {!hide("accessTokenSecretRef") && (
         <label className="space-y-2 text-sm md:col-span-2">
           <span className="font-medium">Access token secret reference</span>
           <Input
@@ -238,6 +265,7 @@ export function SocialPlatformSettingsCard({
             Optional external secret reference. Use this instead of storing a live platform token directly in the database.
           </p>
         </label>
+        )}
 
         <div className="space-y-3 md:col-span-2">
           <div className="flex flex-wrap items-center gap-3">

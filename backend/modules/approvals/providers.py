@@ -409,6 +409,41 @@ class TelegramProvider:
             data = response.json()
             return {"provider": "telegram", "message_id": str(data.get("result", {}).get("message_id", ""))}
 
+    async def send_twitter_post_card(
+        self,
+        *,
+        repo_name: str,
+        repo_url: str,
+        post_text: str,
+        post_id: str,
+    ) -> dict[str, str]:
+        """Send a Twitter post for approval with Post / Edit / Reject inline buttons."""
+        text = (
+            f"<b>🐦 Twitter Post — <a href=\"{repo_url}\">{repo_name}</a></b>\n\n"
+            f"{post_text}"
+        )
+        payload: dict[str, Any] = {
+            "chat_id": self.chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "reply_markup": {
+                "inline_keyboard": [[
+                    {"text": "✅ Post", "callback_data": build_signed_callback_data("tw_post", post_id)},
+                    {"text": "✏️ Edit", "callback_data": build_signed_callback_data("tw_edit", post_id)},
+                    {"text": "❌ Reject", "callback_data": build_signed_callback_data("tw_reject", post_id)},
+                ]]
+            },
+        }
+        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            message_id = str(data.get("result", {}).get("message_id", ""))
+            return {"provider": "telegram", "message_id": message_id}
+
     async def edit_message(
         self,
         *,
@@ -468,6 +503,10 @@ class MockTelegramProvider(TelegramProvider):
     async def send_brief_card(self, **kwargs) -> dict[str, str]:
         digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]
         return {"provider": "telegram-mock", "message_id": digest, "short_id": kwargs["short_id"]}
+
+    async def send_twitter_post_card(self, **kwargs) -> dict[str, str]:
+        digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]
+        return {"provider": "telegram-mock", "message_id": digest}
 
     async def send_asset_card(self, **kwargs) -> dict[str, str]:
         digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]

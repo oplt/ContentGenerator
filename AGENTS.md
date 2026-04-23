@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **content_generator** (3472 symbols, 11824 relationships, 288 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **content_generator** (4497 symbols, 14991 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -12,14 +12,6 @@ This project is indexed by GitNexus as **content_generator** (3472 symbols, 1182
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
 - When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
 - When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
-
-## Skills
-Prefer the `frontend-developer` skill for component styling, responsive fixes, visual cleanup, and design-system consistency. 
-Use `gitnexus` skills for any task that involves understanding code relationships, execution flows, or impact of changes. This includes debugging, refactoring, and architectural exploration.
-Prefer the `backend-architect` skill when the task is about backend system design, service decomposition, database architecture, API design, integration boundaries, security posture, scaling strategy, or production reliability.
-Prefer the `software-architect` skill for design work where the main problem is choosing the right structure, boundaries, or technical direction.
-
-
 
 ## When Debugging
 

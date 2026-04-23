@@ -93,6 +93,13 @@ async def receive_telegram_webhook(
     callback_query = payload.get("callback_query", {})
     if callback_query:
         callback_data = callback_query.get("data", "")
+
+        # Twitter post inline buttons
+        if any(callback_data.startswith(p) for p in ("tw_post:", "tw_reject:", "tw_edit:")):
+            from backend.modules.trending_repos.service import handle_twitter_post_callback
+            await handle_twitter_post_callback(callback_query, db)
+            return {"ok": True}
+
         if any(
             callback_data.startswith(prefix)
             for prefix in (
@@ -109,8 +116,12 @@ async def receive_telegram_webhook(
             await brief_svc.handle_telegram_brief_callback(payload)
             return {"ok": True}
 
-    # Plain-text messages may be revision follow-ups; check session first
+    # Plain-text messages — check for Twitter edit session first
     if "message" in payload and "callback_query" not in payload:
+        from backend.modules.trending_repos.service import handle_twitter_edit_message
+        consumed = await handle_twitter_edit_message(payload, db)
+        if consumed:
+            return {"ok": True}
         consumed = await service.handle_telegram_message(payload)
         if consumed:
             return {"ok": True}

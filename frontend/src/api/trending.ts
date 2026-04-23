@@ -93,3 +93,25 @@ export async function generateProductIdeas(repoId: string): Promise<TrendingRepo
 export async function sendTelegramDigest(): Promise<void> {
   await apiFetch<void>(`/trending-repos/send-digest`, { method: "POST" });
 }
+
+export interface GenerateTwitterPostResponse {
+  repo_id: string;
+  post_text: string;
+}
+
+export async function generateTwitterPost(repoId: string): Promise<GenerateTwitterPostResponse> {
+  return apiFetch<GenerateTwitterPostResponse>(`/trending-repos/${repoId}/generate-twitter-post`, {
+    method: "POST",
+  });
+}
+
+export async function postToTwitter(
+  repoId: string,
+  postText: string
+): Promise<{ status: string; external_post_url: string }> {
+  return apiFetch(`/trending-repos/${repoId}/post-to-twitter`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ post_text: postText }),
+  });
+}

@@ -1,18 +1,24 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  Check,
   ExternalLink,
   GitFork,
+  Pencil,
   RefreshCw,
   Send,
   Sparkles,
   Star,
   TrendingUp,
+  Twitter,
+  X,
 } from "lucide-react";
 import {
   getTrendingRepos,
   refreshTrendingRepos,
   generateProductIdeas,
+  generateTwitterPost,
+  postToTwitter,
   sendTelegramDigest,
   type Period,
   type TrendingRepo,
@@ -135,6 +141,9 @@ export default function TrendingReposPage() {
 function RepoCard({ repo }: { repo: TrendingRepo }) {
   const [showIdeas, setShowIdeas] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [showTwitterPanel, setShowTwitterPanel] = useState(false);
+  const [twitterPost, setTwitterPost] = useState<string | null>(null);
+  const [twitterError, setTwitterError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const ideasMutation = useMutation({
@@ -160,6 +169,18 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
     },
     onError: (error) => {
       setGenerationError(error instanceof Error ? error.message : "Could not generate ideas.");
+    },
+  });
+
+  const twitterMutation = useMutation({
+    mutationFn: () => generateTwitterPost(repo.id),
+    onSuccess: (data) => {
+      setTwitterPost(data.post_text);
+      setTwitterError(null);
+      setShowTwitterPanel(true);
+    },
+    onError: (error) => {
+      setTwitterError(error instanceof Error ? error.message : "Could not generate Twitter post.");
     },
   });
 
@@ -240,7 +261,7 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-col items-end gap-2 shrink-0">
           {!hasIdeas ? (
             <div className="flex flex-col items-end gap-2">
               <Button
@@ -268,8 +289,50 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
               {showIdeas ? "Hide Ideas" : `${visibleIdeas.length} Ideas`}
             </Button>
           )}
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (twitterPost) {
+                  setShowTwitterPanel((v) => !v);
+                } else {
+                  twitterMutation.mutate();
+                }
+              }}
+              disabled={twitterMutation.isPending}
+            >
+              <Twitter className="size-3.5" />
+              {twitterMutation.isPending
+                ? "Generating…"
+                : twitterPost
+                  ? showTwitterPanel
+                    ? "Hide Post"
+                    : "Show Post"
+                  : "Generate Twitter Post"}
+            </Button>
+            {twitterMutation.isError && (
+              <p className="max-w-56 text-right text-[11px] uppercase tracking-wide text-destructive">
+                {twitterError ?? "Could not generate post."}
+              </p>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Twitter post panel */}
+      {showTwitterPanel && twitterPost && (
+        <div className="mt-4 border-t border-border pt-4">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
+            Twitter / X Post
+          </p>
+          <TwitterPostCard
+            repoId={repo.id}
+            initialText={twitterPost}
+            onReject={() => setShowTwitterPanel(false)}
+          />
+        </div>
+      )}
 
       {/* Product ideas panel */}
       {hasIdeas && showIdeas && (
@@ -309,6 +372,102 @@ function RepoCard({ repo }: { repo: TrendingRepo }) {
         </div>
       )}
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Twitter post card
+// ---------------------------------------------------------------------------
+
+function TwitterPostCard({
+  repoId,
+  initialText,
+  onReject,
+}: {
+  repoId: string;
+  initialText: string;
+  onReject: () => void;
+}) {
+  const [editText, setEditText] = useState(initialText);
+  const [editing, setEditing] = useState(false);
+  const [postResult, setPostResult] = useState<{ url: string; dry: boolean } | null>(null);
+  const [postError, setPostError] = useState<string | null>(null);
+
+  const postMutation = useMutation({
+    mutationFn: () => postToTwitter(repoId, editText),
+    onSuccess: (data) => {
+      setPostError(null);
+      setPostResult({
+        url: data.external_post_url,
+        dry: data.status === "succeeded_dry_run",
+      });
+    },
+    onError: (error) => {
+      setPostError(error instanceof Error ? error.message : "Failed to post.");
+    },
+  });
+
+  return (
+    <div className="bg-muted p-4 flex flex-col gap-3" style={{ borderRadius: "var(--radius-sm)" }}>
+      {editing ? (
+        <textarea
+          className="w-full text-sm text-foreground bg-background border border-border rounded p-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+          rows={5}
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+        />
+      ) : (
+        <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{editText}</p>
+      )}
+
+      <div className="flex items-center gap-2 flex-wrap">
+        {postResult ? (
+          <div className="flex items-center gap-2">
+            <Check className="size-3.5 text-success" />
+            <span className="text-xs text-success">
+              {postResult.dry ? "Posted (dry run)" : "Posted!"}
+            </span>
+            {postResult.url && !postResult.dry && (
+              <a
+                href={postResult.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-primary underline flex items-center gap-1"
+              >
+                View <ExternalLink className="size-3" />
+              </a>
+            )}
+          </div>
+        ) : (
+          <>
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => postMutation.mutate()}
+              disabled={postMutation.isPending || editText.trim().length === 0}
+            >
+              <Check className="size-3.5" />
+              {postMutation.isPending ? "Posting…" : "Accept & Post"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setEditing((v) => !v)}
+            >
+              <Pencil className="size-3.5" />
+              {editing ? "Done" : "Edit"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onReject}>
+              <X className="size-3.5" />
+              Reject
+            </Button>
+          </>
+        )}
+        {postMutation.isError && (
+          <p className="text-[11px] uppercase tracking-wide text-destructive">{postError}</p>
+        )}
+      </div>
+    </div>
   );
 }
 
