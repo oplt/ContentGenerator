@@ -24,7 +24,14 @@ class MembershipStatus(str, enum.Enum):
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
-    __table_args__ = (Index("ix_users_email", "email", unique=True),)
+    __table_args__ = (
+        Index("ix_users_email", "email", unique=True),
+        Index("ix_users_default_tenant_id", "default_tenant_id"),
+        Index("ix_users_is_active", "is_active"),
+        Index("ix_users_is_verified", "is_verified"),
+        Index("ix_users_is_admin", "is_admin"),
+        Index("ix_users_mfa_enabled", "mfa_enabled"),
+    )
 
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -47,7 +54,12 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class Tenant(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = "tenants"
-    __table_args__ = (Index("ix_tenants_slug", "slug", unique=True),)
+    __table_args__ = (
+        Index("ix_tenants_slug", "slug", unique=True),
+        Index("ix_tenants_status", "status"),
+        Index("ix_tenants_plan_tier", "plan_tier"),
+        Index("ix_tenants_created_at", "created_at"),
+    )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -66,6 +78,7 @@ class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "slug", name="uq_roles_tenant_id_slug"),
         Index("ix_roles_tenant_id", "tenant_id"),
+        Index("ix_roles_is_system", "is_system"),
     )
 
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -80,7 +93,10 @@ class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class Permission(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "permissions"
-    __table_args__ = (Index("ix_permissions_code", "code", unique=True),)
+    __table_args__ = (
+        Index("ix_permissions_code", "code", unique=True),
+        Index("ix_permissions_category", "category"),
+    )
 
     code: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
@@ -92,6 +108,9 @@ class TenantUser(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "user_id", name="uq_tenant_users_tenant_id_user_id"),
         Index("ix_tenant_users_user_id", "user_id"),
+        Index("ix_tenant_users_tenant_id", "tenant_id"),
+        Index("ix_tenant_users_membership_status", "membership_status"),
+        Index("ix_tenant_users_tenant_user_status", "tenant_id", "user_id", "membership_status", "deleted_at"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -115,7 +134,12 @@ class TenantUser(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
 class RefreshSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "refresh_sessions"
-    __table_args__ = (Index("ix_refresh_sessions_token_hash", "token_hash", unique=True),)
+    __table_args__ = (
+        Index("ix_refresh_sessions_token_hash", "token_hash", unique=True),
+        Index("ix_refresh_sessions_user_id", "user_id"),
+        Index("ix_refresh_sessions_expires_at", "expires_at"),
+        Index("ix_refresh_sessions_user_expires", "user_id", "expires_at"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True

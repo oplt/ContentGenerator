@@ -7,7 +7,7 @@ from backend.api.middleware.correlation_id import CorrelationIdMiddleware
 from backend.api.middleware.request_logging import RequestLoggingMiddleware
 from backend.api.router import api_router
 from backend.core.bootstrap import bootstrap_application
-from backend.core.cache import redis_client
+from backend.core.cache import redis_cache
 from backend.core.config import settings
 from backend.core.error_handler import register_exception_handlers
 from backend.core.logging import setup_logging
@@ -21,12 +21,23 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup
     setup_telemetry(app)
+
+    # Initialize Redis connection
+    await redis_cache.connect()
+
+    # Ensure storage bucket exists
     await object_storage.ensure_bucket()
+
+    # Run bootstrap
     async with SessionLocal() as db:
         await bootstrap_application(db)
+
     yield
-    await redis_client.aclose()
+
+    # Shutdown
+    await redis_cache.close()
     await engine.dispose()
 
 

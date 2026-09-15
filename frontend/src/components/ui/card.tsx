@@ -6,10 +6,9 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        "bg-card text-card-foreground shadow-card",
+        "bg-card text-card-foreground shadow-card rounded-lg p-6",
         className
       )}
-      style={{ borderRadius: "var(--radius-card)" }}
       {...props}
     />
   );

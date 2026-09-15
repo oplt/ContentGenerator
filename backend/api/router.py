@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket
 
 from backend.api.v1.health import health_router
 from backend.modules.analytics.router import router as analytics_router
@@ -14,6 +14,7 @@ from backend.modules.settings.router import router as settings_router
 from backend.modules.source_ingestion.router import router as source_router
 from backend.modules.story_intelligence.router import router as story_router
 from backend.modules.users.router import router as users_router
+from backend.api.websocket import websocket_manager
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -33,3 +34,15 @@ api_router.include_router(settings_router, prefix="/settings", tags=["settings"]
 api_router.include_router(audit_router, prefix="/audit", tags=["audit"])
 api_router.include_router(trending_repos_router, prefix="/trending-repos", tags=["trending-repos"])
 api_router.include_router(health_router)
+
+
+@api_router.websocket("/ws/job/{job_id}")
+async def websocket_endpoint(websocket: WebSocket, job_id: str):
+    """WebSocket endpoint for real-time job status updates"""
+    await websocket_manager.connect(websocket, job_id)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except Exception:
+        websocket_manager.disconnect(websocket, job_id)

@@ -1,0 +1,25 @@
+.PHONY: local-dev kill-dev kill-celery kill-ports
+
+kill-celery:
+	-pgrep -f "[c]elery.*backend.workers.celery_app" | xargs -r kill
+	-sleep 1
+	-pgrep -f "[c]elery.*backend.workers.celery_app" | xargs -r kill -9
+
+kill-ports:
+	-fuser -k 8000/tcp
+	-fuser -k 5173/tcp
+
+kill-dev: kill-celery
+	-pgrep -f "[h]oncho -f Procfile.dev start" | xargs -r kill
+	-pgrep -f "[u]vicorn backend.api.main:app" | xargs -r kill
+	-pgrep -f "[v]ite" | xargs -r kill
+	-pgrep -f "[n]pm run dev" | xargs -r kill
+	-sleep 1
+	-pgrep -f "[h]oncho -f Procfile.dev start" | xargs -r kill -9
+	-pgrep -f "[u]vicorn backend.api.main:app" | xargs -r kill -9
+	-pgrep -f "[v]ite" | xargs -r kill -9
+	-pgrep -f "[n]pm run dev" | xargs -r kill -9
+	-$(MAKE) -f Makefile.local kill-ports
+
+local-dev: kill-dev
+	honcho -f Procfile.dev start

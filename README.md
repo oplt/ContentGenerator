@@ -1,112 +1,552 @@
 # SignalForge
 
-SignalForge is a production-minded autonomous AI content operations platform built as a modular FastAPI + React monolith. It ingests trend signals, normalizes and scores candidate topics, generates editorial briefs and platform-native assets, routes mandatory approvals through Telegram, publishes through adapter-based social integrations, and feeds performance data back into future ranking and generation decisions.
+AI-powered content operations platform for transforming trend signals into reviewed, platform-ready social content.
 
-The current operating model is Telegram-first and semi-autonomous:
+SignalForge helps teams discover emerging topics, evaluate signal quality, generate editorial briefs, create social assets, route approval workflows, and manage publishing pipelines through a unified operational dashboard.
 
-- the system continuously ingests, scores, and prepares work
-- operators approve topic, brief, asset, and publish gates in Telegram
-- dry-run publishing remains the default safe mode for local development
+The platform is designed for:
+- content operations teams
+- AI-assisted publishing workflows
+- social media management
+- editorial planning
+- trend monitoring
+- semi-autonomous content generation
 
-## Current architecture
+Built with FastAPI, React, PostgreSQL, Redis, Celery, and modular AI provider adapters, SignalForge combines structured operational workflows with AI-assisted content production.
 
-- Backend: FastAPI, SQLAlchemy 2, Alembic, PostgreSQL, Redis, Celery, Pydantic v2
-- Frontend: React, Vite, TypeScript, Tailwind
-- Object storage: MinIO/S3-compatible
-- Inference: local-first adapter layer for Ollama, vLLM, llama.cpp, plus OpenAI-compatible endpoints
-- Media pipeline: FFmpeg-ready video assembly with voice, captions, thumbnail, and preview outputs
+The system follows an approval-first architecture:
+AI systems can ingest, rank, summarize, draft, and prepare content, while operators maintain control over review, approval, and publishing decisions.
 
-## Core flow
+---
 
-1. Connect sources such as RSS, Reddit, sitemaps, blogs, official feeds, and optional best-effort trend/social connectors.
-2. Ingest and normalize raw items into scored story clusters with explicit workflow state.
-3. Generate and approve editorial briefs in Telegram.
-4. Generate content assets and route them through asset approval in Telegram.
-5. Publish through dry-run or real platform adapters.
-6. Sync analytics and feed outcomes back into scoring and prompt decisions.
+# Core Capabilities
 
-## Local run
+- Trend and signal ingestion
+- Story clustering and ranking
+- Editorial brief generation
+- AI-assisted content generation
+- Approval and review workflows
+- Publishing queue management
+- Analytics and feedback tracking
+- Multi-provider AI routing
+- Webhook and messaging integrations
+- Queue-driven asynchronous processing
 
-1. Start the local stack:
+> Status: active development platform with production-oriented architecture and semi-autonomous publishing workflows.
+
+---
+
+# Why This Platform Exists
+
+Content teams often rely on fragmented workflows across:
+- trend discovery tools
+- editorial planning systems
+- content-generation tools
+- approval channels
+- publishing platforms
+- analytics dashboards
+
+SignalForge centralizes these workflows into a single operational platform designed for AI-assisted content operations.
+
+The goal is not fully autonomous publishing.
+
+The goal is:
+- faster editorial workflows
+- structured review pipelines
+- reusable AI-assisted operations
+- approval-controlled publishing
+- scalable content generation systems
+
+---
+
+# Screenshots
+
+> Add real screenshots or demo GIFs here.
+
+| Trend Dashboard | Editorial Workflow |
+|---|---|
+| Add screenshot | Add screenshot |
+
+| Content Queue | Analytics Dashboard |
+|---|---|
+| Add screenshot | Add screenshot |
+
+---
+
+# System Architecture
+
+```mermaid
+flowchart LR
+
+    User[Operator] --> UI[React + Vite Frontend]
+
+    UI --> API[FastAPI API]
+
+    API --> DB[(PostgreSQL)]
+    API --> Redis[(Redis + Celery)]
+    API --> Storage[(MinIO / S3)]
+
+    Redis --> Ingestion[Ingestion Workers]
+    Redis --> Generation[Generation Workers]
+    Redis --> Publishing[Publishing Workers]
+    Redis --> Analytics[Analytics Workers]
+
+    Generation --> LLM[LLM Providers]
+    Generation --> Media[Media Providers]
+
+    Publishing --> Social[Social Platforms]
+
+    Social --> Analytics
+
+    Analytics --> DB
+    DB --> API
+    API --> UI
+```
+
+The backend is organized as a modular monolith with domain-based modules for ingestion, trend intelligence, editorial workflows, content generation, approvals, publishing, analytics, and platform administration.
+
+---
+
+# System Design Highlights
+
+- Modular FastAPI backend architecture
+- Queue-driven asynchronous workflows
+- Multi-provider AI routing
+- Approval-first publishing pipeline
+- Real-time job status over WebSocket
+- Adapter-based media generation services
+- Local-first AI provider support
+- Multi-channel approval workflows
+- Containerized local deployment stack
+
+---
+
+# Key Features
+
+## Trend and Signal Intelligence
+
+- RSS and feed ingestion
+- Source catalog management
+- Trend clustering
+- Story scoring
+- Trend candidate review
+- Manual ingestion workflows
+- Optional Google Trends-style signals
+
+## Editorial Workflows
+
+- Editorial brief generation
+- Approve/reject workflows
+- Rewrite and regenerate actions
+- Brand-profile management
+- Content planning workflows
+- Telegram delivery support
+
+## Content Generation
+
+- AI-assisted content generation
+- Platform-specific formatting
+- Asset regeneration workflows
+- Image-generation adapters
+- Text-to-speech adapters
+- Video-generation workflows
+- Real-time job tracking
+
+## Approval and Publishing
+
+- Approval queues
+- Telegram approval flows
+- WhatsApp webhook support
+- Dry-run publishing
+- Retry and cancel workflows
+- Connected-account validation
+- Published-post tracking
+
+## Analytics and Optimization
+
+- Analytics synchronization
+- Feedback-driven scoring
+- Trend-performance review
+- Publishing analytics overview
+- Outcome-driven optimization workflows
+
+## Workspace and Security
+
+- Multi-user authentication
+- Email verification
+- Password reset
+- MFA support
+- Audit logging
+- Session management
+- Tenant settings
+- Role-aware access rules
+
+---
+
+# Example Use Cases
+
+- AI-assisted editorial operations
+- Social media publishing workflows
+- Trend monitoring systems
+- Marketing content operations
+- Internal media desks
+- Creator automation pipelines
+- Brand-content planning
+- Editorial approval systems
+
+---
+
+# Tech Stack
+
+| Area | Technologies |
+|---|---|
+| Backend | FastAPI, SQLAlchemy 2, Alembic, Pydantic v2 |
+| Frontend | React 19, TypeScript, Vite, Zustand |
+| UI | Tailwind CSS, Radix UI, Recharts |
+| Database | PostgreSQL 16 |
+| Cache & Jobs | Redis, Celery |
+| Storage | MinIO, S3-compatible object storage |
+| AI Providers | Ollama, vLLM, llama.cpp, OpenAI-compatible APIs |
+| Media Tooling | FFmpeg, TTS adapters, image-generation adapters |
+| Observability | structlog, OpenTelemetry, Sentry |
+| Testing | Vitest, Playwright, pytest dependencies |
+| DevOps | Docker, Docker Compose, Make |
+
+---
+
+# Repository Structure
+
+```text
+backend/
+├── api/                 # FastAPI app and API routing
+├── core/                # Config, logging, storage, telemetry
+├── db/                  # Database session and models
+├── modules/             # Domain modules
+├── workers/             # Celery workers and tasks
+├── alembic/             # Database migrations
+├── prompts/             # Prompt templates
+└── scripts/             # Demo seed scripts
+
+frontend/
+├── src/api/             # API clients
+├── src/app/             # Router and providers
+├── src/components/      # Shared UI components
+├── src/features/        # Auth and dashboard modules
+└── src/pages/           # Route pages
+
+infra/                   # Infrastructure support files
+docker-compose.yml       # Full local stack
+Makefile                 # Developer commands
+Procfile.dev             # Local process runner
+```
+
+---
+
+# Quick Start
+
+## Clone Repository
+
+```bash
+git clone <repo-url>
+cd signalforge
+```
+
+## Start Local Stack
+
+```bash
+docker compose up --build
+```
+
+Open:
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:8000`
+- API Docs: `http://localhost:8000/docs`
+
+---
+
+# Local Development Setup
+
+## Start Infrastructure
 
 ```bash
 docker compose up -d postgres redis minio ollama
 ```
 
-2. Configure the backend:
+## Backend Setup
 
 ```bash
 cd backend
+
 cp .env.example .env
+
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/alembic upgrade head
+. .venv/bin/activate
+
+pip install -r requirements.txt
+
+alembic upgrade head
 ```
 
-3. Configure the frontend:
+## Frontend Setup
 
 ```bash
-cd frontend
+cd ../frontend
+
 cp .env.example .env
+
 npm install
 ```
 
-4. Seed the demo workspace:
+## Seed Demo Data
 
 ```bash
-make seed
+cd ..
+python -m backend.scripts.seed_demo
 ```
 
-5. Run the services:
+## Run Backend
 
 ```bash
-make backend-dev
-make worker-dev
-make frontend-dev
+uvicorn backend.api.main:app --reload --reload-dir backend --port 8000
 ```
 
-The seeded operator login is `demo@example.com` / `password1234`.
+## Run Workers
 
-## Important env contracts
+```bash
+celery -A backend.workers.celery_app:celery_app worker \
+  --loglevel=INFO \
+  --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email
+```
 
-- `LLM_PROVIDER`: `ollama`, `vllm`, `llamacpp`, `openai_compatible`, or `mock`
-- `LLM_TASK_MODELS_JSON`: per-task model overrides, for example `{"structured_json":"llama3.1:8b"}`
-- `CSRF_SECRET`: required for cookie-authenticated refresh/logout protection
-- `ENCRYPTION_KEY`: required in production for encrypted local credential storage
-- `EXTERNAL_SECRET_REFERENCES_JSON`: optional JSON map for resolving external secret references at runtime
-- `TELEGRAM_WEBHOOK_SECRET` and `TELEGRAM_CALLBACK_SIGNING_SECRET`: webhook and callback protection
-- `SOCIAL_DRY_RUN_BY_DEFAULT=true`: recommended for local development
-- `ENABLE_GOOGLE_TRENDS_CONNECTOR=false`: optional and intentionally best-effort
+## Run Frontend
 
-Production note:
+```bash
+cd frontend
+npm run dev
+```
 
-- production bootstrap now fails fast if `JWT_SECRET`, `CSRF_SECRET`, `ENCRYPTION_KEY`, Telegram secrets, cookie security, or public HTTPS configuration are weak or missing
+---
 
-## Notable implementation decisions
+# Demo Login
 
-- Trend workflow is explicit: `new -> queued_for_review -> brief_ready -> approved_topic -> asset_generation -> asset_review -> publish_ready -> published`
-- Telegram callbacks are now signed to reduce spoofed approval risk
-- High-risk content remains gated by deterministic scoring plus confirmation rules before content generation
-- Local model routing is adapter-based so inference can move between Ollama, vLLM, llama.cpp, and OpenAI-compatible servers without rewriting the pipeline
+```text
+demo@example.com
+password1234
+```
 
-See:
+---
 
-- `docs/editorial-workflow.md`
-- `docs/implementation-report.md`
-- `docs/local-models.md`
-- `docs/examples/brand-configs.md`
-- `docs/examples/telegram-cards.md`
-- `docs/examples/dry-run-publishing.md`
-- `docs/adr/0007-source-tiering-strategy.md`
-- `docs/adr/0008-telegram-approval-gates.md`
-- `docs/adr/0009-local-model-routing.md`
-- `docs/adr/0010-publishing-adapter-strategy.md`
+# Environment Variables
 
-## Commands
+## Core Runtime
 
-- `make dev`
-- `make lint`
-- `make test`
-- `make e2e`
-- `make seed`
-- `docker compose up --build`
+| Variable | Purpose |
+|---|---|
+| `APP_ENV` | Runtime environment |
+| `DATABASE_URL` | PostgreSQL connection |
+| `REDIS_URL` | Redis cache and broker |
+| `JWT_SECRET` | Token signing secret |
+| `FRONTEND_URL` | Public frontend URL |
+
+## AI Providers
+
+| Variable | Purpose |
+|---|---|
+| `LLM_PROVIDER` | AI provider selection |
+| `LLM_MODEL` | Default model |
+| `OLLAMA_BASE_URL` | Ollama endpoint |
+| `EMBEDDINGS_PROVIDER` | Embeddings provider |
+| `LLM_TASK_MODELS_JSON` | Per-task model overrides |
+
+## Publishing and Integrations
+
+| Variable | Purpose |
+|---|---|
+| `SOCIAL_DRY_RUN_BY_DEFAULT` | Safe publishing mode |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram webhook validation |
+| `WHATSAPP_*` | WhatsApp integration settings |
+
+## Storage and Media
+
+| Variable | Purpose |
+|---|---|
+| `STORAGE_*` | Object storage settings |
+| `SMTP_*` | Email configuration |
+| `PUBLIC_URL` | Public API URL |
+
+---
+
+# API Overview
+
+Base URL:
+
+```text
+/api/v1
+```
+
+Interactive documentation:
+- `/docs`
+- `/openapi.json`
+
+Main route groups:
+
+| Area | Routes |
+|---|---|
+| Health | `/health/*` |
+| Authentication | `/auth/*` |
+| Sources | `/sources/*` |
+| Stories & Trends | `/stories/*`, `/trends/*` |
+| Content Generation | `/content/*` |
+| Editorial Briefs | `/briefs/*` |
+| Approvals | `/approvals/*` |
+| Publishing | `/publishing/*` |
+| Analytics | `/analytics/*` |
+| Settings | `/settings/*` |
+| Audit | `/audit/*` |
+| Realtime | `WS /ws/job/{job_id}` |
+
+---
+
+# Main Application Views
+
+| Route | Purpose |
+|---|---|
+| `/dashboard` | Main operator dashboard |
+| `/dashboard/sources` | Source management |
+| `/dashboard/trends` | Trend review |
+| `/dashboard/briefs` | Editorial workflows |
+| `/dashboard/content` | Generated content |
+| `/dashboard/approvals` | Approval queue |
+| `/dashboard/publishing` | Publishing workflows |
+| `/dashboard/analytics` | Analytics overview |
+| `/dashboard/settings` | Tenant settings |
+| `/dashboard/audit` | Audit logs |
+
+---
+
+# Example Workflows
+
+## Review and Approve a Trend
+
+```text
+Ingest source content
+    ->
+Cluster and score candidates
+    ->
+Review trends
+    ->
+Approve editorial brief
+```
+
+## Generate and Publish Content
+
+```text
+Generate content assets
+    ->
+Review generated assets
+    ->
+Approve workflow
+    ->
+Queue publishing
+```
+
+## Run Local AI with Ollama
+
+```bash
+docker compose up -d ollama ollama-init
+```
+
+Configure backend:
+
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3.2:3b
+EMBEDDINGS_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+---
+
+# Current Capabilities
+
+- Trend ingestion and scoring
+- Editorial brief generation
+- AI-assisted content generation
+- Approval workflows
+- Publishing queues
+- Analytics synchronization
+- Multi-provider AI routing
+- Telegram and WhatsApp integrations
+- Dry-run publishing support
+- Multi-user operational dashboards
+
+---
+
+# Planned / Experimental
+
+- Expanded analytics pipelines
+- Additional social integrations
+- Advanced recommendation scoring
+- Multi-agent editorial workflows
+- Better long-term feedback loops
+- CI/CD automation
+- Production deployment hardening
+
+---
+
+# Running Tests
+
+## Frontend
+
+```bash
+cd frontend
+
+npm run test
+npm run test:coverage
+npm run lint
+npm run build
+npm run e2e
+```
+
+## Backend
+
+```bash
+cd backend
+pytest
+```
+
+Top-level checks:
+
+```bash
+make check
+```
+
+---
+
+# Security Notes
+
+- Replace all development secrets before deployment
+- Keep `SOCIAL_DRY_RUN_BY_DEFAULT=true` outside production publishing
+- Never commit `.env` files or API credentials
+- Store platform credentials in managed secret systems
+- Restrict CORS origins in deployed environments
+- Validate Telegram and WhatsApp webhook security
+- Review logging configuration for sensitive content exposure
+
+---
+
+# Known Limitations
+
+- Some provider integrations operate in mock or dry-run mode by default
+- CI/CD workflows are not yet implemented
+- Production deployment documentation is incomplete
+- Backend test coverage appears incomplete in the current repository state
+- Screenshot/demo assets are not yet included
+- License and maintainer details are not yet documented
+
+---
+
+# License
+
+License not yet documented.
+

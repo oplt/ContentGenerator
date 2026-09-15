@@ -89,6 +89,12 @@ class ContentJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     __table_args__ = (
         Index("ix_content_jobs_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_content_jobs_content_plan_id", "content_plan_id"),
+        Index("ix_content_jobs_tenant_id_status", "tenant_id", "status"),
+        Index("ix_content_jobs_tenant_id_job_type", "tenant_id", "job_type"),
+        Index("ix_content_jobs_tenant_id_stage", "tenant_id", "stage"),
+        Index("ix_content_jobs_tenant_id_started_at", "tenant_id", "started_at"),
+        Index("ix_content_jobs_tenant_id_completed_at", "tenant_id", "completed_at"),
+        Index("ix_content_jobs_revision_of_job_id", "revision_of_job_id"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -114,7 +120,12 @@ class ContentJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
 
 class ContentRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "content_revisions"
-    __table_args__ = (Index("ix_content_revisions_content_job_id", "content_job_id"),)
+    __table_args__ = (
+        Index("ix_content_revisions_content_job_id", "content_job_id"),
+        Index("ix_content_revisions_tenant_id", "tenant_id"),
+        Index("ix_content_revisions_status", "status"),
+        Index("ix_content_revisions_requested_by_user_id", "requested_by_user_id"),
+    )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
@@ -139,6 +150,8 @@ class GeneratedAssetGroup(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Bas
         Index("ix_generated_asset_groups_tenant_id_status", "tenant_id", "status"),
         Index("ix_generated_asset_groups_content_job_id", "content_job_id"),
         Index("ix_generated_asset_groups_content_plan_id", "content_plan_id"),
+        Index("ix_generated_asset_groups_tenant_id_created_at", "tenant_id", "created_at"),
+        Index("ix_generated_asset_groups_tenant_id_status_created_at", "tenant_id", "status", "created_at"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -165,6 +178,10 @@ class GeneratedAsset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base)
         Index("ix_generated_assets_content_job_id", "content_job_id"),
         Index("ix_generated_assets_asset_group_id", "asset_group_id"),
         Index("ix_generated_assets_tenant_id_asset_type", "tenant_id", "asset_type"),
+        Index("ix_generated_assets_tenant_id_platform", "tenant_id", "platform"),
+        Index("ix_generated_assets_tenant_id_asset_type_status", "tenant_id", "asset_type", "deleted_at"),
+        Index("ix_generated_assets_storage_key", "storage_key", unique=True),
+        Index("ix_generated_assets_public_url", "public_url", unique=True),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(

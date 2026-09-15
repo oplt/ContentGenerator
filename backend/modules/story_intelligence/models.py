@@ -56,6 +56,11 @@ class NormalizedArticle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("raw_article_id", name="uq_normalized_articles_raw_article_id"),
         Index("ix_normalized_articles_tenant_id_published_at", "tenant_id", "published_at"),
+        Index("ix_normalized_articles_tenant_id_source_name", "tenant_id", "source_name"),
+        Index("ix_normalized_articles_tenant_id_content_vertical", "tenant_id", "content_vertical"),
+        Index("ix_normalized_articles_tenant_id_risk_flags", "tenant_id", "risk_flags", postgresql_using="gin"),
+        Index("ix_normalized_articles_tenant_id_topic_tags", "tenant_id", "topic_tags", postgresql_using="gin"),
+        Index("ix_normalized_articles_tenant_id_entities", "tenant_id", "entities", postgresql_using="gin"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -79,7 +84,7 @@ class NormalizedArticle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     content_vertical: Mapped[str] = mapped_column(String(32), nullable=False, default="general")
     source_tier: Mapped[str] = mapped_column(
         String(32), nullable=False, default="signal"
-    )  # inherited from Source at fetch time
+    ) # inherited from Source at fetch time
     geography: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     claims: Mapped[list[str]] = mapped_column(default=list, nullable=False)
     risk_flags: Mapped[list[str]] = mapped_column(default=list, nullable=False)
@@ -95,6 +100,11 @@ class StoryCluster(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Version
         Index("ix_story_clusters_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_story_clusters_tenant_id_worthy_for_content", "tenant_id", "worthy_for_content"),
         Index("ix_story_clusters_tenant_id_vertical_risk", "tenant_id", "content_vertical", "risk_level"),
+        Index("ix_story_clusters_tenant_id_status", "tenant_id", "status"),
+        Index("ix_story_clusters_tenant_id_workflow_state", "tenant_id", "workflow_state"),
+        Index("ix_story_clusters_tenant_id_primary_topic", "tenant_id", "primary_topic"),
+        Index("ix_story_clusters_tenant_id_risk_level", "tenant_id", "risk_level"),
+        Index("ix_story_clusters_tenant_id_worthy_risk", "tenant_id", "worthy_for_content", "risk_level"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -138,6 +148,9 @@ class StoryClusterArticle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "normalized_article_id",
             name="uq_sca_cluster_article",
         ),
+        Index("ix_story_cluster_articles_story_cluster_id", "story_cluster_id"),
+        Index("ix_story_cluster_articles_normalized_article_id", "normalized_article_id"),
+        Index("ix_story_cluster_articles_is_primary", "is_primary"),
     )
 
     story_cluster_id: Mapped[uuid.UUID] = mapped_column(
@@ -154,6 +167,9 @@ class TrendScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "trend_scores"
     __table_args__ = (
         Index("ix_trend_scores_story_cluster_id_created_at", "story_cluster_id", "created_at"),
+        Index("ix_trend_scores_tenant_id_story_cluster", "tenant_id", "story_cluster_id"),
+        Index("ix_trend_scores_tenant_id_created_at", "tenant_id", "created_at"),
+        Index("ix_trend_scores_story_cluster_id_score", "story_cluster_id", "score"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -181,10 +197,16 @@ class TrendScore(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class TrendCandidate(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     __tablename__ = "trend_candidates"
     __table_args__ = (
-        UniqueConstraint("story_cluster_id", "date_bucket", name="uq_trend_candidates_story_cluster_id_date_bucket"),
+        UniqueConstraint(
+            "story_cluster_id", "date_bucket", name="uq_trend_candidates_story_cluster_id_date_bucket"
+        ),
         Index("ix_trend_candidates_tenant_id_status_date_bucket", "tenant_id", "status", "date_bucket"),
         Index("ix_trend_candidates_tenant_id_final_score", "tenant_id", "final_score"),
         Index("ix_trend_candidates_story_cluster_id", "story_cluster_id"),
+        Index("ix_trend_candidates_tenant_id_primary_topic", "tenant_id", "primary_topic"),
+        Index("ix_trend_candidates_tenant_id_status", "tenant_id", "status"),
+        Index("ix_trend_candidates_tenant_id_date_bucket", "tenant_id", "date_bucket"),
+        Index("ix_trend_candidates_tenant_id_expires_at", "tenant_id", "expires_at"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(

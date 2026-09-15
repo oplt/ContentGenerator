@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, MetaData, Uuid, func
+from sqlalchemy import JSON, DateTime, Integer, MetaData, Uuid, func, inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 
@@ -28,6 +29,26 @@ class Base(DeclarativeBase):
         list[str]: JSON,
         list[float]: JSON,
     }
+
+    def model_dump(self) -> dict[str, Any]:
+        return {
+            attr.key: self._json_safe(getattr(self, attr.key))
+            for attr in inspect(self).mapper.column_attrs
+        }
+
+    @classmethod
+    def _json_safe(cls, value: Any) -> Any:
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, list):
+            return [cls._json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): cls._json_safe(item) for key, item in value.items()}
+        return value
 
 
 class UUIDPrimaryKeyMixin:

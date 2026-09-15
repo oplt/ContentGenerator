@@ -2,15 +2,44 @@ from __future__ import annotations
 
 import logging
 import sys
+import os
+from datetime import datetime
+from pathlib import Path
 
 import structlog
+from pythonjsonlogger import jsonlogger
 
 from backend.core.config import settings
 
+# Create logs directory if it doesn't exist
+LOG_DIR = Path("/home/polat/Desktop/Projects/content_generator/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 def setup_logging() -> None:
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
 
+    # Configure file handler with daily rotation
+    log_file = LOG_DIR / f"app_{datetime.now().strftime('%Y-%m-%d')}.log"
+    file_handler = logging.FileHandler(log_file)
+    
+    # Use JSON formatter for structured logging
+    formatter = jsonlogger.JsonFormatter(
+        "%(asctime)s %(name)s %(levelname)s %(message)s",
+        timestamp=True
+    )
+    file_handler.setFormatter(formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(settings.LOG_LEVEL.upper())
+    root_logger.addHandler(file_handler)
+    
+    # Also keep console output for development
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+    
+    # Configure structlog
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -26,12 +55,27 @@ def setup_logging() -> None:
         cache_logger_on_first_use=True,
     )
 
-    logging.basicConfig(
-        level=settings.LOG_LEVEL.upper(),
-        format="%(message)s",
-        stream=sys.stdout,
-    )
-
 
 def get_logger(name: str):
     return structlog.get_logger(name)
+
+# Cleanup old logs (keep only last 2 days)
+def cleanup_old_logs():
+    """Remove log files older than 2 days"""
+    now = datetime.now()
+    for log_file in LOG_DIR.glob("app_*.log"):
+        try:
+            # Extract date from filename: app_YYYY-MM-DD.log
+            date_str = log_file.stem.split("_")[1]
+            file_date = datetime.strptime(date_str, "%Y-%m-%d")
+            
+            # Delete if older than 2 days
+            if (now - file_date).days > 2:
+                log_file.unlink()
+                print(f"Deleted old log file: {log_file}")
+        except (IndexError, ValueError):
+            # Skip files that don't match the expected pattern
+            continue
+
+# Run cleanup on import (for background cleanup)
+cleanup_old_logs()

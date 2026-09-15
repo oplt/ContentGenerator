@@ -30,6 +30,7 @@ class Brand(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_brands_tenant_id_name"),
         Index("ix_brands_tenant_id_niche", "tenant_id", "niche"),
+        Index("ix_brands_tenant_id_enabled", "tenant_id", "deleted_at", postgresql_where=(SoftDeleteMixin.deleted_at.is_(None))),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -50,6 +51,7 @@ class BrandProfile(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Version
     __table_args__ = (
         Index("ix_brand_profiles_tenant_id", "tenant_id"),
         Index("ix_brand_profiles_brand_id", "brand_id"),
+        Index("ix_brand_profiles_tenant_id_enabled", "tenant_id", "deleted_at", postgresql_where=(SoftDeleteMixin.deleted_at.is_(None))),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -78,6 +80,7 @@ class BrandSourcePolicy(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Ba
         UniqueConstraint("brand_id", "source_id", name="uq_brand_source_policies_brand_id_source_id"),
         Index("ix_brand_source_policies_brand_id_enabled", "brand_id", "enabled"),
         Index("ix_brand_source_policies_source_id_enabled", "source_id", "enabled"),
+        Index("ix_brand_source_policies_tenant_id_enabled", "tenant_id", "enabled", postgresql_where=(SoftDeleteMixin.deleted_at.is_(None))),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -99,6 +102,10 @@ class ContentPlan(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionM
     __table_args__ = (
         Index("ix_content_plans_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_content_plans_story_cluster_id", "story_cluster_id"),
+        Index("ix_content_plans_tenant_id_status", "tenant_id", "status"),
+        Index("ix_content_plans_tenant_id_decision", "tenant_id", "decision"),
+        Index("ix_content_plans_tenant_id_brand_profile", "tenant_id", "brand_profile_id"),
+        Index("ix_content_plans_tenant_id_scheduled_for", "tenant_id", "scheduled_for"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
