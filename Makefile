@@ -1,5 +1,5 @@
 .PHONY: local-dev docker-dev prod-dev fix check install-hooks commit-ready quality-gates \
-	regression-unit regression-integration regression e2e-ci
+	regression-unit regression-integration regression e2e-ci line-budget
 
 local-dev:
 	$(MAKE) -f Makefile.local local-dev
@@ -14,11 +14,15 @@ fix:
 	cd backend && .venv/bin/ruff check . --fix
 	cd backend && .venv/bin/ruff format .
 
+line-budget:
+	python3 scripts/check_file_line_budget.py
+
 check:
 	cd backend && .venv/bin/ruff check .
 	cd backend && .venv/bin/mypy .
 	cd frontend && npm run lint
 	cd frontend && npx tsc --noEmit
+	$(MAKE) line-budget
 
 regression-unit:
 	cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q -m "not integration"

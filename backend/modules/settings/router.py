@@ -41,7 +41,6 @@ async def update_tenant_settings(
 ) -> TenantSettingsResponse:
     service = SettingsService(db)
     tenant = await service.update_tenant_settings(membership.tenant_id, payload)
-    await db.commit()
     response = TenantSettingsResponse.model_validate(tenant)
     response.rbac_mode = "role_based_placeholder"
     return response
@@ -64,7 +63,6 @@ async def update_whatsapp_settings(
 ) -> WhatsAppSettingsResponse:
     service = SettingsService(db)
     result = await service.update_whatsapp_settings(membership.tenant_id, payload)
-    await db.commit()
     return result
 
 
@@ -85,7 +83,6 @@ async def update_telegram_settings(
 ) -> TelegramSettingsResponse:
     service = SettingsService(db)
     result = await service.update_telegram_settings(membership.tenant_id, payload)
-    await db.commit()
     return result
 
 
@@ -96,7 +93,6 @@ async def register_telegram_webhook(
         db: AsyncSession = Depends(get_db),
 ) -> dict[str, object]:
     from backend.modules.approvals.providers import TelegramProvider
-    import os
 
     service = SettingsService(db)
     config = await service.resolve_telegram_runtime_config(membership.tenant_id)

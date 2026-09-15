@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Celery include target. Task bodies live in backend.workers.task_defs.*."""
+
+from __future__ import annotations
 
 from backend.workers.task_defs.analytics import sync_analytics_task
 from backend.workers.task_defs.approvals import (
@@ -10,7 +10,11 @@ from backend.workers.task_defs.approvals import (
     send_approval_task,
 )
 from backend.workers.task_defs.email import send_email_task
-from backend.workers.task_defs.generation import generate_content_task
+from backend.workers.task_defs.generation import (
+    generate_content_task,
+    generate_image_asset_task,
+    generate_tts_asset_task,
+)
 from backend.workers.task_defs.ingestion import ingest_source_task, poll_sources_task
 from backend.workers.task_defs.publishing import publish_due_jobs_task
 from backend.workers.task_defs.stories import rescore_all_tenants_task, rescore_clusters_task
@@ -25,6 +29,8 @@ __all__ = [
     "poll_sources_task",
     "ingest_source_task",
     "generate_content_task",
+    "generate_image_asset_task",
+    "generate_tts_asset_task",
     "send_approval_task",
     "publish_due_jobs_task",
     "process_webhook_inbox_task",

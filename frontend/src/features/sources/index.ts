@@ -11,3 +11,8 @@ export {
   type SourceForm,
   type SourcesTab,
 } from "./components";
+export { FetchRunsPanel } from "./FetchRunsPanel";
+export { AddSourcePanel } from "./AddSourcePanel";
+export { ConfiguredSourcesPanel } from "./ConfiguredSourcesPanel";
+export { useSourcesQueries } from "./useSourcesQueries";
+export { useSourcesMutations } from "./useSourcesMutations";

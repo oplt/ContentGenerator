@@ -1,9 +1,9 @@
 /**
- * Optional job WebSocket client (T6.1 evaluation).
+ * Optional job WebSocket client (Phase 7.4).
  *
- * Backend has `/api/v1/ws/job/{job_id}` plus Redis `job_status_updates` fan-out, but content/
- * publishing workers do not reliably publish that channel yet. Prefer status-aware REST polling
- * until producers are wired; this helper is ready for a later opt-in without replacing REST.
+ * Prefer status-aware REST polling for content/publishing jobs until workers
+ * reliably publish Redis `job_status_updates`. Use this helper as an opt-in
+ * accelerator that invalidates job queries on message without replacing REST.
  */
 import { queryClient } from "../lib/queryClient";
 import { queryKeys } from "../lib/queryKeys";

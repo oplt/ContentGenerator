@@ -1,58 +1,43 @@
 /**
- * Curated API ↔ UI parity contract (T5.1).
- * required: product-facing capability with a frontend owner
- * ui_exempt: backend-only / internal (webhooks, workers, health plumbing)
+ * Phase 8 — Backend ↔ frontend feature parity contract.
  */
-export type ParityOwner =
-  | "auth"
-  | "users"
-  | "stories"
-  | "briefs"
-  | "content"
-  | "settings"
-  | "publishing"
-  | "analytics"
-  | "approvals"
-  | "sources"
-  | "audit"
-  | "trending-repos"
-  | "ui_exempt";
+import { PARITY_OPERATIONS } from "./parityInventory";
+import {
+  operationKey,
+  type ParityCategory,
+  type ParityOperation,
+} from "./parityTypes";
 
-export type ParityEntry = {
-  method: string;
-  path: string;
-  owner: ParityOwner;
-  client?: string;
-  ui?: string;
-  notes?: string;
-};
+export type { ParityCategory, ParityOperation };
+export { PARITY_CATEGORIES, operationKey } from "./parityTypes";
+export { PARITY_OPERATIONS } from "./parityInventory";
 
-export const REQUIRED_PARITY: ParityEntry[] = [
-  { method: "POST", path: "/api/v1/auth/mfa/enable", owner: "auth", client: "api/auth.ts#enableMfa", ui: "pages/MfaSetupPage.tsx" },
-  { method: "POST", path: "/api/v1/auth/mfa/verify", owner: "auth", client: "api/auth.ts#verifyMfa", ui: "pages/MfaSetupPage.tsx" },
-  { method: "POST", path: "/api/v1/auth/mfa/disable", owner: "auth", client: "api/auth.ts#disableMfa", ui: "pages/AccountSecurityPage.tsx" },
-  { method: "GET", path: "/api/v1/users/me", owner: "users", client: "api/users.ts#getMyProfile", ui: "pages/AccountSecurityPage.tsx" },
-  { method: "PATCH", path: "/api/v1/users/me", owner: "users", client: "api/users.ts#updateMyProfile", ui: "pages/AccountSecurityPage.tsx" },
-  { method: "PATCH", path: "/api/v1/users/me/password", owner: "users", client: "api/users.ts#changeMyPassword", ui: "pages/AccountSecurityPage.tsx" },
-  { method: "GET", path: "/api/v1/stories/candidates/{candidate_id}", owner: "stories", client: "api/stories.ts#getTrendCandidate", ui: "pages/StoryDetailPage.tsx" },
-  { method: "POST", path: "/api/v1/briefs/{brief_id}/rewrite", owner: "briefs", client: "api/briefs.ts#rewriteBrief", ui: "pages/EditorialBriefsPage.tsx" },
-  { method: "POST", path: "/api/v1/briefs/{brief_id}/send-telegram", owner: "briefs", client: "api/briefs.ts#sendBriefToTelegram", ui: "pages/EditorialBriefsPage.tsx" },
-  {
-    method: "POST",
-    path: "/api/v1/content/asset-groups/{asset_group_id}/regenerate",
-    owner: "content",
-    client: "api/content.ts#regenerateAssetGroup",
-    ui: "pages/ContentDetailPage.tsx",
-  },
-];
+/** Curated USER_FACING_UI subset kept for focused regression spot-checks. */
+export const REQUIRED_PARITY: readonly ParityOperation[] = PARITY_OPERATIONS.filter(
+  (op) =>
+    op.category === "USER_FACING_UI" &&
+    [
+      "POST /api/v1/auth/mfa/enable",
+      "POST /api/v1/auth/mfa/verify",
+      "POST /api/v1/auth/mfa/disable",
+      "GET /api/v1/users/me",
+      "POST /api/v1/briefs/{brief_id}/rewrite",
+      "POST /api/v1/briefs/{brief_id}/send-telegram",
+      "POST /api/v1/content/asset-groups/{asset_group_id}/regenerate",
+      "GET /api/v1/stories/candidates/{candidate_id}",
+    ].includes(operationKey(op)),
+);
 
 export const UI_EXEMPT_PREFIXES = [
   "/api/v1/health",
-  "/api/v1/ws",
-  "/api/v1/approvals/whatsapp/webhook",
   "/api/v1/approvals/telegram/webhook",
+  "/api/v1/approvals/whatsapp/webhook",
+  "/api/v1/ws",
 ] as const;
 
-/** Canonical story routes; /trends is a deprecation shim only. */
 export const CANONICAL_STORY_PREFIX = "/api/v1/stories";
 export const DEPRECATED_TRENDS_PREFIX = "/api/v1/trends";
+
+export function operationsByCategory(category: ParityCategory): ParityOperation[] {
+  return PARITY_OPERATIONS.filter((op) => op.category === category);
+}

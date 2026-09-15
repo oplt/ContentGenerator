@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   cancelPublishingJob,
@@ -11,6 +12,7 @@ import { useDocumentVisible } from "../hooks/useDocumentVisible";
 import { queryClient } from "../lib/queryClient";
 import { queryKeys } from "../lib/queryKeys";
 import { publishingJobsNeedPolling, statusAwareRefetchInterval } from "../lib/polling";
+import { queryPolicy } from "../lib/queryPolicy";
 import { formatSocialAccountLabel } from "../lib/socialAccounts";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -23,6 +25,7 @@ export default function PublishingQueuePage() {
     queryKey: queryKeys.publishingJobs(tenantId ?? "none"),
     queryFn: ({ signal }) => getPublishingJobs({ signal }),
     enabled,
+    ...queryPolicy.fast,
     refetchInterval: visible
       ? statusAwareRefetchInterval(10_000, publishingJobsNeedPolling)
       : false,
@@ -31,11 +34,13 @@ export default function PublishingQueuePage() {
     queryKey: queryKeys.publishingPosts(tenantId ?? "none"),
     queryFn: getPublishedPosts,
     enabled,
+    ...queryPolicy.moderate,
   });
   const socialAccounts = useQuery({
     queryKey: queryKeys.socialAccounts(tenantId ?? "none"),
     queryFn: getSocialAccounts,
     enabled,
+    ...queryPolicy.moderate,
   });
   const retryMutation = useMutation({
     mutationFn: retryPublishingJob,
@@ -52,11 +57,13 @@ export default function PublishingQueuePage() {
     },
   });
 
+  const accountsById = useMemo(() => {
+    return new Map((socialAccounts.data ?? []).map((account) => [account.id, account]));
+  }, [socialAccounts.data]);
+
   if (jobs.isLoading || posts.isLoading || socialAccounts.isLoading) {
     return <LoadingState label="Loading publish queue" />;
   }
-
-  const accounts = socialAccounts.data ?? [];
 
   return (
     <div className="space-y-6">
@@ -69,7 +76,9 @@ export default function PublishingQueuePage() {
 
       <div className="grid gap-4">
         {(jobs.data ?? []).map((job) => {
-          const account = accounts.find((item) => item.id === job.social_account_id);
+          const account = job.social_account_id
+            ? accountsById.get(job.social_account_id)
+            : undefined;
           return (
             <Card key={job.id} className="p-5">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -127,7 +136,9 @@ export default function PublishingQueuePage() {
           {(posts.data ?? []).map((post) => (
             <div key={post.id} className="rounded-2xl border border-border p-4">
               <p className="font-medium capitalize">{post.platform}</p>
-              <p className="text-sm text-muted-foreground">{post.external_url ?? "No external URL"}</p>
+              <p className="text-sm text-muted-foreground">
+                {post.external_url ?? "No external URL"}
+              </p>
             </div>
           ))}
         </div>

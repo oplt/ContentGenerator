@@ -175,7 +175,6 @@ async def send_for_approval(
             content_job_id=payload.content_job_id,
             recipient=payload.recipient,
         )
-    await db.commit()
     return await service.get_request_detail(membership.tenant_id, request_obj.id)
 
 
@@ -187,7 +186,6 @@ async def resend_approval_request(
 ) -> ApprovalRequestResponse:
     service = ApprovalService(db)
     request_obj = await service.resend_request(membership.tenant_id, request_id)
-    await db.commit()
     return await service.get_request_detail(membership.tenant_id, request_obj.id)
 
 
@@ -206,7 +204,6 @@ async def action_approval_request(
         feedback=payload.feedback,
         actor_user_id=membership.user_id,
     )
-    await db.commit()
     return detail
 
 

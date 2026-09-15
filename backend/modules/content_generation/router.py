@@ -51,7 +51,6 @@ async def generate_content(
         plan_id=payload.content_plan_id,
         social_account_ids=payload.social_account_ids,
     )
-    await db.commit()
     return await service.get_job_detail(membership.tenant_id, job.id)
 
 
@@ -70,7 +69,6 @@ async def regenerate_content(
         requested_by_user_id=membership.user_id,
         source_channel="dashboard",
     )
-    await db.commit()
     return await service.get_job_detail(membership.tenant_id, job.id)
 
 
@@ -89,5 +87,4 @@ async def regenerate_asset_group(
         requested_by_user_id=membership.user_id,
         source_channel="dashboard_asset_group",
     )
-    await db.commit()
     return await service.get_job_detail(membership.tenant_id, job.id)

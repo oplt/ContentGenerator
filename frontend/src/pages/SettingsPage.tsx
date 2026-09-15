@@ -13,10 +13,11 @@ import { useTenantScope } from "../hooks/useTenantScope";
 import { queryClient } from "../lib/queryClient";
 import { queryKeys } from "../lib/queryKeys";
 import { ErrorState } from "../components/ui/ErrorState";
-import { HelpDisclosure } from "../components/ui/HelpDisclosure";
+import { SectionHelp } from "../components/ui/HelpDisclosure";
 import { resolveQueriesStatus } from "../components/ui/QueryBoundary";
 import {
   SETTINGS_TABS,
+  SETTINGS_TAB_ALIASES,
   SOCIAL_PLATFORM_DEFINITIONS,
   type SettingsTab,
   type TelegramSettingsForm,
@@ -28,7 +29,12 @@ import {
 
 export default function SettingsPage() {
   const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
-  const [settingsTab, setSettingsTab] = useDeepLinkTab<SettingsTab>("tab", SETTINGS_TABS, "general");
+  const [settingsTab, setSettingsTab] = useDeepLinkTab<SettingsTab>(
+    "tab",
+    SETTINGS_TABS,
+    "general",
+    SETTINGS_TAB_ALIASES,
+  );
   const { currentUser } = useAuth();
   const { tenantId, enabled } = useTenantScope();
   const tenantSettings = useQuery({
@@ -39,17 +45,17 @@ export default function SettingsPage() {
   const whatsappSettings = useQuery({
     queryKey: queryKeys.whatsappSettings(tenantId ?? "none"),
     queryFn: getWhatsAppSettings,
-    enabled,
+    enabled: enabled && settingsTab === "integrations",
   });
   const telegramSettings = useQuery({
     queryKey: queryKeys.telegramSettings(tenantId ?? "none"),
     queryFn: getTelegramSettings,
-    enabled,
+    enabled: enabled && settingsTab === "integrations",
   });
   const socialAccounts = useQuery({
     queryKey: queryKeys.socialAccounts(tenantId ?? "none"),
     queryFn: getSocialAccounts,
-    enabled,
+    enabled: enabled && settingsTab === "social",
   });
 
   const workspaceForm = useForm<WorkspaceSettingsForm>({
@@ -171,25 +177,17 @@ export default function SettingsPage() {
   );
   const whatsappProvider = whatsappForm.watch("provider");
 
-  const shellStatus = resolveQueriesStatus([
-    tenantSettings,
-    whatsappSettings,
-    telegramSettings,
-    socialAccounts,
-  ]);
+  const shellStatus = resolveQueriesStatus([tenantSettings]);
 
   if (shellStatus.status === "loading") {
     return <LoadingState label="Loading settings" />;
   }
-  if (shellStatus.status === "error" || !tenantSettings.data || !whatsappSettings.data) {
+  if (shellStatus.status === "error" || !tenantSettings.data) {
     return (
       <ErrorState
         message="Workspace settings could not be loaded."
         onRetry={shellStatus.status === "error" ? shellStatus.retry : () => {
           void tenantSettings.refetch();
-          void whatsappSettings.refetch();
-          void telegramSettings.refetch();
-          void socialAccounts.refetch();
         }}
       />
     );
@@ -215,11 +213,11 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      <HelpDisclosure summary="About these settings sections">
-        General and workflow tabs store tenant defaults. WhatsApp and Telegram control approval delivery. Social Media
-        stores per-platform credentials—unsaved form values stay in memory while you switch tabs via the URL
-        <code className="mx-1">?tab=</code> parameter.
-      </HelpDisclosure>
+      <SectionHelp summary="About these settings sections">
+        General stores workspace identity. Publishing holds approval/publish defaults. Integrations covers Telegram
+        (primary) and WhatsApp (legacy). Social stores per-platform credentials—unsaved form values stay in memory
+        while you switch tabs via <code className="mx-1">?tab=</code>.
+      </SectionHelp>
 
       <SettingsWorkspaceTabs
         settingsTab={settingsTab}

@@ -111,6 +111,13 @@ export const SOCIAL_PLATFORM_DEFINITIONS: SocialPlatformDefinition[] = [
   },
 ];
 
-export const SETTINGS_TABS = ["general", "workflow", "whatsapp", "telegram", "social"] as const;
+export const SETTINGS_TABS = ["general", "publishing", "integrations", "social"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+/** Legacy ?tab= values from pre–Phase 9 settings IA. */
+export const SETTINGS_TAB_ALIASES: Readonly<Record<string, SettingsTab>> = {
+  workflow: "publishing",
+  whatsapp: "integrations",
+  telegram: "integrations",
+};
 

@@ -92,7 +92,6 @@ async def action_trend_candidate(
         if "not found" in str(exc).lower():
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await db.commit()
     return detail
 
 

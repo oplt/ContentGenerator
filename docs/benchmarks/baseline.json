@@ -1,86 +1,523 @@
 {
-  "version": 1,
+  "version": 2,
   "captured_at": "2026-09-15",
-  "notes": "Structural stub baselines for offline CI. Replace observed_* fields after seeded EXPLAIN/provider runs against disposable Postgres.",
-  "frontend": {
-    "bundle": {
-      "main_chunk_kb_p95": 450,
-      "regression_factor": 1.25
-    },
-    "web_vitals": {
-      "lcp_ms_p95": 2500,
-      "cls_p95": 0.1,
-      "inp_ms_p95": 200,
-      "regression_factor": 1.2
-    },
-    "commands": {
-      "bundle": "cd frontend && npm run build",
-      "vitals": "npx playwright test --project=chromium (requires browsers + seeded app)"
-    }
+  "git_commit": "598dbbbe53ec310038c0711823a7a3c88bcf2afd",
+  "environment": {
+    "os": "Linux x86_64",
+    "python": "3.12",
+    "node": "22.22.2",
+    "postgres": "16",
+    "browser": "Chromium headless shell 1243",
+    "database": "disposable local container on :55432; never shared or production data"
+  },
+  "methodology": {
+    "random_seed": 20260915,
+    "backend_sample_count": 10,
+    "backend_warmup_count": 1,
+    "percentile_method": "nearest-rank",
+    "notes": "CPU/memory from capture_seeded_microbenchmarks.py. SQL/checkout from capture_sql_baseline.py on disposable Postgres 16. Phase 16 adds db_query_count_max architectural ceilings and refreshes frontend bundle after code-splitting. publishing_claim_recovery db_query_count reflects batched stale recovery (2 queries), not the pre-fix N+1 shape."
+  },
+  "pre_change_quality_gates": {
+    "captured_before_phase_changes": true,
+    "passed": [
+      {
+        "command": "cd frontend && npm ci",
+        "summary": "Installed packages successfully prior to Phase 0 measurement refresh."
+      },
+      {
+        "command": "cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q -m 'not integration' --ignore=tests/test_article_pagination.py",
+        "summary": "163 unit tests passed (Phase 1 pagination async tests excluded from Phase 0 ledger)."
+      },
+      {
+        "command": "cd backend && DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:55432/content_generator DB_POOL_USE_NULL=true CG_RUN_DB_MIGRATIONS=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q -m integration tests/test_migration_drift.py",
+        "summary": "Migration upgrade-to-head drift gate passed on disposable PostgreSQL 16."
+      },
+      {
+        "command": "cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q tests/test_route_parity.py tests/test_tenant_cache.py tests/test_publishing_idempotency.py tests/test_db_pooling.py tests/test_celery_policy.py tests/test_worker_recovery.py",
+        "summary": "39 route parity, cache, publishing idempotency, DB pool, Celery policy, and worker recovery tests passed."
+      },
+      {
+        "command": "cd frontend && npm test -- --run",
+        "summary": "16 files and 45 tests passed."
+      },
+      {
+        "command": "cd frontend && npm run build",
+        "summary": "TypeScript and Vite production build passed; entry JS 279.76 kB, largest JS chunk 399.68 kB."
+      },
+      {
+        "command": "cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q tests/benchmarks",
+        "summary": "Phase 0 baseline harness contract tests passed."
+      }
+    ],
+    "failed": [
+      {
+        "command": "cd backend && .venv/bin/ruff check .",
+        "summary": "70 pre-existing errors, including undefined names and E402 import order findings."
+      },
+      {
+        "command": "cd backend && .venv/bin/mypy .",
+        "summary": "165 pre-existing errors in 25 files (207 source files checked)."
+      },
+      {
+        "command": "cd frontend && npm run lint",
+        "summary": "37 errors and 1 warning; includes invalid mockApi.ts input, effect state update, fast-refresh export, and explicit-any findings."
+      },
+      {
+        "command": "cd frontend && npx playwright test --project=chromium --project=mobile-chrome",
+        "summary": "Test discovery failed before browser execution: mockApi.ts begins with an invalid backslash and mobile-nav.spec.ts nests test.use with a device override."
+      }
+    ]
   },
   "scenarios": {
-    "ingestion_poll": {
-      "description": "Claim due sources and dedupe fetched articles for one tenant batch",
-      "seed": "N active sources with deterministic schedules; M articles with overlapping external keys",
-      "commands": {
-        "explain": "EXPLAIN (ANALYZE, BUFFERS) for list_due_sources SQL predicate + bulk existing-key lookup",
-        "pytest": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q tests/benchmarks/test_baseline_harness.py -k ingestion"
+    "source_ingestion": {
+      "description": "Normalize and canonicalize a deterministic 1,000-article source batch; separately plan the current due-source query.",
+      "seed": {
+        "random_seed": 20260915,
+        "sources": 100,
+        "candidate_articles": 1000
       },
-      "metrics": {
-        "db_queries": { "max_count": 4, "observed_count": null, "regression_factor": 1.5 },
-        "wall_ms": { "p95_ms": 5000, "observed_p95_ms": null, "regression_factor": 1.5 }
-      }
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 36.146,
+          "p95_ms": 38.494,
+          "p99_ms": 38.494
+        },
+        "db_query_count": 1,
+        "db_total_ms": 0.047,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 0,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 36.146,
+          "p95_ms": 38.494,
+          "p99_ms": 38.494
+        },
+        "rows_scanned": 100,
+        "peak_memory_mb": 0.207
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 48.117,
+        "db_query_count_max": 2
+      },
+      "sql_plans": [
+        {
+          "name": "due_sources",
+          "command": "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT * FROM sources\nWHERE active IS TRUE\n  AND deleted_at IS NULL\n  AND (next_poll_at IS NULL OR next_poll_at <= now())\nORDER BY next_poll_at ASC NULLS FIRST\nLIMIT 500",
+          "node": "Sort / Limit",
+          "execution_ms": 0.047,
+          "actual_rows": 100,
+          "rows_scanned": 100,
+          "shared_hit_blocks": 9,
+          "shared_read_blocks": 0
+        }
+      ]
     },
-    "analytics_sync": {
-      "description": "Sync snapshots for up to N published posts with stubbed providers",
-      "seed": "100 PublishedPost rows with account tokens; provider stub latency 5ms",
-      "commands": {
-        "explain": "EXPLAIN (ANALYZE, BUFFERS) for post context join / aggregate upsert",
-        "pytest": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest -q tests/benchmarks/test_baseline_harness.py -k analytics"
+    "duplicate_detection": {
+      "description": "Run the current nested candidate-to-existing-row match for 100 candidates and 1,000 existing rows.",
+      "seed": {
+        "random_seed": 20260915,
+        "candidates": 100,
+        "existing_rows": 1000
       },
-      "metrics": {
-        "provider_calls": { "max_count": 100, "observed_count": null, "regression_factor": 1.0 },
-        "db_queries": { "max_count": 220, "observed_count": null, "regression_factor": 1.3 },
-        "wall_ms": { "p95_ms": 15000, "observed_p95_ms": null, "regression_factor": 1.5 }
-      }
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 8.202,
+          "p95_ms": 8.62,
+          "p99_ms": 8.62
+        },
+        "db_query_count": 1,
+        "db_total_ms": 2.492,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 0,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 8.202,
+          "p95_ms": 8.62,
+          "p99_ms": 8.62
+        },
+        "rows_scanned": 10000,
+        "peak_memory_mb": 0.007
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 10.775,
+        "db_query_count_max": 2
+      },
+      "sql_plans": [
+        {
+          "name": "bulk_collision_lookup",
+          "command": "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT * FROM raw_articles WHERE tenant_id=:tenant_id AND deleted_at IS NULL AND (content_hash IN (:hashes) OR canonical_url IN (:urls) OR dedupe_key IN (:keys) OR title_normalized IN (:titles))",
+          "node": "Seq Scan",
+          "execution_ms": 2.492,
+          "actual_rows": 2,
+          "rows_scanned": 10000,
+          "shared_hit_blocks": 264,
+          "shared_read_blocks": 0
+        }
+      ]
+    },
+    "source_health": {
+      "description": "Recompute health/trust results for 100 deterministic source records.",
+      "seed": {
+        "random_seed": 20260915,
+        "sources": 100
+      },
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 0.199,
+          "p95_ms": 0.228,
+          "p99_ms": 0.228
+        },
+        "db_query_count": 1,
+        "db_total_ms": 0,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 100,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 0.199,
+          "p95_ms": 0.228,
+          "p99_ms": 0.228
+        },
+        "rows_scanned": 100,
+        "peak_memory_mb": 0.001
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 0.285,
+        "db_query_count_max": 2
+      },
+      "sql_plans": []
+    },
+    "story_clustering": {
+      "description": "Extract current clustering keywords for 100 deterministic story documents.",
+      "seed": {
+        "random_seed": 20260915,
+        "articles": 100,
+        "topics": 20
+      },
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 1.428,
+          "p95_ms": 1.709,
+          "p99_ms": 1.709
+        },
+        "db_query_count": 101,
+        "db_total_ms": 0,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 100,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 1.428,
+          "p95_ms": 1.709,
+          "p99_ms": 1.709
+        },
+        "rows_scanned": 100,
+        "peak_memory_mb": 0.047
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 2.136,
+        "db_query_count_max": 101
+      },
+      "sql_plans": []
     },
     "content_generation": {
-      "description": "Generate one content job through stub LLM + asset persistence",
-      "seed": "One approved brief + brand profile; inference provider stub",
-      "commands": {
-        "pytest": "celery task or service unit with CELERY_TASK_ALWAYS_EAGER"
+      "description": "Build and trim 100 deterministic current content variants with provider I/O stubbed.",
+      "seed": {
+        "random_seed": 20260915,
+        "briefs": 1,
+        "variants": 100
       },
-      "metrics": {
-        "provider_calls": { "max_count": 8, "observed_count": null, "regression_factor": 1.25 },
-        "wall_ms": { "p95_ms": 30000, "observed_p95_ms": null, "regression_factor": 1.5 }
-      }
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 0.32,
+          "p95_ms": 0.409,
+          "p99_ms": 0.409
+        },
+        "db_query_count": 0,
+        "db_total_ms": 0,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 0,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 0.32,
+          "p95_ms": 0.409,
+          "p99_ms": 0.409
+        },
+        "rows_scanned": 0,
+        "peak_memory_mb": 0.04
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 0.511,
+        "db_query_count_max": 1
+      },
+      "sql_plans": []
     },
-    "publishing_due_jobs": {
-      "description": "Claim and execute due publishing jobs with stub social providers",
-      "seed": "N PENDING/SCHEDULED jobs across platforms; stub publish success",
-      "commands": {
-        "explain": "EXPLAIN (ANALYZE, BUFFERS) for claim_due_jobs FOR UPDATE SKIP LOCKED",
-        "pytest": "worker execute_due_jobs with stub providers"
+    "publishing_claim_recovery": {
+      "description": "Build 100 deterministic attempt keys; stale-claim recovery uses one jobs scan plus one DISTINCT ON attempts query (no per-job N+1).",
+      "seed": {
+        "random_seed": 20260915,
+        "publishing_jobs": 100
       },
-      "metrics": {
-        "db_queries": { "max_count": 6, "observed_count": null, "regression_factor": 1.5 },
-        "provider_calls": { "max_count": 10, "observed_count": null, "regression_factor": 1.0 },
-        "wall_ms": { "p95_ms": 10000, "observed_p95_ms": null, "regression_factor": 1.5 }
-      }
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 0.09,
+          "p95_ms": 0.111,
+          "p99_ms": 0.111
+        },
+        "db_query_count": 2,
+        "db_total_ms": 0.014,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 0,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 0.09,
+          "p95_ms": 0.111,
+          "p99_ms": 0.111
+        },
+        "rows_scanned": 0,
+        "peak_memory_mb": 0.007
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 0.139,
+        "db_query_count_max": 3
+      },
+      "sql_plans": [
+        {
+          "name": "stale_claim_scan",
+          "command": "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT * FROM publishing_jobs\nWHERE status IN ('claimed', 'running')\n  AND claim_expires_at IS NOT NULL\n  AND claim_expires_at <= now()\nFOR UPDATE SKIP LOCKED",
+          "node": "Seq Scan / LockRows",
+          "execution_ms": 0.014,
+          "actual_rows": 0,
+          "rows_scanned": 0,
+          "shared_hit_blocks": 0,
+          "shared_read_blocks": 0
+        }
+      ]
+    },
+    "analytics_sync": {
+      "description": "Generate current deterministic synthetic analytics payloads for 100 published posts.",
+      "seed": {
+        "random_seed": 20260915,
+        "published_posts": 100
+      },
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 0.264,
+          "p95_ms": 0.421,
+          "p99_ms": 0.421
+        },
+        "db_query_count": 204,
+        "db_total_ms": 0,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 100,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 0.264,
+          "p95_ms": 0.421,
+          "p99_ms": 0.421
+        },
+        "rows_scanned": 100,
+        "peak_memory_mb": 0.075
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 0.526,
+        "db_query_count_max": 204
+      },
+      "sql_plans": []
+    },
+    "major_list_endpoints": {
+      "description": "Serialize and parse 1,000 deterministic list rows; separately plan the current article list query.",
+      "seed": {
+        "random_seed": 20260915,
+        "rows": 1000,
+        "database_rows": 10000
+      },
+      "sample_count": 10,
+      "warmup_count": 1,
+      "capture_command": "PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_seeded_microbenchmarks.py",
+      "sql_capture_command": "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/content_generator PYTHONPATH=. backend/.venv/bin/python backend/tests/benchmarks/capture_sql_baseline.py",
+      "observed": {
+        "latency": {
+          "p50_ms": 1.245,
+          "p95_ms": 1.761,
+          "p99_ms": 1.761
+        },
+        "db_query_count": 1,
+        "db_total_ms": 2.563,
+        "connection_checkout_ms": {
+          "p50_ms": 3.827,
+          "p95_ms": 4.457,
+          "p99_ms": 4.457
+        },
+        "external_provider_calls": 0,
+        "cache": {
+          "hits": 0,
+          "misses": 0,
+          "hit_ratio": 0.0
+        },
+        "task_duration_ms": {
+          "p50_ms": 1.245,
+          "p95_ms": 1.761,
+          "p99_ms": 1.761
+        },
+        "rows_scanned": 10000,
+        "peak_memory_mb": 1.101
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "latency_p95_ms": 2.201,
+        "db_query_count_max": 5
+      },
+      "sql_plans": [
+        {
+          "name": "raw_article_list",
+          "command": "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT * FROM raw_articles WHERE tenant_id=:tenant_id AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100",
+          "node": "Sort / Limit",
+          "execution_ms": 2.563,
+          "actual_rows": 100,
+          "rows_scanned": 10000,
+          "shared_hit_blocks": 792,
+          "shared_read_blocks": 0
+        }
+      ]
     }
   },
-  "thresholds": {
-    "how_to_derive": "Set observed_* from 5 warm runs on seeded disposable DB; threshold = observed_p95 * regression_factor (min 1.2).",
-    "sql_plans": [
-      "latest-score cluster ordering",
-      "due publishing jobs claim",
-      "active-source scheduling predicate",
-      "analytics overview aggregates",
-      "list pagination keyset"
-    ],
-    "cache": {
-      "identity_hit_ratio_min": 0.7,
-      "content_strategy_hit_ratio_min": 0.7
+  "frontend": {
+    "bundle": {
+      "description": "Vite production build output, decimal kilobytes as reported by Vite.",
+      "sample_count": 1,
+      "capture_command": "cd frontend && npm run build",
+      "observed": {
+        "entry_js_kb": 53.74,
+        "entry_js_gzip_kb": 17.8,
+        "largest_js_chunk_kb": 399.65,
+        "largest_js_chunk_gzip_kb": 108.4,
+        "css_kb": 45.54,
+        "css_gzip_kb": 15.07
+      },
+      "thresholds": {
+        "regression_factor": 1.25,
+        "entry_js_kb": 67.175,
+        "largest_js_chunk_kb": 499.562
+      }
+    },
+    "web_vitals": {
+      "description": "Five cold-page local Chromium runs with buffered PerformanceObserver entries and one first-button interaction.",
+      "sample_count": 5,
+      "capture_command": "Start Vite, install observers with page.addInitScript, load / to networkidle, click the first button, and read LCP/layout-shift/event entries.",
+      "interaction": "click the first visible button after network idle",
+      "observed": {
+        "lcp_ms": {
+          "p50_ms": 436,
+          "p95_ms": 1140,
+          "p99_ms": 1140
+        },
+        "inp_ms": {
+          "p50_ms": 16,
+          "p95_ms": 16,
+          "p99_ms": 16
+        },
+        "cls": {
+          "p50_ms": 0.000365,
+          "p95_ms": 0.000365,
+          "p99_ms": 0.000365
+        }
+      },
+      "thresholds": {
+        "regression_factor": 1.2,
+        "lcp_p95_ms": 1368.0,
+        "inp_p95_ms": 19.2,
+        "cls_p95": 0.000438
+      }
     }
   }
 }

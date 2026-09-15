@@ -6,7 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.modules.analytics.schemas import AnalyticsOverviewResponse, ChartPoint, LearningLogEntry
+from backend.modules.analytics.schemas import LearningLogEntry
 
 
 def aggregate_snapshot_charts(snapshots: list[Any]) -> dict[str, Any]:

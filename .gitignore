@@ -146,7 +146,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Packaging artifact at repo root only — never ignore app source like frontend/src/lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -360,7 +361,6 @@ backend/logs
 frontend/build
 frontend/dist
 frontend/node_modules
-.gitnexus
 .omx/
 .claude
 
@@ -373,3 +373,8 @@ frontend/blob-report/
 frontend/playwright/.cache/
 *.tsbuildinfo
 frontend/tsconfig.tsbuildinfo
+
+# Local agent / empty scratch artifacts (Phase 11)
+tasks.txt
+.codex
+**/.codex

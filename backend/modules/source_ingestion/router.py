@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.auth import get_current_membership, require_permission
@@ -11,6 +11,7 @@ from backend.modules.identity_access.models import TenantUser
 from backend.modules.source_ingestion.catalog import CATALOG, CATALOG_BY_ID
 from backend.modules.source_ingestion.schemas import (
     CatalogEntryResponse,
+    RawArticlePageResponse,
     IngestionTriggerResponse,
     RawArticleResponse,
     SourceActionResponse,
@@ -42,7 +43,6 @@ async def create_source(
 ) -> SourceResponse:
     service = SourceIngestionService(db)
     source = await service.create_source(membership.tenant_id, payload)
-    await db.commit()
     return SourceResponse.model_validate(source)
 
 
@@ -55,7 +55,6 @@ async def update_source(
 ) -> SourceResponse:
     service = SourceIngestionService(db)
     source = await service.update_source(membership.tenant_id, source_id, payload)
-    await db.commit()
     return SourceResponse.model_validate(source)
 
 
@@ -67,7 +66,6 @@ async def delete_source(
 ) -> Response:
     service = SourceIngestionService(db)
     await service.delete_source(membership.tenant_id, source_id)
-    await db.commit()
     return Response(status_code=204)
 
 
@@ -79,7 +77,6 @@ async def disable_source(
 ) -> SourceActionResponse:
     service = SourceIngestionService(db)
     result = await service.disable_source(membership.tenant_id, source_id)
-    await db.commit()
     return result
 
 
@@ -87,20 +84,20 @@ async def disable_source(
 async def ingest_source(
     source_id: UUID,
     membership: TenantUser = Depends(require_permission("sources:write")),
-    db: AsyncSession = Depends(get_db),
 ) -> IngestionTriggerResponse:
-    service = SourceIngestionService(db)
-    return await service.run_ingestion(membership.tenant_id, source_id)
+    from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
+
+    return await run_ingestion_workflow(tenant_id=membership.tenant_id, source_id=source_id)
 
 
 @router.post("/{source_id}/manual-poll", response_model=IngestionTriggerResponse)
 async def manual_poll_source(
     source_id: UUID,
     membership: TenantUser = Depends(require_permission("sources:write")),
-    db: AsyncSession = Depends(get_db),
 ) -> IngestionTriggerResponse:
-    service = SourceIngestionService(db)
-    return await service.trigger_manual_poll(membership.tenant_id, source_id)
+    from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
+
+    return await run_ingestion_workflow(tenant_id=membership.tenant_id, source_id=source_id)
 
 
 @router.get("/health", response_model=list[SourceHealthResponse])
@@ -171,18 +168,25 @@ async def import_catalog_source(
         active=True,
     )
     source = await service.create_source(membership.tenant_id, payload)
-    await db.commit()
     return SourceResponse.model_validate(source)
 
 
-@router.get("/articles", response_model=list[RawArticleResponse])
+@router.get("/articles", response_model=RawArticlePageResponse)
 async def list_raw_articles(
     limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = Query(default=None),
     membership: TenantUser = Depends(get_current_membership),
     db: AsyncSession = Depends(get_db),
-) -> list[RawArticleResponse]:
+) -> RawArticlePageResponse:
     service = SourceIngestionService(db)
-    return [
-        RawArticleResponse.model_validate(article)
-        for article in (await service.list_raw_articles(membership.tenant_id))[:limit]
-    ]
+    try:
+        articles, next_cursor, has_more = await service.list_raw_articles(
+            membership.tenant_id, limit=limit, cursor=cursor
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return RawArticlePageResponse(
+        items=[RawArticleResponse.model_validate(article) for article in articles],
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )

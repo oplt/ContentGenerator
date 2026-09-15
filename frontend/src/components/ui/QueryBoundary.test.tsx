@@ -1,14 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { MemoryRouter } from "react-router-dom";
 import { ErrorState } from "./ErrorState";
 import { EmptyState } from "./EmptyState";
-import { HelpDisclosure } from "./HelpDisclosure";
+import { FormField, HelpDisclosure, SectionHelp } from "./HelpDisclosure";
 import { QueryBoundary } from "./QueryBoundary";
 import { useDeepLinkTab } from "../../hooks/useDeepLinkTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+
+function withTooltip(ui: ReactNode) {
+  return <Tooltip.Provider delayDuration={0}>{ui}</Tooltip.Provider>;
+}
 
 describe("ErrorState", () => {
   it("shows retry action when provided", async () => {
@@ -40,6 +45,43 @@ describe("HelpDisclosure", () => {
     expect(screen.queryByText("Hidden details")).not.toBeVisible();
     await user.click(screen.getByText("More info"));
     expect(screen.getByText("Hidden details")).toBeVisible();
+  });
+});
+
+describe("SectionHelp / FieldHelp", () => {
+  it("exposes field help via accessible trigger", () => {
+    render(
+      withTooltip(
+        <FormField label="Timezone" htmlFor="tz" help="IANA timezone for scheduling.">
+          <input id="tz" />
+        </FormField>
+      )
+    );
+    expect(screen.getByLabelText("Timezone")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Help: Timezone" })).toBeInTheDocument();
+  });
+
+  it("keeps validation errors visible outside tooltips", () => {
+    render(
+      withTooltip(
+        <FormField label="Name" htmlFor="name" error="Name is required">
+          <input id="name" />
+        </FormField>
+      )
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Name is required");
+  });
+
+  it("renders SectionHelp as progressive disclosure", async () => {
+    const user = userEvent.setup();
+    render(
+      <SectionHelp summary="About publishing">
+        <p>Secondary copy</p>
+      </SectionHelp>
+    );
+    expect(screen.queryByText("Secondary copy")).not.toBeVisible();
+    await user.click(screen.getByText("About publishing"));
+    expect(screen.getByText("Secondary copy")).toBeVisible();
   });
 });
 

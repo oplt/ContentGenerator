@@ -6,21 +6,42 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-          router: ["react-router-dom"],
-          query: ["@tanstack/react-query"],
-          charts: ["recharts"],
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            return undefined;
+          }
+          if (id.includes("recharts") || id.includes("d3-")) {
+            return "charts";
+          }
+          if (id.includes("@tanstack/react-query")) {
+            return "query";
+          }
+          if (id.includes("react-router")) {
+            return "router";
+          }
+          if (id.includes("react-dom") || id.includes("/react/")) {
+            return "react";
+          }
+          if (id.includes("lucide-react")) {
+            return "icons";
+          }
+          if (id.includes("@radix-ui")) {
+            return "radix";
+          }
+          if (id.includes("zod") || id.includes("@hookform")) {
+            return "forms";
+          }
+          return undefined;
         },
       },
     },
   },
-    server: {
-        host: true,  // Listen on all local addresses
-        allowedHosts: [
-            'localhost',
-            '.ngrok-free.app',  // Allow all ngrok subdomains
-            '669a-2a02-a03f-8621-7401-76da-e73e-bf8f-dc50.ngrok-free.app'  // Your specific URL
-        ]
-    },
+  server: {
+    host: true,
+    allowedHosts: [
+      "localhost",
+      ".ngrok-free.app",
+      "669a-2a02-a03f-8621-7401-76da-e73e-bf8f-dc50.ngrok-free.app",
+    ],
+  },
 });

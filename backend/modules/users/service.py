@@ -15,7 +15,7 @@ class UsersService:
 
     async def update_profile(self, user: User, full_name: str | None) -> User:
         updated = await self.repo.update_profile(user, full_name)
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(updated)
         return updated
 
@@ -26,7 +26,6 @@ class UsersService:
             raise HTTPException(status_code=400, detail="Current password is incorrect")
         user.password_hash = hash_password(new_password)
         await self.db.flush()
-        await self.db.commit()
 
     async def list_sessions(self, user: User) -> list[RefreshSession]:
         return await self.identity_repo.list_active_sessions(user.id)
@@ -36,7 +35,7 @@ class UsersService:
         if not session or session.user_id != user.id:
             raise HTTPException(status_code=404, detail="Session not found")
         await self.identity_repo.revoke_refresh_session(session)
-        await self.db.commit()
+        await self.db.flush()
 
     async def list_directory(self) -> list[User]:
         return await self.repo.list_active_users()

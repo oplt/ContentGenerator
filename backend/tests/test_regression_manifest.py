@@ -19,14 +19,14 @@ REGRESSION_MANIFEST: dict[str, tuple[str, ...]] = {
     "tenant_account_isolation": ("test_account_selection.py", "test_account_ops.py"),
     "social_account_model": ("test_social_account_consolidation.py",),
     "celery_worker_policy": ("test_celery_policy.py",),
-    "db_pooling_transactions": ("test_db_pooling.py",),
-    "http_provider_budgets": ("test_http_client.py",),
-    "tenant_cache": ("test_tenant_cache.py",),
+    "db_pooling_transactions": ("test_db_pooling.py", "test_transaction_architecture.py"),
+    "http_provider_budgets": ("test_http_client.py", "test_phase4_http_policy.py"),
+    "tenant_cache": ("test_tenant_cache.py", "test_phase5_cache.py"),
     "source_scheduling": ("test_source_scheduling_dedupe.py",),
     "analytics_batching": ("test_analytics_sync_batching.py",),
     "api_contracts_parity": ("test_route_parity.py", "test_app_smoke.py"),
     "dormant_registration": ("test_dormant_modules.py",),
-    "domain_metrics": ("test_domain_metrics.py",),
+    "domain_metrics": ("test_domain_metrics.py", "test_phase15_observability.py"),
     "rollout_gates": ("test_rollout_gates.py",),
     "migration_drift": ("test_migration_drift.py",),
     "worker_recovery": ("test_worker_recovery.py",),
@@ -34,6 +34,11 @@ REGRESSION_MANIFEST: dict[str, tuple[str, ...]] = {
     "regression_manifest": ("test_regression_manifest.py",),
     "dead_code_hygiene": ("test_dead_code_hygiene.py",),
     "module_decomposition": ("test_module_decomposition.py",),
+    "query_precision": ("test_phase2_query_precision.py",),
+    "session_residency": ("test_phase3_residency.py",),
+    "line_budget": ("test_file_line_budget.py",),
+    "worker_capacity": ("test_phase14_worker_capacity.py",),
+    "architecture_enforcement": ("test_phase16_architecture_guards.py",),
 }
 
 
@@ -54,5 +59,8 @@ def test_manifest_covers_acceptance_themes() -> None:
         "api_contracts_parity",
         "performance_baselines",
         "rollout_gates",
+        "architecture_enforcement",
+        "query_precision",
+        "line_budget",
     ):
         assert required in themes

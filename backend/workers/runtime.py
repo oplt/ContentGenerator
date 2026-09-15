@@ -126,6 +126,88 @@ def run_async_task(
         )
 
 
+def run_detached_async_task(
+        *,
+        task_name: str,
+        queue_name: str,
+        tenant_id: UUID | None,
+        entity_type: str | None,
+        entity_id: str | None,
+        celery_task_id: str | None,
+        correlation_id: str | None,
+        payload: dict[str, str] | None,
+        operation: Callable[[], Awaitable[ResultT]],
+    ) -> ResultT:
+    """
+    Like ``run_async_task`` but closes the ledger session before ``operation``.
+
+    Use for workflows that open their own short-lived sessions around network I/O
+    (ingestion split-phase, staged generation). The worker pool connection is not
+    held during remote latency.
+    """
+    bind_correlation_context(correlation_id)
+    started = time.perf_counter()
+    queue_delay_ms = _queue_delay_ms(payload)
+    outcome = "success"
+
+    async def runner() -> ResultT:
+        nonlocal outcome
+        SessionLocal = get_sessionmaker()
+        async with SessionLocal() as db:
+            operations = OperationsService(db)
+            task_execution = await operations.start_task(
+                task_name=task_name,
+                queue_name=queue_name,
+                tenant_id=tenant_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                celery_task_id=celery_task_id,
+                correlation_id=correlation_id,
+                payload=payload,
+            )
+            await db.commit()
+            task_execution_id = task_execution.id
+
+        try:
+            result = await operation()
+        except Exception as exc:
+            outcome = "failure"
+            async with SessionLocal() as db:
+                operations = OperationsService(db)
+                task = await db.get(TaskExecution, task_execution_id)
+                if task is not None:
+                    await operations.finish_task(
+                        task,
+                        status="failed",
+                        error_message=str(exc),
+                    )
+                    await db.commit()
+            raise
+
+        async with SessionLocal() as db:
+            operations = OperationsService(db)
+            task = await db.get(TaskExecution, task_execution_id)
+            if task is not None:
+                await operations.finish_task(
+                    task,
+                    status="completed",
+                    result={"status": "ok"},
+                )
+            await db.commit()
+        return result
+
+    try:
+        return _run_on_worker_loop(runner)
+    finally:
+        domain_metrics.record_task(
+            task=task_name,
+            queue=queue_name,
+            outcome=outcome,
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+            queue_delay_ms=queue_delay_ms,
+        )
+
+
 def run_async_task_simple(operation: Callable[..., Awaitable[ResultT]]) -> ResultT:
     """Entrypoint-owned session: commit success, rollback failure."""
 

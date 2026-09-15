@@ -32,6 +32,7 @@ class WorkerQueueStatus(BaseModel):
     running: int
     failed: int
     completed: int
+    broker_depth: int | None = None
     recent_tasks: list[WorkerTaskSnapshot]
 
 
@@ -51,9 +52,20 @@ class VersionResponse(BaseModel):
     async_jobs: str
 
 
+class WorkloadCapacityStatus(BaseModel):
+    workload: str
+    queues: list[str]
+    concurrency: int
+    prefetch_multiplier: int
+    db_pool_slots: int
+    within_db_budget: bool
+
+
 class MetricsResponse(BaseModel):
     checked_at: str
     queues: list[WorkerQueueStatus]
+    broker_queue_depths: dict[str, int]
+    worker_capacity: list[WorkloadCapacityStatus]
     inference_metrics: dict[str, object]
     runtime: dict[str, object]
     domain: dict[str, object]
@@ -125,12 +137,53 @@ async def ready() -> ReadinessResponse:
 @health_router.get("/metrics", response_model=MetricsResponse)
 async def metrics() -> MetricsResponse:
     from backend.db.session import SessionLocal
+    from backend.workers.queue_depth import broker_queue_depths
+    from backend.workers.worker_capacity import capacity_snapshot
 
     async with SessionLocal() as db:
         worker_status = await OperationsService(db).worker_status()
+    depths = await broker_queue_depths()
+    enriched: list[WorkerQueueStatus] = []
+    for item in worker_status:
+        queue_name = str(item.get("queue_name", ""))
+        enriched.append(
+            WorkerQueueStatus.model_validate(
+                {
+                    **item,
+                    "broker_depth": depths.get(queue_name),
+                }
+            )
+        )
+    # Include empty queues that have broker depth but no recent TaskExecution rows.
+    seen = {row.queue_name for row in enriched}
+    for queue_name, depth in depths.items():
+        if queue_name not in seen:
+            enriched.append(
+                WorkerQueueStatus(
+                    queue_name=queue_name,
+                    running=0,
+                    failed=0,
+                    completed=0,
+                    broker_depth=depth,
+                    recent_tasks=[],
+                )
+            )
+    capacity = [
+        WorkloadCapacityStatus(
+            workload=row.workload,
+            queues=list(row.queues),
+            concurrency=row.concurrency,
+            prefetch_multiplier=row.prefetch_multiplier,
+            db_pool_slots=row.db_pool_slots,
+            within_db_budget=row.within_db_budget,
+        )
+        for row in capacity_snapshot()
+    ]
     return MetricsResponse(
         checked_at=datetime.now(timezone.utc).isoformat(),
-        queues=[WorkerQueueStatus.model_validate(item) for item in worker_status],
+        queues=enriched,
+        broker_queue_depths=depths,
+        worker_capacity=capacity,
         inference_metrics=cast(dict[str, object], get_inference_metrics_snapshot()),
         runtime={
             "broker_url_configured": bool(settings.celery_broker_url),
@@ -138,6 +191,7 @@ async def metrics() -> MetricsResponse:
             "social_dry_run_by_default": settings.SOCIAL_DRY_RUN_BY_DEFAULT,
             "multi_account_mode": settings.MULTI_ACCOUNT_ROLLOUT_MODE,
             "multi_account_canary_percent": settings.MULTI_ACCOUNT_CANARY_PERCENT,
+            "worker_prefetch_multiplier": settings.CELERY_WORKER_PREFETCH_MULTIPLIER,
         },
         domain=cast(dict[str, object], get_domain_metrics_snapshot()),
         cache=get_cache_stats(),

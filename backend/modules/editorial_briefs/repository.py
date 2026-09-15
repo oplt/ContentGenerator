@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.modules.editorial_briefs.models import BriefStatus, EditorialBrief
+from backend.modules.editorial_briefs.models import EditorialBrief
 
 
 class EditorialBriefRepository:

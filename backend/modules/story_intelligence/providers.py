@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from backend.core.config import settings
 from backend.modules.inference.providers import (
     ConfiguredLLMProvider,
     EmbeddingsProvider,

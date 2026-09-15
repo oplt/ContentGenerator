@@ -12,6 +12,7 @@ from backend.modules.source_ingestion.schemas import SourceCreateRequest
 from backend.modules.source_ingestion.service import SourceIngestionService
 
 _WEAK_SECRETS = {"change-me", "secret", "changeme", "dev", ""}
+_DEFAULT_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/content_generator"
 
 
 def _assert_production_secrets() -> None:
@@ -33,6 +34,14 @@ def _assert_production_secrets() -> None:
         raise RuntimeError("TELEGRAM_WEBHOOK_SECRET must be set to a strong secret in production")
     if settings.TELEGRAM_CALLBACK_SIGNING_SECRET in _WEAK_SECRETS:
         raise RuntimeError("TELEGRAM_CALLBACK_SIGNING_SECRET must be set to a strong secret in production")
+    if settings.DEMO_SEED_ENABLED:
+        raise RuntimeError("DEMO_SEED_ENABLED must be False in production")
+    if settings.DEMO_ADMIN_PASSWORD == "password1234":
+        raise RuntimeError("DEMO_ADMIN_PASSWORD must not use the development default in production")
+    if settings.DATABASE_URL == _DEFAULT_DATABASE_URL:
+        raise RuntimeError("DATABASE_URL must not use placeholder credentials in production")
+    if settings.STORAGE_ACCESS_KEY == "minioadmin" or settings.STORAGE_SECRET_KEY == "minioadmin":
+        raise RuntimeError("Storage credentials must not use development defaults in production")
 
 
 async def bootstrap_application(db: AsyncSession) -> None:

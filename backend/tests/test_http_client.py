@@ -1,8 +1,10 @@
-"""Tests for shared HTTP client, concurrency bounds, and Retry-After (T3.2)."""
+"""Tests for shared HTTP client, concurrency bounds, and Retry-After (T3.2 / Phase 4)."""
 
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 
 import httpx
 import respx
@@ -23,6 +25,7 @@ from backend.core.http import (
 def test_provider_limits_are_positive_and_scoped() -> None:
     assert provider_limit("github") >= 1
     assert provider_limit("analytics") >= 1
+    assert provider_limit("ingestion") >= 1
     assert provider_limit("unknown-provider") >= 1
 
 
@@ -30,6 +33,10 @@ def test_parse_retry_after_seconds() -> None:
     response = httpx.Response(429, headers={"Retry-After": "2"})
     assert parse_retry_after_seconds(response) == 2.0
     assert parse_retry_after_seconds(httpx.Response(429), default=1.5) == 1.5
+    when = datetime.now(timezone.utc) + timedelta(seconds=5)
+    dated = httpx.Response(429, headers={"Retry-After": format_datetime(when)})
+    delay = parse_retry_after_seconds(dated)
+    assert 0.0 <= delay <= 60.0
 
 
 def test_map_concurrent_preserves_order_and_partial_failures() -> None:

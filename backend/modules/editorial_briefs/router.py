@@ -33,7 +33,6 @@ async def generate_brief(
         payload,
         actor_user_id=membership.user_id,
     )
-    await db.commit()
     return EditorialBriefResponse.model_validate(brief)
 
 
@@ -74,7 +73,6 @@ async def approve_brief(
         payload.operator_note,
         membership.user_id,
     )
-    await db.commit()
     return EditorialBriefResponse.model_validate(brief)
 
 
@@ -92,7 +90,6 @@ async def reject_brief(
         payload.operator_note,
         membership.user_id,
     )
-    await db.commit()
     return EditorialBriefResponse.model_validate(brief)
 
 
@@ -109,7 +106,6 @@ async def regenerate_brief(
         brief_id,
         actor_user_id=membership.user_id,
     )
-    await db.commit()
     return EditorialBriefResponse.model_validate(brief)
 
 
@@ -127,7 +123,6 @@ async def rewrite_brief(
         payload,
         actor_user_id=membership.user_id,
     )
-    await db.commit()
     return EditorialBriefResponse.model_validate(brief)
 
 
@@ -140,5 +135,4 @@ async def send_brief_to_telegram(
     """Send the editorial brief to Telegram for gate-1 topic approval."""
     svc = EditorialBriefService(db)
     result = await svc.send_to_telegram(membership.tenant_id, brief_id)
-    await db.commit()
     return result

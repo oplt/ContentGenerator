@@ -21,7 +21,6 @@ async def sync_analytics(
 ) -> dict[str, int]:
     service = AnalyticsService(db)
     snapshots = await service.sync_snapshots(membership.tenant_id)
-    await db.commit()
     return {"snapshots": len(snapshots)}
 
 

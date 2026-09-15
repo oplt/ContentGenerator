@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { SocialAccountUpsertPayload } from "../../api/publishing";
 import type { SocialAccount } from "../../api/publishing";
 import { SocialPlatformSettingsCard } from "../../components/dashboard/SocialPlatformSettingsCard";
@@ -20,6 +21,14 @@ export function SocialConnectionsPanel({
   isSaving,
   onSave,
 }: SocialConnectionsPanelProps) {
+  const accountsByPlatform = useMemo(() => {
+    const map = new Map<string, SocialAccount>();
+    for (const account of accounts ?? []) {
+      map.set(account.platform, account);
+    }
+    return map;
+  }, [accounts]);
+
   return (
     <>
       <Card className="p-6">
@@ -39,7 +48,7 @@ export function SocialConnectionsPanel({
         </TabsList>
 
         {SOCIAL_PLATFORM_DEFINITIONS.map((definition) => {
-          const account = accounts?.find((item) => item.platform === definition.platform);
+          const account = accountsByPlatform.get(definition.platform);
 
           return (
             <TabsContent key={definition.platform} value={definition.platform}>

@@ -72,6 +72,7 @@ def test_collaborator_modules_exist_and_parse() -> None:
         "modules/content_generation/asset_specs.py",
         "modules/approvals/webhook_processing.py",
         "modules/approvals/telegram_callbacks.py",
+        "modules/approvals/telegram_callback_intents.py",
         "modules/story_intelligence/scoring.py",
         "modules/trending_repos/github_client.py",
         "modules/trending_repos/product_ideas.py",

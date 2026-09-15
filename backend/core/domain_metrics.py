@@ -1,164 +1,91 @@
-"""
-Domain metrics facade (T8.1).
+"""Domain metrics facade (T8.1): in-process + optional OTel export.
 
-Always-on in-process counters/histograms for /health/metrics and tests.
-When OpenTelemetry MeterProvider is configured, the same events are exported.
-
-Cardinality / privacy rules
----------------------------
-Allowed attributes (low-cardinality enums only):
-  operation, outcome, error_class, provider, platform, queue, task,
-  owner, result, event, status_class, rating, navigation_type, post_type
-
-Forbidden as metric attributes:
-  tenant_id, user_id, account ids, credentials, URLs with secrets, raw content,
-  attempt keys, correlation ids (use span/log context instead)
+Allowed attrs (low-cardinality): operation, outcome, error_class, provider,
+platform, queue, task, owner, result, event, status_class, rating,
+navigation_type, post_type, name, route, method, stage.
+Forbidden: tenant/user ids, credentials, secret URLs, raw content.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 import time
-from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from typing import Any
+
+from backend.core.domain_metrics_obs import ObservabilityMetricsMixin
+from backend.core.domain_metrics_store import (
+    ALLOWED_ATTR_KEYS,
+    METRIC_CACHE_OPS,
+    METRIC_CONTENT_VIDEO_DURATION,
+    METRIC_DB_CHECKOUT_WAIT,
+    METRIC_DB_POOL,
+    METRIC_DB_QUERY,
+    METRIC_DB_SLOW_QUERY,
+    METRIC_DB_TX_DURATION,
+    METRIC_GENERATION_STAGE,
+    METRIC_HTTP_429,
+    METRIC_INFERENCE_EVENT,
+    METRIC_INGESTION,
+    METRIC_OPERATION_DURATION,
+    METRIC_OPERATION_TOTAL,
+    METRIC_PROVIDER_DURATION,
+    METRIC_PROVIDER_RETRY,
+    METRIC_PROVIDER_TOTAL,
+    METRIC_PUBLISH_ATTEMPT,
+    METRIC_PUBLISH_CLAIM,
+    METRIC_PUBLISH_RATE_LIMITED,
+    METRIC_REQUEST_DURATION,
+    METRIC_REQUEST_TOTAL,
+    METRIC_SEMAPHORE_WAIT,
+    METRIC_TASK_DURATION,
+    METRIC_TASK_QUEUE_DELAY,
+    METRIC_TASK_TOTAL,
+    METRIC_WEB_VITAL,
+    _InMemoryStore,
+    _sanitize_attrs,
+)
 
 logger = logging.getLogger(__name__)
 
-# --- Catalog (stable names; dashboards/alerts depend on these) ---
-
-METRIC_OPERATION_DURATION = "cg.operation.duration_ms"
-METRIC_OPERATION_TOTAL = "cg.operation.total"
-METRIC_TASK_DURATION = "cg.task.duration_ms"
-METRIC_TASK_TOTAL = "cg.task.total"
-METRIC_TASK_QUEUE_DELAY = "cg.task.queue_delay_ms"
-METRIC_PROVIDER_DURATION = "cg.provider.request.duration_ms"
-METRIC_PROVIDER_TOTAL = "cg.provider.request.total"
-METRIC_PROVIDER_RETRY = "cg.provider.retry.total"
-METRIC_PUBLISH_ATTEMPT = "cg.publish.attempt.total"
-METRIC_PUBLISH_RATE_LIMITED = "cg.publish.account_rate_limited.total"
-METRIC_CACHE_OPS = "cg.cache.ops.total"
-METRIC_DB_POOL = "cg.db.pool.events.total"
-METRIC_INFERENCE_EVENT = "cg.inference.event.total"
-METRIC_WEB_VITAL = "cg.web_vitals.value"
-METRIC_CONTENT_VIDEO_DURATION = "cg.content.video_duration_ms"
-
-ALLOWED_ATTR_KEYS = frozenset(
-    {
-        "operation",
-        "outcome",
-        "error_class",
-        "provider",
-        "platform",
-        "queue",
-        "task",
-        "owner",
-        "result",
-        "event",
-        "status_class",
-        "rating",
-        "navigation_type",
-        "post_type",
-        "name",
-    }
-)
-
-_MAX_LABEL_LEN = 64
+# Re-export catalog for callers/tests.
+__all__ = [
+    "ALLOWED_ATTR_KEYS",
+    "DomainMetrics",
+    "domain_metrics",
+    "get_domain_metrics_snapshot",
+    "reset_domain_metrics",
+    "METRIC_CACHE_OPS",
+    "METRIC_CONTENT_VIDEO_DURATION",
+    "METRIC_DB_CHECKOUT_WAIT",
+    "METRIC_DB_POOL",
+    "METRIC_DB_QUERY",
+    "METRIC_DB_SLOW_QUERY",
+    "METRIC_DB_TX_DURATION",
+    "METRIC_GENERATION_STAGE",
+    "METRIC_HTTP_429",
+    "METRIC_INFERENCE_EVENT",
+    "METRIC_INGESTION",
+    "METRIC_OPERATION_DURATION",
+    "METRIC_OPERATION_TOTAL",
+    "METRIC_PROVIDER_DURATION",
+    "METRIC_PROVIDER_RETRY",
+    "METRIC_PROVIDER_TOTAL",
+    "METRIC_PUBLISH_ATTEMPT",
+    "METRIC_PUBLISH_CLAIM",
+    "METRIC_PUBLISH_RATE_LIMITED",
+    "METRIC_REQUEST_DURATION",
+    "METRIC_REQUEST_TOTAL",
+    "METRIC_SEMAPHORE_WAIT",
+    "METRIC_TASK_DURATION",
+    "METRIC_TASK_QUEUE_DELAY",
+    "METRIC_TASK_TOTAL",
+    "METRIC_WEB_VITAL",
+]
 
 
-def _sanitize_attrs(attrs: Mapping[str, str] | None) -> dict[str, str]:
-    if not attrs:
-        return {}
-    out: dict[str, str] = {}
-    for key, value in attrs.items():
-        if key not in ALLOWED_ATTR_KEYS:
-            continue
-        text = str(value or "unknown").strip().lower()[:_MAX_LABEL_LEN] or "unknown"
-        out[key] = text
-    return out
-
-
-def _attr_key(attrs: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
-    return tuple(sorted(attrs.items()))
-
-
-@dataclass
-class _HistogramAgg:
-    count: int = 0
-    sum_ms: float = 0.0
-    min_ms: float = 0.0
-    max_ms: float = 0.0
-
-    def observe(self, value_ms: float) -> None:
-        if self.count == 0:
-            self.min_ms = value_ms
-            self.max_ms = value_ms
-        else:
-            self.min_ms = min(self.min_ms, value_ms)
-            self.max_ms = max(self.max_ms, value_ms)
-        self.count += 1
-        self.sum_ms += value_ms
-
-
-@dataclass
-class _InMemoryStore:
-    counters: dict[str, dict[tuple[tuple[str, str], ...], int]] = field(
-        default_factory=lambda: defaultdict(lambda: defaultdict(int))
-    )
-    histograms: dict[str, dict[tuple[tuple[str, str], ...], _HistogramAgg]] = field(
-        default_factory=lambda: defaultdict(dict)
-    )
-    lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def add_counter(self, name: str, amount: int, attrs: dict[str, str]) -> None:
-        key = _attr_key(attrs)
-        with self.lock:
-            self.counters[name][key] += amount
-
-    def observe(self, name: str, value_ms: float, attrs: dict[str, str]) -> None:
-        key = _attr_key(attrs)
-        with self.lock:
-            bucket = self.histograms[name].get(key)
-            if bucket is None:
-                bucket = _HistogramAgg()
-                self.histograms[name][key] = bucket
-            bucket.observe(value_ms)
-
-    def snapshot(self) -> dict[str, Any]:
-        with self.lock:
-            counters = {
-                name: [
-                    {"attrs": dict(attrs), "value": value}
-                    for attrs, value in sorted(series.items(), key=lambda item: item[0])
-                ]
-                for name, series in sorted(self.counters.items())
-            }
-            histograms = {
-                name: [
-                    {
-                        "attrs": dict(attrs),
-                        "count": agg.count,
-                        "sum_ms": round(agg.sum_ms, 3),
-                        "min_ms": round(agg.min_ms, 3),
-                        "max_ms": round(agg.max_ms, 3),
-                        "avg_ms": round(agg.sum_ms / agg.count, 3) if agg.count else 0.0,
-                    }
-                    for attrs, agg in sorted(series.items(), key=lambda item: item[0])
-                ]
-                for name, series in sorted(self.histograms.items())
-            }
-        return {"counters": counters, "histograms": histograms}
-
-    def reset(self) -> None:
-        with self.lock:
-            self.counters.clear()
-            self.histograms.clear()
-
-
-class DomainMetrics:
+class DomainMetrics(ObservabilityMetricsMixin):
     """Process-local + optional OTel domain metrics."""
 
     def __init__(self) -> None:
@@ -180,6 +107,12 @@ class DomainMetrics:
             (METRIC_CACHE_OPS, "Tenant cache operations"),
             (METRIC_DB_POOL, "Database pool events"),
             (METRIC_INFERENCE_EVENT, "Inference parse/provider events"),
+            (METRIC_REQUEST_TOTAL, "HTTP request outcomes"),
+            (METRIC_DB_QUERY, "Database query executions"),
+            (METRIC_DB_SLOW_QUERY, "Slow database queries"),
+            (METRIC_HTTP_429, "Outbound HTTP 429 responses"),
+            (METRIC_INGESTION, "Ingestion article outcomes"),
+            (METRIC_PUBLISH_CLAIM, "Publishing claim/recovery events"),
         )
         hist_defs = (
             (METRIC_OPERATION_DURATION, "Domain operation duration"),
@@ -188,11 +121,18 @@ class DomainMetrics:
             (METRIC_PROVIDER_DURATION, "Provider request duration"),
             (METRIC_WEB_VITAL, "Frontend Web Vital sample"),
             (METRIC_CONTENT_VIDEO_DURATION, "Published video asset duration"),
+            (METRIC_REQUEST_DURATION, "HTTP request duration"),
+            (METRIC_DB_CHECKOUT_WAIT, "DB pool checkout wait"),
+            (METRIC_DB_TX_DURATION, "DB transaction duration"),
+            (METRIC_SEMAPHORE_WAIT, "Provider semaphore wait"),
+            (METRIC_GENERATION_STAGE, "Content generation stage duration"),
         )
         for name, description in definitions:
             try:
-                self._otel_counters[name] = meter.create_counter(name, description=description, unit="1")
-            except Exception as exc:  # pragma: no cover - exporter quirks
+                self._otel_counters[name] = meter.create_counter(
+                    name, description=description, unit="1"
+                )
+            except Exception as exc:  # pragma: no cover
                 logger.debug("otel_counter_skip name=%s error=%s", name, exc)
         for name, description in hist_defs:
             try:
@@ -229,8 +169,6 @@ class DomainMetrics:
                 instrument.record(value_ms, attributes=clean)
             except Exception as exc:  # pragma: no cover
                 logger.debug("otel_histogram_emit_failed name=%s error=%s", name, exc)
-
-    # --- Domain helpers ---
 
     def record_operation(
         self,
@@ -269,11 +207,7 @@ class DomainMetrics:
         duration_ms: float,
         status_class: str = "none",
     ) -> None:
-        attrs = {
-            "provider": provider,
-            "outcome": outcome,
-            "status_class": status_class,
-        }
+        attrs = {"provider": provider, "outcome": outcome, "status_class": status_class}
         self._inc(METRIC_PROVIDER_TOTAL, attrs)
         self._observe(METRIC_PROVIDER_DURATION, duration_ms, attrs)
 
@@ -315,12 +249,11 @@ class DomainMetrics:
         rating: str = "unknown",
         navigation_type: str = "unknown",
     ) -> None:
-        attrs = {
-            "name": name,
-            "rating": rating,
-            "navigation_type": navigation_type,
-        }
-        self._observe(METRIC_WEB_VITAL, float(value), attrs)
+        self._observe(
+            METRIC_WEB_VITAL,
+            float(value),
+            {"name": name, "rating": rating, "navigation_type": navigation_type},
+        )
 
     def record_video_duration(self, *, platform: str, duration_ms: float) -> None:
         self._observe(
@@ -331,7 +264,7 @@ class DomainMetrics:
 
     @contextmanager
     def measure_operation(self, operation: str) -> Iterator[dict[str, str]]:
-        """Context manager that records duration + outcome (success unless marked)."""
+        """Record duration + outcome (success unless marked)."""
         state: dict[str, str] = {"outcome": "success"}
         started = time.perf_counter()
         try:
@@ -340,11 +273,10 @@ class DomainMetrics:
             state["outcome"] = "failure"
             raise
         finally:
-            duration_ms = (time.perf_counter() - started) * 1000.0
             self.record_operation(
                 operation,
                 outcome=state.get("outcome", "success"),
-                duration_ms=duration_ms,
+                duration_ms=(time.perf_counter() - started) * 1000.0,
                 error_class=state.get("error_class"),
             )
 

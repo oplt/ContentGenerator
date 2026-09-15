@@ -93,7 +93,6 @@ def test_article_matches_keys_by_any_clause() -> None:
 
 
 def test_batch_match_assigns_first_hit_per_candidate() -> None:
-    # Pure mapping logic: emulate find_existing_articles_batch body.
     candidates = [
         ArticleDedupeKeys("https://a", "h1", "d1", "t1"),
         ArticleDedupeKeys("https://b", "h2", "d2", "t2"),
@@ -115,12 +114,7 @@ def test_batch_match_assigns_first_hit_per_candidate() -> None:
             id=uuid4(),
         ),
     ]
-    matches: dict[int, object] = {}
-    for index, keys in enumerate(candidates):
-        for article in rows:
-            if SourceRepository._article_matches_keys(article, keys):  # type: ignore[arg-type]
-                matches[index] = article
-                break
+    matches = SourceRepository._match_candidates_to_rows(candidates, rows)  # type: ignore[arg-type]
     assert 0 not in matches
     assert 1 in matches
     assert 2 in matches

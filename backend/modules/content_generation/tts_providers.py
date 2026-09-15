@@ -14,17 +14,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import struct
 import subprocess
 import tempfile
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
 
 from backend.core.config import settings
-from backend.core.http import shared_http_client
+from backend.core.http import request
 
 logger = logging.getLogger(__name__)
 
@@ -156,15 +154,14 @@ class KokoroTTSProvider(TTSProvider):
             "response_format": "wav",
         }
         try:
-            async with shared_http_client() as client:
-                resp = await client.post(f"{self._base}/v1/audio/speech", json=payload)
-                resp.raise_for_status()
-                return TTSResult(
-                    audio_bytes=resp.content,
-                    mime_type="audio/wav",
-                    provider="kokoro",
-                    script_used=script,
-                )
+            resp = await request("POST", f"{self._base}/v1/audio/speech", provider="tts", json=payload)
+            resp.raise_for_status()
+            return TTSResult(
+                audio_bytes=resp.content,
+                mime_type="audio/wav",
+                provider="kokoro",
+                script_used=script,
+            )
         except Exception as exc:
             logger.warning("kokoro_tts_failed error=%s", exc)
             return TTSResult(audio_bytes=_silent_wav(), provider="kokoro", script_used=script)
@@ -197,19 +194,20 @@ class OpenAITTSProvider(TTSProvider):
             "response_format": "mp3",
         }
         try:
-            async with shared_http_client() as client:
-                resp = await client.post(
-                    "https://api.openai.com/v1/audio/speech",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    json=payload,
-                )
-                resp.raise_for_status()
-                return TTSResult(
-                    audio_bytes=resp.content,
-                    mime_type="audio/mpeg",
-                    provider="openai",
-                    script_used=script,
-                )
+            resp = await request(
+                "POST",
+                "https://api.openai.com/v1/audio/speech",
+                provider="tts",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            return TTSResult(
+                audio_bytes=resp.content,
+                mime_type="audio/mpeg",
+                provider="openai",
+                script_used=script,
+            )
         except Exception as exc:
             logger.warning("openai_tts_failed error=%s", exc)
             return TTSResult(audio_bytes=_silent_wav(), provider="openai", script_used=script)
@@ -243,23 +241,24 @@ class ElevenLabsTTSProvider(TTSProvider):
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }
         try:
-            async with shared_http_client() as client:
-                resp = await client.post(
-                    f"{self._BASE}/v1/text-to-speech/{self._voice_id}",
-                    headers={
-                        "xi-api-key": self._api_key,
-                        "Content-Type": "application/json",
-                        "Accept": "audio/mpeg",
-                    },
-                    json=payload,
-                )
-                resp.raise_for_status()
-                return TTSResult(
-                    audio_bytes=resp.content,
-                    mime_type="audio/mpeg",
-                    provider="elevenlabs",
-                    script_used=script,
-                )
+            resp = await request(
+                "POST",
+                f"{self._BASE}/v1/text-to-speech/{self._voice_id}",
+                provider="tts",
+                headers={
+                    "xi-api-key": self._api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            return TTSResult(
+                audio_bytes=resp.content,
+                mime_type="audio/mpeg",
+                provider="elevenlabs",
+                script_used=script,
+            )
         except Exception as exc:
             logger.warning("elevenlabs_tts_failed error=%s", exc)
             return TTSResult(audio_bytes=_silent_wav(), provider="elevenlabs", script_used=script)

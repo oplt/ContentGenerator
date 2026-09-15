@@ -14,10 +14,8 @@ import base64
 import logging
 from dataclasses import dataclass, field
 
-import httpx
-
 from backend.core.config import settings
-from backend.core.http import shared_http_client
+from backend.core.http import request
 
 logger = logging.getLogger(__name__)
 
@@ -85,20 +83,19 @@ class StableDiffusionProvider(ImageGenerationProvider):
             "sampler_name": "Euler a",
         }
         try:
-            async with shared_http_client() as client:
-                resp = await client.post(f"{self._base}/sdapi/v1/txt2img", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                b64 = data["images"][0]
-                image_bytes = base64.b64decode(b64)
-                return ImageGenerationResult(
-                    image_bytes=image_bytes,
-                    mime_type="image/png",
-                    width=self._width,
-                    height=self._height,
-                    provider="stable_diffusion",
-                    prompt_used=prompt,
-                )
+            resp = await request("POST", f"{self._base}/sdapi/v1/txt2img", provider="image", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            b64 = data["images"][0]
+            image_bytes = base64.b64decode(b64)
+            return ImageGenerationResult(
+                image_bytes=image_bytes,
+                mime_type="image/png",
+                width=self._width,
+                height=self._height,
+                provider="stable_diffusion",
+                prompt_used=prompt,
+            )
         except Exception as exc:
             logger.warning("stable_diffusion_generate_failed prompt=%r error=%s", prompt[:80], exc)
             return ImageGenerationResult(provider="stable_diffusion", prompt_used=prompt)
@@ -130,23 +127,24 @@ class OpenAIImageProvider(ImageGenerationProvider):
             "response_format": "b64_json",
         }
         try:
-            async with shared_http_client() as client:
-                resp = await client.post(
-                    "https://api.openai.com/v1/images/generations",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    json=payload,
-                )
-                resp.raise_for_status()
-                b64 = resp.json()["data"][0]["b64_json"]
-                image_bytes = base64.b64decode(b64)
-                return ImageGenerationResult(
-                    image_bytes=image_bytes,
-                    mime_type="image/png",
-                    width=settings.IMAGE_GENERATION_WIDTH,
-                    height=settings.IMAGE_GENERATION_HEIGHT,
-                    provider="openai",
-                    prompt_used=prompt,
-                )
+            resp = await request(
+                "POST",
+                "https://api.openai.com/v1/images/generations",
+                provider="image",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            b64 = resp.json()["data"][0]["b64_json"]
+            image_bytes = base64.b64decode(b64)
+            return ImageGenerationResult(
+                image_bytes=image_bytes,
+                mime_type="image/png",
+                width=settings.IMAGE_GENERATION_WIDTH,
+                height=settings.IMAGE_GENERATION_HEIGHT,
+                provider="openai",
+                prompt_used=prompt,
+            )
         except Exception as exc:
             logger.warning("openai_image_generate_failed prompt=%r error=%s", prompt[:80], exc)
             return ImageGenerationResult(provider="openai", prompt_used=prompt)

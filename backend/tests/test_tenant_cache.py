@@ -1,4 +1,4 @@
-"""Tests for tenant-safe cache keys, policies, and single-flight (T3.3)."""
+"""Tests for tenant-safe cache keys, policies, and single-flight (T3.3 / Phase 5)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+from backend.core.cache_codec import CODEC_MISS, decode, encode
 from backend.core.tenant_cache import (
     OWNER_CONTENT_STRATEGY,
     CachePolicy,
@@ -30,6 +31,8 @@ class _FakeRedis:
         return True
 
     async def set(self, key: str, value: str, **kwargs):
+        if kwargs.get("nx") and key in self.store:
+            return False
         self.store[key] = value
         return True
 
@@ -40,6 +43,13 @@ class _FakeRedis:
                 del self.store[key]
                 deleted += 1
         return deleted
+
+    async def eval(self, script: str, numkeys: int, *args):
+        key, token = args[0], args[1]
+        if self.store.get(key) == token:
+            del self.store[key]
+            return 1
+        return 0
 
     async def scan_iter(self, match: str = "*", count: int = 100):
         prefix = match.rstrip("*")
@@ -53,13 +63,18 @@ class _FakeBackend:
         self.redis_client = _FakeRedis()
 
     async def set(self, key: str, value, expire: int = 300, **kwargs):
-        import json
-
-        await self.redis_client.setex(key, expire, json.dumps(value))
+        await self.redis_client.setex(key, expire, encode(value))
         return True
 
     async def delete(self, *keys: str):
         return bool(await self.redis_client.delete(*keys))
+
+
+def test_codec_roundtrip_and_bad_value_is_miss() -> None:
+    assert decode(encode({"a": 1})) == {"a": 1}
+    assert decode(encode("plain")) == "plain"
+    assert decode("{not-json") is CODEC_MISS
+    assert decode(None) is CODEC_MISS
 
 
 def test_build_cache_key_requires_tenant_unless_global() -> None:
@@ -78,6 +93,8 @@ def test_build_cache_key_requires_tenant_unless_global() -> None:
 
     global_key = build_cache_key(owner="identity", identity="permissions:all", global_scope=True)
     assert ":global:" in global_key
+    versioned = build_cache_key(owner="identity", identity="x", global_scope=True, version="2")
+    assert versioned.endswith(":v2")
 
 
 def test_refuses_credential_payloads() -> None:
@@ -145,6 +162,28 @@ def test_invalidate_owner_prefix() -> None:
         deleted = await cache.invalidate_owner(owner="content_strategy", tenant_id=tenant)
         assert deleted == 2
         assert await cache.get_json(other, policy=policy) == {"x": 3}
+
+    asyncio.run(_run())
+
+
+def test_swr_serves_stale() -> None:
+    async def _run() -> None:
+        reset_cache_stats()
+        backend = _FakeBackend()
+        cache = TenantCache(backend=backend)
+        key = build_cache_key(owner="content_strategy", tenant_id=uuid4(), identity="swr")
+        policy = CachePolicy(owner="content_strategy", ttl_seconds=1, swr_seconds=30)
+        await cache.set_json(key, {"v": 1}, policy=policy)
+        # Force soft expiry in stored envelope.
+        import json
+        import time
+
+        raw = json.loads(backend.redis_client.store[key])
+        raw["_cg_meta"]["soft_exp"] = time.time() - 1
+        backend.redis_client.store[key] = json.dumps(raw)
+        value = await cache.get_json(key, policy=policy)
+        assert value == {"v": 1}
+        assert get_cache_stats()["stale_served"] >= 1
 
     asyncio.run(_run())
 

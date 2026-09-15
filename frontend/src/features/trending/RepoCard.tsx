@@ -1,22 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  ExternalLink,
-  GitFork,
-  Pencil,
-  Sparkles,
-  Star,
-  TrendingUp,
-  Twitter,
-  X,
-} from "lucide-react";
+import { ExternalLink, GitFork, Sparkles, Star, TrendingUp, Twitter } from "lucide-react";
 import {
   generateProductIdeas,
   generateTwitterPost,
-  postToTwitter,
   type TrendingRepo,
-  type ProductIdea,
   type TrendingReposListResponse,
 } from "../../api/trending";
 import { Badge } from "../../components/ui/badge";
@@ -24,12 +12,15 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { queryKeys } from "../../lib/queryKeys";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { AssessmentList } from "./AssessmentList";
+import { IdeaCard } from "./IdeaCard";
+import { TwitterPostCard } from "./TwitterPostCard";
 
-// ---------------------------------------------------------------------------
-// Repo card
-// ---------------------------------------------------------------------------
+export type RepoCardProps = {
+  repo: TrendingRepo;
+};
 
-export function RepoCard({ repo }: { repo: TrendingRepo }) {
+export function RepoCard({ repo }: RepoCardProps) {
   const [showIdeas, setShowIdeas] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [showTwitterPanel, setShowTwitterPanel] = useState(false);
@@ -51,10 +42,10 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
           return {
             ...existing,
             repos: existing.repos.map((existingRepo) =>
-              existingRepo.id === updatedRepo.id ? updatedRepo : existingRepo
+              existingRepo.id === updatedRepo.id ? updatedRepo : existingRepo,
             ),
           };
-        }
+        },
       );
       const tenantId = useWorkspaceStore.getState().tenantId;
       if (tenantId) {
@@ -85,14 +76,14 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
 
   return (
     <Card className="p-5">
-      {/* Top row */}
       <div className="flex items-start gap-4">
-        {/* Rank badge */}
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-muted text-xs font-normal text-muted-foreground" style={{ borderRadius: "var(--radius-sm)" }}>
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center bg-muted text-xs font-normal text-muted-foreground"
+          style={{ borderRadius: "var(--radius-sm)" }}
+        >
           #{repo.rank}
         </div>
 
-        {/* Repo info */}
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <a
@@ -104,33 +95,27 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
               {repo.full_name}
               <ExternalLink className="size-3.5 shrink-0" />
             </a>
-            {repo.language && (
-              <Badge variant="muted">{repo.language}</Badge>
-            )}
+            {repo.language && <Badge variant="muted">{repo.language}</Badge>}
           </div>
 
           {repo.description && (
-            <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-              {repo.description}
-            </p>
+            <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{repo.description}</p>
           )}
 
-          {/* Topics */}
           {repo.topics.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-3">
-              {repo.topics.slice(0, 6).map((t) => (
+              {repo.topics.slice(0, 6).map((topic) => (
                 <span
-                  key={t}
+                  key={topic}
                   className="text-xs text-muted-foreground border border-border px-2 py-0.5"
                   style={{ borderRadius: "var(--radius-sm)" }}
                 >
-                  {t}
+                  {topic}
                 </span>
               ))}
             </div>
           )}
 
-          {/* Stats row */}
           <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Star className="size-3.5 text-warning" />
@@ -154,7 +139,6 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex flex-col items-end gap-2 shrink-0">
           {!hasIdeas ? (
             <div className="flex flex-col items-end gap-2">
@@ -174,11 +158,7 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
               )}
             </div>
           ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowIdeas((v) => !v)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => setShowIdeas((value) => !value)}>
               <Sparkles className="size-3.5 text-primary" />
               {showIdeas ? "Hide Ideas" : `${visibleIdeas.length} Ideas`}
             </Button>
@@ -189,7 +169,7 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
               size="sm"
               onClick={() => {
                 if (twitterPost) {
-                  setShowTwitterPanel((v) => !v);
+                  setShowTwitterPanel((value) => !value);
                 } else {
                   twitterMutation.mutate();
                 }
@@ -214,12 +194,9 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
         </div>
       </div>
 
-      {/* Twitter post panel */}
       {showTwitterPanel && twitterPost && (
         <div className="mt-4 border-t border-border pt-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
-            Twitter / X Post
-          </p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Twitter / X Post</p>
           <TwitterPostCard
             repoId={repo.id}
             initialText={twitterPost}
@@ -228,21 +205,16 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
         </div>
       )}
 
-      {/* Product ideas panel */}
       {hasIdeas && showIdeas && (
         <div className="mt-4 border-t border-border pt-4">
           {visibleAssessment && (
             <div className="mb-4 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
               <div className="bg-muted p-4" style={{ borderRadius: "var(--radius-sm)" }}>
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Repo Assessment
-                  </p>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Repo Assessment</p>
                   <Badge variant="muted">{visibleAssessment.confidence}</Badge>
                 </div>
-                <p className="text-sm text-foreground leading-relaxed">
-                  {visibleAssessment.what_it_does}
-                </p>
+                <p className="text-sm text-foreground leading-relaxed">{visibleAssessment.what_it_does}</p>
                 {visibleAssessment.best_commercial_angle && (
                   <p className="mt-3 text-xs text-primary">
                     Best angle: {visibleAssessment.best_commercial_angle}
@@ -266,205 +238,5 @@ export function RepoCard({ repo }: { repo: TrendingRepo }) {
         </div>
       )}
     </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Twitter post card
-// ---------------------------------------------------------------------------
-
-export function TwitterPostCard({
-  repoId,
-  initialText,
-  onReject,
-}: {
-  repoId: string;
-  initialText: string;
-  onReject: () => void;
-}) {
-  const [editText, setEditText] = useState(initialText);
-  const [editing, setEditing] = useState(false);
-  const [postResult, setPostResult] = useState<{ url: string; dry: boolean } | null>(null);
-  const [postError, setPostError] = useState<string | null>(null);
-
-  const postMutation = useMutation({
-    mutationFn: () => postToTwitter(repoId, editText),
-    onSuccess: (data) => {
-      setPostError(null);
-      setPostResult({
-        url: data.external_post_url,
-        dry: data.status === "succeeded_dry_run",
-      });
-    },
-    onError: (error) => {
-      setPostError(error instanceof Error ? error.message : "Failed to post.");
-    },
-  });
-
-  return (
-    <div className="bg-muted p-4 flex flex-col gap-3" style={{ borderRadius: "var(--radius-sm)" }}>
-      {editing ? (
-        <textarea
-          className="w-full text-sm text-foreground bg-background border border-border rounded p-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-          rows={5}
-          value={editText}
-          onChange={(e) => setEditText(e.target.value)}
-        />
-      ) : (
-        <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{editText}</p>
-      )}
-
-      <div className="flex items-center gap-2 flex-wrap">
-        {postResult ? (
-          <div className="flex items-center gap-2">
-            <Check className="size-3.5 text-success" />
-            <span className="text-xs text-success">
-              {postResult.dry ? "Posted (dry run)" : "Posted!"}
-            </span>
-            {postResult.url && !postResult.dry && (
-              <a
-                href={postResult.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-primary underline flex items-center gap-1"
-              >
-                View <ExternalLink className="size-3" />
-              </a>
-            )}
-          </div>
-        ) : (
-          <>
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => postMutation.mutate()}
-              disabled={postMutation.isPending || editText.trim().length === 0}
-            >
-              <Check className="size-3.5" />
-              {postMutation.isPending ? "Posting…" : "Accept & Post"}
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setEditing((v) => !v)}
-            >
-              <Pencil className="size-3.5" />
-              {editing ? "Done" : "Edit"}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onReject}>
-              <X className="size-3.5" />
-              Reject
-            </Button>
-          </>
-        )}
-        {postMutation.isError && (
-          <p className="text-[11px] uppercase tracking-wide text-destructive">{postError}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function AssessmentList({ label, items }: { label: string; items: string[] }) {
-  if (items.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="bg-muted p-4" style={{ borderRadius: "var(--radius-sm)" }}>
-      <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
-      <div className="flex flex-col gap-2">
-        {items.slice(0, 3).map((item) => (
-          <p key={item} className="text-xs text-foreground leading-relaxed">
-            {item}
-          </p>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Idea card
-// ---------------------------------------------------------------------------
-
-export function IdeaCard({ idea, index }: { idea: ProductIdea; index: number }) {
-  const scoreEntries = [
-    ["Revenue", idea.scores.revenue_potential],
-    ["Urgency", idea.scores.customer_urgency],
-    ["Leverage", idea.scores.repo_leverage],
-    ["MVP", idea.scores.speed_to_mvp],
-  ] as const;
-
-  return (
-    <div
-      className="bg-muted p-4 flex flex-col gap-2"
-      style={{ borderRadius: "var(--radius-sm)" }}
-    >
-      <div className="flex items-baseline gap-2">
-        <span className="text-xs text-muted-foreground">#{idea.rank || index}</span>
-        <h3 className="text-sm font-normal text-foreground">{idea.title}</h3>
-      </div>
-
-      {idea.positioning && (
-        <p className="text-xs text-primary italic leading-relaxed">{idea.positioning}</p>
-      )}
-
-      <p className="text-xs text-muted-foreground leading-relaxed">{idea.pain_point}</p>
-
-      <p className="text-xs text-foreground leading-relaxed">{idea.product_concept}</p>
-
-      {idea.why_this_repo_fits && (
-        <p className="text-xs text-foreground/80 leading-relaxed">
-          Why this repo fits: {idea.why_this_repo_fits}
-        </p>
-      )}
-
-      <div className="grid grid-cols-2 gap-2 pt-1">
-        {scoreEntries.map(([label, score]) => (
-          <div
-            key={label}
-            className="border border-border px-2 py-1"
-            style={{ borderRadius: "var(--radius-sm)" }}
-          >
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-            <div className="text-sm text-foreground">{score}/10</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-auto pt-2 border-t border-border flex flex-col gap-1">
-        {idea.target_customer && (
-          <div className="flex items-start gap-1.5 text-xs">
-            <span className="text-muted-foreground shrink-0">Audience:</span>
-            <span className="text-foreground">{idea.target_customer}</span>
-          </div>
-        )}
-        {idea.monetization.model && (
-          <div className="flex items-start gap-1.5 text-xs">
-            <span className="text-muted-foreground shrink-0">Model:</span>
-            <span className="text-foreground">{idea.monetization.model}</span>
-          </div>
-        )}
-        {idea.monetization.pricing_logic && (
-          <div className="flex items-start gap-1.5 text-xs">
-            <span className="text-muted-foreground shrink-0">Pricing:</span>
-            <span className="text-foreground">{idea.monetization.pricing_logic}</span>
-          </div>
-        )}
-        {idea.time_to_mvp && (
-          <div className="flex items-start gap-1.5 text-xs">
-            <span className="text-muted-foreground shrink-0">Time:</span>
-            <span className="text-foreground">{idea.time_to_mvp}</span>
-          </div>
-        )}
-        {idea.why_now && (
-          <div className="flex items-start gap-1.5 text-xs mt-1">
-            <Sparkles className="size-3 text-primary shrink-0 mt-0.5" />
-            <span className="text-primary italic">{idea.why_now}</span>
-          </div>
-        )}
-      </div>
-    </div>
   );
 }

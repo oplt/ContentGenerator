@@ -26,7 +26,6 @@ async def get_brand_profile(
 ) -> BrandProfileResponse:
     service = ContentStrategyService(db)
     profile = await service.get_or_create_brand_profile(membership.tenant_id)
-    await db.commit()
     return BrandProfileResponse.model_validate(profile)
 
 
@@ -38,7 +37,6 @@ async def upsert_brand_profile(
 ) -> BrandProfileResponse:
     service = ContentStrategyService(db)
     profile = await service.upsert_brand_profile(membership.tenant_id, payload)
-    await db.commit()
     return BrandProfileResponse.model_validate(profile)
 
 
@@ -76,5 +74,4 @@ async def create_content_plan(
         cluster_id=payload.story_cluster_id,
         brand_profile_id=payload.brand_profile_id,
     )
-    await db.commit()
     return ContentPlanResponse.model_validate(plan)

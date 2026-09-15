@@ -1,15 +1,21 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 
 /** URL-deep-linkable tab state that keeps sibling form state alive in the parent. */
 export function useDeepLinkTab<T extends string>(
   param: string,
   allowed: readonly T[],
-  fallback: T
+  fallback: T,
+  aliases?: Readonly<Record<string, T>>,
 ): [T, (value: T) => void] {
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get(param);
-  const value = allowed.includes(raw as T) ? (raw as T) : fallback;
+  const aliased = raw && aliases ? aliases[raw] : undefined;
+  const value = aliased
+    ? aliased
+    : allowed.includes(raw as T)
+      ? (raw as T)
+      : fallback;
 
   const setValue = useCallback(
     (next: T) => {
@@ -23,11 +29,19 @@ export function useDeepLinkTab<T extends string>(
           }
           return params;
         },
-        { replace: true }
+        { replace: true },
       );
     },
-    [fallback, param, setSearchParams]
+    [fallback, param, setSearchParams],
   );
+
+  // Rewrite legacy alias query params to canonical tab ids.
+  useEffect(() => {
+    if (!raw || !aliased || raw === aliased) {
+      return;
+    }
+    setValue(aliased);
+  }, [aliased, raw, setValue]);
 
   return [value, setValue];
 }

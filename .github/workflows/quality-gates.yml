@@ -141,3 +141,5 @@ jobs:
           echo "No forbidden runtime/report artifacts are tracked."
       - name: Rollout gates doc present
         run: test -f docs/rollout/gates.md
+      - name: Production file line budget
+        run: python3 scripts/check_file_line_budget.py

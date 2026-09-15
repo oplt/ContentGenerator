@@ -46,6 +46,12 @@ export type RawArticle = {
   extraction_confidence: number;
 };
 
+export type RawArticlePage = {
+  items: RawArticle[];
+  next_cursor: string | null;
+  has_more: boolean;
+};
+
 export function getSources() {
   return apiFetch<Source[]>("/sources");
 }
@@ -71,17 +77,21 @@ export function deleteSource(sourceId: string) {
 }
 
 export function triggerIngestion(sourceId: string) {
-  return apiFetch<{ status: string; raw_articles_ingested: number; clusters_updated: number }>(
-    `/sources/${sourceId}/ingest`,
-    { method: "POST" }
-  );
+  return apiFetch<{
+    status: string;
+    raw_articles_ingested: number;
+    clusters_updated: number;
+    fetch_run_id?: string | null;
+  }>(`/sources/${sourceId}/ingest`, { method: "POST" });
 }
 
 export function triggerManualPoll(sourceId: string) {
-  return apiFetch<{ status: string; raw_articles_ingested: number; clusters_updated: number }>(
-    `/sources/${sourceId}/manual-poll`,
-    { method: "POST" }
-  );
+  return apiFetch<{
+    status: string;
+    raw_articles_ingested: number;
+    clusters_updated: number;
+    fetch_run_id?: string | null;
+  }>(`/sources/${sourceId}/manual-poll`, { method: "POST" });
 }
 
 export function disableSource(sourceId: string) {
@@ -95,8 +105,27 @@ export function getSourceHealth() {
   return apiFetch<SourceHealth[]>("/sources/health");
 }
 
-export function getRawArticles() {
-  return apiFetch<RawArticle[]>("/sources/articles");
+export type SourceFetchRun = {
+  id: string;
+  source_id: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  http_status: number | null;
+  duration_ms: number | null;
+  articles_found: number;
+  new_articles: number;
+  error_message: string | null;
+};
+
+export function getSourceFetchRuns() {
+  return apiFetch<SourceFetchRun[]>("/sources/fetch-runs");
+}
+
+export function getRawArticles({ limit = 50, cursor }: { limit?: number; cursor?: string } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return apiFetch<RawArticlePage>(`/sources/articles?${params.toString()}`);
 }
 
 export type CatalogEntry = {

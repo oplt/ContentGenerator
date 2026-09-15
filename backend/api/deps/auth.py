@@ -54,10 +54,13 @@ async def get_current_user(
 
 
 async def get_current_membership(
+    request: Request,
     current_user: User = Depends(get_current_user),
     tenant_id_header: str | None = Header(default=None, alias="X-Tenant-ID"),
     db: AsyncSession = Depends(get_db),
 ) -> TenantUser:
+    from backend.core.log_context import bind_log_context
+
     repo = IdentityRepository(db)
     tenant_id = tenant_id_header or (str(current_user.default_tenant_id) if current_user.default_tenant_id else None)
     if tenant_id is None:
@@ -65,6 +68,8 @@ async def get_current_membership(
     membership = await repo.get_membership(user_id=current_user.id, tenant_id=UUID(tenant_id))
     if not membership:
         raise HTTPException(status_code=403, detail="No access to tenant")
+    request.state.tenant_id = str(membership.tenant_id)
+    bind_log_context(tenant_id=membership.tenant_id)
     return membership
 
 

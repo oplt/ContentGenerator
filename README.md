@@ -312,11 +312,33 @@ uvicorn backend.api.main:app --reload --reload-dir backend --port 8000
 
 ## Run Workers
 
+Prefer specialized workers (Phase 14) so I/O, LLM, media, publishing, and DB
+workloads do not share one concurrency budget:
+
 ```bash
-celery -A backend.workers.celery_app:celery_app worker \
-  --loglevel=INFO \
-  --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email
+# I/O — ingestion, enrichment, email, approvals
+celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO \
+  --queues=ingestion,enrichment,email,approvals --concurrency=4 --prefetch-multiplier=1
+
+# LLM — content generation
+celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO \
+  --queues=generation --concurrency=2 --prefetch-multiplier=1
+
+# Media — image / TTS / video (CPU-heavy)
+celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO \
+  --queues=video --concurrency=1 --prefetch-multiplier=1
+
+# Publishing — claim + provider I/O
+celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO \
+  --queues=publishing --concurrency=2 --prefetch-multiplier=1
+
+# DB — analytics aggregates / snapshot sync
+celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO \
+  --queues=analytics --concurrency=2 --prefetch-multiplier=1
 ```
+
+Never set `--concurrency` above `DB_POOL_WORKER_SIZE + DB_POOL_WORKER_MAX_OVERFLOW`
+for that worker process. Queue depth and capacity appear on `GET /api/v1/health/metrics`.
 
 ## Run Frontend
 

@@ -16,7 +16,7 @@ describe("T7.2 feature module characterization", () => {
   });
 
   it("keeps settings/sources/trending constants stable for deep links", () => {
-    expect(SETTINGS_TABS).toEqual(["general", "workflow", "whatsapp", "telegram", "social"]);
+    expect(SETTINGS_TABS).toEqual(["general", "publishing", "integrations", "social"]);
     expect(SOCIAL_PLATFORM_DEFINITIONS.map((item) => item.platform)).toEqual([
       "youtube",
       "instagram",
@@ -24,7 +24,7 @@ describe("T7.2 feature module characterization", () => {
       "x",
       "bluesky",
     ]);
-    expect(SOURCES_TABS).toEqual(["configured", "add"]);
+    expect(SOURCES_TABS).toEqual(["configured", "add", "activity"]);
     expect(SOURCE_CATEGORIES).toContain("technology");
     expect(PERIODS).toEqual(["daily", "weekly", "monthly"]);
     expect(PERIOD_LABELS.daily).toBe("Today");

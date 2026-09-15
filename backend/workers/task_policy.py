@@ -25,7 +25,7 @@ TRANSIENT_EXCEPTIONS: Final[tuple[type[BaseException], ...]] = (
 class TaskPolicy:
     """Workload class + execution bounds for one Celery task."""
 
-    # io | llm | media | publishing
+    # io | llm | media | publishing | db
     workload: str
     soft_time_limit: int
     time_limit: int
@@ -37,6 +37,8 @@ class TaskPolicy:
 
 
 # Soft < hard; hard kills the process after soft warning.
+# Workload classes: io (HTTP/polling), llm (generation), media (CPU/ffmpeg/TTS/image),
+# publishing (claim/provider), db (analytics aggregates / bulk persistence).
 TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
     "backend.workers.tasks.send_email_task": TaskPolicy(
         workload="io",
@@ -65,6 +67,20 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
         time_limit=720,
         max_retries=2,
         acks_late=False,  # LLM generation may not be idempotent
+    ),
+    "backend.workers.tasks.generate_image_asset_task": TaskPolicy(
+        workload="media",
+        soft_time_limit=180,
+        time_limit=240,
+        max_retries=2,
+        acks_late=True,
+    ),
+    "backend.workers.tasks.generate_tts_asset_task": TaskPolicy(
+        workload="media",
+        soft_time_limit=180,
+        time_limit=240,
+        max_retries=2,
+        acks_late=True,
     ),
     "backend.workers.tasks.send_approval_task": TaskPolicy(
         workload="io",
@@ -118,7 +134,7 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
         acks_late=True,
     ),
     "backend.workers.tasks.sync_analytics_task": TaskPolicy(
-        workload="io",
+        workload="db",
         soft_time_limit=480,
         time_limit=600,
         max_retries=3,
@@ -149,12 +165,19 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
 
 
 # Compose / ops: which queues each specialized worker should consume.
+# Keep critical paths disjoint so LLM/media/publishing cannot starve ingestion.
 WORKER_QUEUE_GROUPS: Final[dict[str, tuple[str, ...]]] = {
-    "io": ("ingestion", "enrichment", "analytics", "email", "approvals"),
+    "io": ("ingestion", "enrichment", "email", "approvals"),
     "llm": ("generation",),
     "media": ("video",),
     "publishing": ("publishing",),
+    "db": ("analytics",),
 }
+
+
+def queue_for_workload(workload: str) -> str:
+    """Primary queue name for a workload class (first entry in the group)."""
+    return WORKER_QUEUE_GROUPS[workload][0]
 
 
 def celery_task_kwargs(task_name: str) -> dict[str, Any]:

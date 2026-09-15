@@ -16,6 +16,7 @@ Transaction ownership (T2.3)
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -29,6 +30,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from backend.core.config import settings
+from backend.core.db_observability import attach_db_observability, reset_db_observability_state
 from backend.core.domain_metrics import domain_metrics
 
 logger = logging.getLogger(__name__)
@@ -78,49 +80,53 @@ def _engine_kwargs() -> dict[str, Any]:
 
 def _attach_pool_listeners(engine: AsyncEngine) -> None:
     global _pool_listeners_attached
-    if _pool_listeners_attached or settings.DB_POOL_USE_NULL:
+    if _pool_listeners_attached:
         return
 
     sync_engine = engine.sync_engine
+    attach_db_observability(sync_engine)
 
-    @event.listens_for(sync_engine, "connect")
-    def _on_connect(dbapi_connection: Any, connection_record: Any) -> None:  # noqa: ARG001
-        _pool_stats["connect"] += 1
-        domain_metrics.record_db_pool(event="connect")
+    if not settings.DB_POOL_USE_NULL:
 
-    @event.listens_for(sync_engine, "checkout")
-    def _on_checkout(
-        dbapi_connection: Any,  # noqa: ARG001
-        connection_record: Any,  # noqa: ARG001
-        connection_proxy: Any,  # noqa: ARG001
-    ) -> None:
-        _pool_stats["checkout"] += 1
-        domain_metrics.record_db_pool(event="checkout")
+        @event.listens_for(sync_engine, "connect")
+        def _on_connect(dbapi_connection: Any, connection_record: Any) -> None:  # noqa: ARG001
+            _pool_stats["connect"] += 1
+            domain_metrics.record_db_pool(event="connect")
 
-    @event.listens_for(sync_engine, "checkin")
-    def _on_checkin(dbapi_connection: Any, connection_record: Any) -> None:  # noqa: ARG001
-        _pool_stats["checkin"] += 1
-        domain_metrics.record_db_pool(event="checkin")
+        @event.listens_for(sync_engine, "checkout")
+        def _on_checkout(
+            dbapi_connection: Any,  # noqa: ARG001
+            connection_record: Any,  # noqa: ARG001
+            connection_proxy: Any,  # noqa: ARG001
+        ) -> None:
+            _pool_stats["checkout"] += 1
+            domain_metrics.record_db_pool(event="checkout")
 
-    @event.listens_for(sync_engine, "invalidate")
-    def _on_invalidate(
-        dbapi_connection: Any,  # noqa: ARG001
-        connection_record: Any,  # noqa: ARG001
-        exception: BaseException | None,  # noqa: ARG001
-    ) -> None:
-        _pool_stats["invalidate"] += 1
-        domain_metrics.record_db_pool(event="invalidate")
+        @event.listens_for(sync_engine, "checkin")
+        def _on_checkin(dbapi_connection: Any, connection_record: Any) -> None:  # noqa: ARG001
+            _pool_stats["checkin"] += 1
+            domain_metrics.record_db_pool(event="checkin")
+
+        @event.listens_for(sync_engine, "invalidate")
+        def _on_invalidate(
+            dbapi_connection: Any,  # noqa: ARG001
+            connection_record: Any,  # noqa: ARG001
+            exception: BaseException | None,  # noqa: ARG001
+        ) -> None:
+            _pool_stats["invalidate"] += 1
+            domain_metrics.record_db_pool(event="invalidate")
+
+        logger.info(
+            "db_pool_configured role=%s size=%s overflow=%s timeout=%s recycle=%s max_per_process=%s",
+            settings.DB_POOL_PROCESS_ROLE,
+            settings.effective_db_pool_size,
+            settings.effective_db_pool_max_overflow,
+            settings.DB_POOL_TIMEOUT_SECONDS,
+            settings.DB_POOL_RECYCLE_SECONDS,
+            settings.db_pool_max_connections_per_process,
+        )
 
     _pool_listeners_attached = True
-    logger.info(
-        "db_pool_configured role=%s size=%s overflow=%s timeout=%s recycle=%s max_per_process=%s",
-        settings.DB_POOL_PROCESS_ROLE,
-        settings.effective_db_pool_size,
-        settings.effective_db_pool_max_overflow,
-        settings.DB_POOL_TIMEOUT_SECONDS,
-        settings.DB_POOL_RECYCLE_SECONDS,
-        settings.db_pool_max_connections_per_process,
-    )
 
 
 def get_engine() -> AsyncEngine:
@@ -162,13 +168,21 @@ engine = _EngineProxy()
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """Yield a session; commit on success, rollback on error (entrypoint ownership)."""
+    started = time.perf_counter()
+    outcome = "success"
     async with SessionLocal() as session:
         try:
             yield session
             await session.commit()
         except Exception:
+            outcome = "failure"
             await session.rollback()
             raise
+        finally:
+            domain_metrics.record_db_tx(
+                outcome=outcome,
+                duration_ms=(time.perf_counter() - started) * 1000.0,
+            )
 
 
 async def dispose_engine() -> None:
@@ -180,3 +194,4 @@ async def dispose_engine() -> None:
     _engine = None
     _sessionmaker = None
     _pool_listeners_attached = False
+    reset_db_observability_state()

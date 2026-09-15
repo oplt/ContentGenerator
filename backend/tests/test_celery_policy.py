@@ -74,18 +74,31 @@ def test_queue_groups_are_disjoint_across_critical_paths() -> None:
     llm = set(WORKER_QUEUE_GROUPS["llm"])
     media = set(WORKER_QUEUE_GROUPS["media"])
     publishing = set(WORKER_QUEUE_GROUPS["publishing"])
+    db = set(WORKER_QUEUE_GROUPS["db"])
     assert not (io & llm)
     assert not (io & publishing)
     assert not (llm & publishing)
-    assert media.isdisjoint(io | llm | publishing)
+    assert media.isdisjoint(io | llm | publishing | db)
+    assert db.isdisjoint(io | llm | publishing | media)
     assert "publishing" in publishing
     assert "generation" in llm
     assert "video" in media
+    assert "analytics" in db
+    assert "analytics" not in io
 
 
 def test_queue_csv_helper() -> None:
     assert queue_csv_for_workload("publishing") == "publishing"
     assert "ingestion" in queue_csv_for_workload("io")
+    assert queue_csv_for_workload("db") == "analytics"
+
+
+def test_media_tasks_route_to_video_queue() -> None:
+    routes = celery_app.conf.task_routes
+    assert routes["backend.workers.tasks.generate_image_asset_task"]["queue"] == "video"
+    assert routes["backend.workers.tasks.generate_tts_asset_task"]["queue"] == "video"
+    assert TASK_POLICIES["backend.workers.tasks.generate_image_asset_task"].workload == "media"
+    assert TASK_POLICIES["backend.workers.tasks.sync_analytics_task"].workload == "db"
 
 
 def test_task_routes_cover_all_policies() -> None:

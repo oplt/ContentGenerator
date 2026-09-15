@@ -1,38 +1,33 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from tenacity import RetryError
 
-from backend.core.config import settings
-from backend.core.tenant_cache import OWNER_INGESTION, CachePolicy, build_cache_key, tenant_cache
-from backend.core.time_utils import as_utc, utc_now
+from backend.core.tenant_cache import OWNER_INGESTION, build_cache_key, tenant_cache
+from backend.core.time_utils import utc_now
 from backend.modules.audit.service import AuditService
 from backend.modules.source_ingestion.adapters import (
     FetchedArticle,
     get_source_adapter,
-    normalize_title,
-    tokenize_for_similarity,
 )
 from backend.modules.source_ingestion.models import (
     CircuitState,
-    FetchRunStatus,
     RawArticle,
     Source,
     SourceFetchRun,
     SourceHealthEvent,
 )
-from backend.modules.source_ingestion.repository import ArticleDedupeKeys, SourceRepository
+from backend.modules.source_ingestion.pagination import decode_article_cursor, encode_article_cursor
+from backend.modules.source_ingestion.repository import SourceRepository
 from backend.modules.source_ingestion.fetch_cache import (
     articles_from_cache,
     describe_fetch_error,
     save_cache,
     semantic_duplicate,
 )
-from backend.modules.source_ingestion.scheduling import compute_next_poll_at, schedule_after_poll
+from backend.modules.source_ingestion.scheduling import compute_next_poll_at
 from backend.modules.source_ingestion.schemas import (
     IngestionTriggerResponse,
     SourceActionResponse,
@@ -40,7 +35,6 @@ from backend.modules.source_ingestion.schemas import (
     SourceHealthResponse,
     SourceUpdateRequest,
 )
-from backend.modules.story_intelligence.service import StoryIntelligenceService
 
 
 class SourceIngestionService:
@@ -143,8 +137,25 @@ class SourceIngestionService:
             raise HTTPException(status_code=404, detail="Source not found")
         return source
 
-    async def list_raw_articles(self, tenant_id: UUID) -> list[RawArticle]:
-        return await self.repo.list_raw_articles(tenant_id=tenant_id)
+    async def list_raw_articles(
+        self, tenant_id: UUID, *, limit: int = 100, cursor: str | None = None
+    ) -> tuple[list[RawArticle], str | None, bool]:
+        decoded = decode_article_cursor(cursor) if cursor else None
+        articles = await self.repo.list_raw_articles(
+            tenant_id=tenant_id,
+            limit=limit + 1,
+            cursor_created_at=decoded.created_at if decoded else None,
+            cursor_id=decoded.article_id if decoded else None,
+        )
+        has_more = len(articles) > limit
+        items = articles[:limit]
+        next_cursor = None
+        if has_more and items:
+            next_cursor = encode_article_cursor(
+                created_at=items[-1].created_at,
+                article_id=items[-1].id,
+            )
+        return items, next_cursor, has_more
 
     async def list_fetch_runs(self, tenant_id: UUID) -> list[SourceFetchRun]:
         return await self.repo.list_fetch_runs(tenant_id=tenant_id)
@@ -172,32 +183,64 @@ class SourceIngestionService:
         )
 
     async def source_health(self, tenant_id: UUID) -> list[SourceHealthResponse]:
+        from backend.core.config import settings
+        from backend.core.http import map_concurrent
+
         sources = await self.repo.list_sources(tenant_id)
-        health_items: list[SourceHealthResponse] = []
-        for source in sources:
-            adapter = get_source_adapter(source)
-            connector_health = await adapter.healthcheck()
+
+        async def _check(source: Source) -> SourceHealthResponse:
+            try:
+                connector_health = await get_source_adapter(source).healthcheck()
+                status = connector_health.get("status", "healthy")
+            except Exception:
+                status = "unhealthy"
             if source.circuit_state == CircuitState.OPEN.value and source.negative_cache_until:
                 status = "degraded"
             elif not source.active:
                 status = "paused"
-            else:
-                status = connector_health.get("status", "healthy")
-            health_items.append(
-                SourceHealthResponse(
-                    source_id=source.id,
-                    status=status,
-                    failure_count=source.failure_count,
-                    success_count=source.success_count,
-                    circuit_state=source.circuit_state,
-                    negative_cache_until=source.negative_cache_until,
-                    last_success_at=source.last_success_at,
-                )
+            return SourceHealthResponse(
+                source_id=source.id,
+                status=status,
+                failure_count=source.failure_count,
+                success_count=source.success_count,
+                circuit_state=source.circuit_state,
+                negative_cache_until=source.negative_cache_until,
+                last_success_at=source.last_success_at,
             )
+
+        outcomes = await map_concurrent(
+            sources,
+            _check,
+            limit=max(1, settings.HTTP_INGESTION_HEALTH_CONCURRENCY),
+            return_exceptions=True,
+        )
+        health_items: list[SourceHealthResponse] = []
+        for index, outcome in enumerate(outcomes):
+            if isinstance(outcome, Exception):
+                source = sources[index]
+                health_items.append(
+                    SourceHealthResponse(
+                        source_id=source.id,
+                        status="unhealthy",
+                        failure_count=source.failure_count,
+                        success_count=source.success_count,
+                        circuit_state=source.circuit_state,
+                        negative_cache_until=source.negative_cache_until,
+                        last_success_at=source.last_success_at,
+                    )
+                )
+            else:
+                health_items.append(outcome)
         return health_items
 
-    def _semantic_duplicate(self, candidate: FetchedArticle, recent_articles: list[RawArticle]) -> RawArticle | None:
-        return semantic_duplicate(candidate, recent_articles)
+    def _semantic_duplicate(
+        self,
+        candidate: FetchedArticle,
+        recent_articles: list[RawArticle],
+        *,
+        token_index: list[tuple[RawArticle, frozenset[str]]] | None = None,
+    ) -> RawArticle | None:
+        return semantic_duplicate(candidate, recent_articles, token_index=token_index)
 
     async def _articles_from_cache(self, source: Source) -> list[FetchedArticle]:
         return await articles_from_cache(source)
@@ -209,228 +252,29 @@ class SourceIngestionService:
         return describe_fetch_error(exc)
 
     async def run_ingestion(self, tenant_id: UUID, source_id: UUID) -> IngestionTriggerResponse:
-        source = await self.get_source(tenant_id, source_id)
-        now = utc_now()
-        live_fetch_succeeded = False
-        negative_cache_until = as_utc(source.negative_cache_until)
-        if (
-            source.circuit_state == CircuitState.OPEN.value
-            and negative_cache_until is not None
-            and negative_cache_until > now
-        ):
-            cached = await self._articles_from_cache(source)
-            return IngestionTriggerResponse(
-                source_id=source.id,
-                status="circuit_open_using_cache" if cached else "circuit_open",
-                raw_articles_ingested=0,
-                clusters_updated=0,
-            )
+        """Delegate to split-phase workflow (no DB hold across network I/O)."""
+        from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
 
-        fetch_run = await self.repo.create_fetch_run(
-            SourceFetchRun(
-                tenant_id=tenant_id,
-                source_id=source.id,
-                status=FetchRunStatus.RUNNING.value,
-                started_at=now,
-            )
-        )
-        adapter = get_source_adapter(source)
-        fetch_run.fetch_metadata = {
-            "connector": adapter.connector_name,
-            "rate_limit_policy": adapter.rate_limit_policy(),
-            "source_metadata": adapter.source_metadata(),
-        }
-        fetched_articles: list[FetchedArticle] = []
-        try:
-            fetched_articles = await adapter.normalize(await adapter.fetch())
-            live_fetch_succeeded = True
-            health = await adapter.healthcheck()
-            fetch_run.fetch_metadata = {
-                **fetch_run.fetch_metadata,
-                "healthcheck": health,
-            }
-            await self._record_health_event(
-                source=source,
-                fetch_run=fetch_run,
-                status="healthy",
-                event_type="connector.healthcheck",
-                message="Connector healthcheck succeeded",
-                details=health,
-            )
-        except Exception as exc:
-            error_message = self._describe_fetch_error(exc)
-            source.failure_count += 1
-            if source.failure_count >= settings.INGESTION_DISABLE_AFTER_FAILURES:
-                source.active = False
-                source.disabled_reason = f"auto_disabled_after_{source.failure_count}_failures"
-            source.trust_score = self._recompute_trust_score(source)
-            fetch_run.status = FetchRunStatus.FAILED.value
-            fetch_run.error_message = error_message
-            fetch_run.fetch_metadata = {
-                **fetch_run.fetch_metadata,
-                "exception": error_message,
-            }
-            source.circuit_state = (
-                CircuitState.OPEN.value if source.failure_count >= 3 else CircuitState.HALF_OPEN.value
-            )
-            source.negative_cache_until = now + timedelta(minutes=15)
-            source.last_error = error_message
-            await self._record_health_event(
-                source=source,
-                fetch_run=fetch_run,
-                status="failed",
-                event_type="connector.fetch_failed",
-                message="Connector fetch failed",
-                details={"error": error_message},
-            )
-            cached_articles = await self._articles_from_cache(source)
-            if cached_articles:
-                fetched_articles = cached_articles
-                fetch_run.response_cache_hit = True
-                fetch_run.status = FetchRunStatus.PARTIAL.value
-                await self._record_health_event(
-                    source=source,
-                    fetch_run=fetch_run,
-                    status="partial",
-                    event_type="connector.cache_fallback",
-                    message="Used stale cache after connector failure",
-                    details={"cached_articles": str(len(cached_articles))},
-                )
-            else:
-                fetch_run.finished_at = utc_now()
-                # Durable failure ledger before HTTP error (entrypoint would roll back a flush-only path).
-                await self.db.commit()
-                raise HTTPException(status_code=502, detail=f"Source fetch failed: {error_message}") from exc
-
-        new_raw_articles: list[RawArticle] = []
-        recent_articles = await self.repo.list_recent_raw_articles(tenant_id=tenant_id, within_hours=24)
-
-        candidate_keys: list[ArticleDedupeKeys] = []
-        prepared: list[tuple[FetchedArticle, str, str]] = []
-        for article in fetched_articles:
-            dedupe_key = adapter.dedupe_key(article)
-            title_normalized = normalize_title(article.title)
-            candidate_keys.append(
-                ArticleDedupeKeys(
-                    canonical_url=article.canonical_url,
-                    content_hash=article.content_hash,
-                    dedupe_key=dedupe_key,
-                    title_normalized=title_normalized,
-                )
-            )
-            prepared.append((article, dedupe_key, title_normalized))
-
-        existing_by_index = await self.repo.find_existing_articles_batch(
-            tenant_id=tenant_id,
-            candidates=candidate_keys,
-        )
-
-        for index, (article, dedupe_key, title_normalized) in enumerate(prepared):
-            if index in existing_by_index:
-                continue
-            if self._semantic_duplicate(article, recent_articles):
-                continue
-            raw_article = RawArticle(
-                tenant_id=tenant_id,
-                source_id=source.id,
-                fetch_run_id=fetch_run.id,
-                url=article.url,
-                canonical_url=article.canonical_url,
-                dedupe_key=dedupe_key,
-                title_normalized=title_normalized,
-                content_hash=article.content_hash,
-                title=article.title,
-                summary=article.summary,
-                body=article.body,
-                author=article.author,
-                language=article.language or next(iter(source.language_tags), None),
-                published_at=article.published_at,
-                extraction_confidence=0.75,
-                source_metadata={
-                    **article.metadata,
-                    "category_tags": ",".join(article.category_tags),
-                    "region_tags": ",".join(article.region_tags),
-                    "raw_payload_present": "true" if article.raw_payload else "false",
-                    **article.parser_diagnostics,
-                },
-            )
-            inserted = await self.repo.insert_raw_article_conflict_safe(raw_article)
-            if inserted is None:
-                continue
-            new_raw_articles.append(inserted)
-            recent_articles.insert(0, inserted)
-
-        fetch_run.articles_found = len(fetched_articles)
-        fetch_run.new_articles = len(new_raw_articles)
-        fetch_run.finished_at = utc_now()
-        if fetch_run.status == FetchRunStatus.RUNNING.value:
-            fetch_run.status = FetchRunStatus.SUCCESS.value
-        source.last_polled_at = now
-        source.next_poll_at = schedule_after_poll(
-            polled_at=now,
-            polling_interval_minutes=source.polling_interval_minutes,
-        )
-        if live_fetch_succeeded:
-            source.last_success_at = utc_now()
-            source.success_count += 1
-            source.failure_count = 0
-            source.circuit_state = CircuitState.CLOSED.value
-            source.negative_cache_until = None
-            source.disabled_reason = None
-            source.last_error = None
-            source.trust_score = self._recompute_trust_score(source)
-            await self._save_cache(source, fetched_articles)
-            await self._record_health_event(
-                source=source,
-                fetch_run=fetch_run,
-                status="healthy",
-                event_type="connector.fetch_succeeded",
-                message="Source polling succeeded",
-                details={
-                    "articles_found": str(len(fetched_articles)),
-                    "new_articles": str(len(new_raw_articles)),
-                },
-            )
-
-        intelligence_service = StoryIntelligenceService(self.db)
-        clusters = await intelligence_service.process_articles(source=source, raw_articles=new_raw_articles)
-        await self.audit.record(
-            tenant_id=tenant_id,
-            actor_user_id=None,
-            action="ingestion.source_polled",
-            entity_type="source",
-            entity_id=str(source.id),
-            message=f"Source {source.name} polled",
-            payload={
-                "articles_found": len(fetched_articles),
-                "new_articles": len(new_raw_articles),
-                "connector": adapter.connector_name,
-                "status": fetch_run.status,
-            },
-            payload_schema="ingestion.source_poll.v1",
-            outcome=fetch_run.status,
-        )
-        # Entrypoint (get_db / run_async_task) owns the final commit.
-        await self.db.flush()
-        return IngestionTriggerResponse(
-            source_id=source.id,
-            status=fetch_run.status,
-            raw_articles_ingested=len(new_raw_articles),
-            clusters_updated=len({cluster.id for cluster in clusters}),
-        )
+        return await run_ingestion_workflow(tenant_id=tenant_id, source_id=source_id)
 
     async def trigger_manual_poll(self, tenant_id: UUID, source_id: UUID) -> IngestionTriggerResponse:
         return await self.run_ingestion(tenant_id, source_id)
 
     async def poll_due_sources(self) -> list[IngestionTriggerResponse]:
         import structlog
+
         log = structlog.get_logger(__name__)
+        from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
+
         results: list[IngestionTriggerResponse] = []
-        for source in await self.repo.list_due_sources():
+        due = await self.repo.list_due_sources()
+        for source in due:
             try:
-                result = await self.run_ingestion(source.tenant_id, source.id)
-                results.append(result)
+                results.append(
+                    await run_ingestion_workflow(tenant_id=source.tenant_id, source_id=source.id)
+                )
             except Exception:
-                log.exception("source_poll_failed", source_id=str(source.id), tenant_id=str(source.tenant_id))
-                await self.db.rollback()
+                log.exception(
+                    "source_poll_failed", source_id=str(source.id), tenant_id=str(source.tenant_id)
+                )
         return results

@@ -7,7 +7,7 @@ from celery import Celery
 from celery.schedules import crontab
 
 from backend.core.config import settings
-import backend.workers.signals
+import backend.workers.signals as _celery_signals  # noqa: F401  # side-effect handlers
 from backend.workers.task_policy import WORKER_QUEUE_GROUPS
 
 
@@ -45,6 +45,8 @@ celery_app.conf.update(
         "backend.workers.tasks.poll_sources_task": {"queue": settings.CELERY_QUEUE_INGESTION},
         "backend.workers.tasks.ingest_source_task": {"queue": settings.CELERY_QUEUE_INGESTION},
         "backend.workers.tasks.generate_content_task": {"queue": settings.CELERY_QUEUE_GENERATION},
+        "backend.workers.tasks.generate_image_asset_task": {"queue": settings.CELERY_QUEUE_VIDEO},
+        "backend.workers.tasks.generate_tts_asset_task": {"queue": settings.CELERY_QUEUE_VIDEO},
         "backend.workers.tasks.send_approval_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
         "backend.workers.tasks.process_webhook_inbox_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
         "backend.workers.tasks.expire_stale_approvals_task": {"queue": settings.CELERY_QUEUE_APPROVALS},

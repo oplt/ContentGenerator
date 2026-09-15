@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 
 from backend.core.tenant_cache import OWNER_INGESTION, CachePolicy, build_cache_key, tenant_cache
 from backend.modules.source_ingestion.adapters import (
@@ -10,15 +11,36 @@ from backend.modules.source_ingestion.adapters import (
 from backend.modules.source_ingestion.models import RawArticle, Source
 from tenacity import RetryError
 
+ArticleTokenIndex = list[tuple[RawArticle, frozenset[str]]]
 
-def semantic_duplicate(candidate: FetchedArticle, recent_articles: list[RawArticle]) -> RawArticle | None:
+
+def build_article_token_index(articles: Sequence[RawArticle]) -> ArticleTokenIndex:
+    """Tokenize each article once for batch semantic comparison."""
+    index: ArticleTokenIndex = []
+    for article in articles:
+        tokens = frozenset(tokenize_for_similarity(f"{article.title} {article.summary or ''}"))
+        if tokens:
+            index.append((article, tokens))
+    return index
+
+
+def semantic_duplicate(
+    candidate: FetchedArticle,
+    recent_articles: Sequence[RawArticle] | None = None,
+    *,
+    token_index: ArticleTokenIndex | None = None,
+) -> RawArticle | None:
+    """
+    Jaccard similarity against recent articles.
+
+    Prefer passing ``token_index`` from ``build_article_token_index`` when comparing
+    many candidates against the same recent set (avoids O(n*m) re-tokenization).
+    """
     candidate_tokens = tokenize_for_similarity(f"{candidate.title} {candidate.summary or ''}")
     if not candidate_tokens:
         return None
-    for existing in recent_articles:
-        existing_tokens = tokenize_for_similarity(f"{existing.title} {existing.summary or ''}")
-        if not existing_tokens:
-            continue
+    indexed = token_index if token_index is not None else build_article_token_index(recent_articles or [])
+    for existing, existing_tokens in indexed:
         overlap = len(candidate_tokens & existing_tokens)
         union = len(candidate_tokens | existing_tokens) or 1
         if overlap / union >= 0.88:

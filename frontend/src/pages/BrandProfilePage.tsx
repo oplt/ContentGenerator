@@ -4,7 +4,7 @@ import { useTenantScope } from "../hooks/useTenantScope";
 import { queryClient } from "../lib/queryClient";
 import { queryKeys } from "../lib/queryKeys";
 import { BrandProfileForm } from "../components/dashboard/BrandProfileForm";
-import { HelpDisclosure } from "../components/ui/HelpDisclosure";
+import { SectionHelp } from "../components/ui/HelpDisclosure";
 import { QueryBoundary } from "../components/ui/QueryBoundary";
 
 export default function BrandProfilePage() {
@@ -30,10 +30,10 @@ export default function BrandProfilePage() {
           Voice, audience, and guardrails used when generating briefs and assets.
         </p>
       </div>
-      <HelpDisclosure summary="Why brand profile matters">
+      <SectionHelp summary="Why brand profile matters">
         Content plans and editorial briefs inherit tone, CTA, and risk tolerance from this profile. Saving overwrites
         the workspace default—keep destructive or legal constraints in guardrails, not in optional notes.
-      </HelpDisclosure>
+      </SectionHelp>
       {mutation.isError ? (
         <p className="text-sm text-destructive" role="alert">
           Brand profile could not be saved. Check required fields and try again.

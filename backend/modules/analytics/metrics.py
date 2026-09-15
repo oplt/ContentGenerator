@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
 from backend.core.security import decrypt_secret
-from backend.modules.analytics.models import TemplatePerformance
+from backend.modules.analytics.models import AnalyticsSnapshot, TemplatePerformance
 from backend.modules.analytics.providers import get_metrics_provider
 from backend.modules.analytics.repository import AnalyticsRepository
 from backend.modules.publishing.repository import PublishingRepository

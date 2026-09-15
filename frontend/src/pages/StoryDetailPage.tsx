@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { createContentPlan } from "../api/content";
 import { actionTrendCandidate, getStoryCluster, getTrendCandidate, getTrendCandidates } from "../api/stories";
 import { queryClient } from "../lib/queryClient";
-import { queryKeys } from "../lib/queryKeys";
+import { queryKeyFactories, queryKeys } from "../lib/queryKeys";
 import { useTenantScope } from "../hooks/useTenantScope";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -27,7 +27,10 @@ export default function StoryDetailPage() {
   });
   const listedCandidate = candidates.data?.find((item) => item.story_cluster_id === params.id);
   const candidateDetail = useQuery({
-    queryKey: [...queryKeys.trendCandidates(tenantId ?? "none"), listedCandidate?.id ?? "none"],
+    queryKey: queryKeyFactories.stories.candidate(
+      tenantId ?? "none",
+      listedCandidate?.id ?? "none"
+    ),
     queryFn: () => getTrendCandidate(listedCandidate!.id),
     enabled: enabled && Boolean(listedCandidate?.id),
   });

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,6 +116,37 @@ class SourceRepository:
             return True
         return False
 
+    @staticmethod
+    def _match_candidates_to_rows(
+        candidates: list[ArticleDedupeKeys],
+        existing_rows: list[RawArticle],
+    ) -> dict[int, RawArticle]:
+        """O(candidates + rows) match with hash → url → dedupe → title precedence."""
+        by_hash: dict[str, RawArticle] = {}
+        by_url: dict[str, RawArticle] = {}
+        by_dedupe: dict[str, RawArticle] = {}
+        by_title: dict[str, RawArticle] = {}
+        for article in existing_rows:
+            by_hash.setdefault(article.content_hash, article)
+            by_url.setdefault(article.canonical_url, article)
+            if article.dedupe_key:
+                by_dedupe.setdefault(article.dedupe_key, article)
+            if article.title_normalized:
+                by_title.setdefault(article.title_normalized, article)
+
+        matches: dict[int, RawArticle] = {}
+        for index, keys in enumerate(candidates):
+            match = by_hash.get(keys.content_hash)
+            if match is None:
+                match = by_url.get(keys.canonical_url)
+            if match is None and keys.dedupe_key:
+                match = by_dedupe.get(keys.dedupe_key)
+            if match is None and keys.title_normalized:
+                match = by_title.get(keys.title_normalized)
+            if match is not None:
+                matches[index] = match
+        return matches
+
     async def find_existing_articles_batch(
         self,
         *,
@@ -125,8 +156,8 @@ class SourceRepository:
         """
         One tenant-scoped query for all candidate key collisions.
 
-        Returns mapping of candidate index -> first matching RawArticle.
-        Query count is O(1) relative to candidate count.
+        Returns mapping of candidate index -> matching RawArticle.
+        Match work is O(candidates + matched_rows) after the SQL fetch.
         """
         if not candidates:
             return {}
@@ -155,14 +186,7 @@ class SourceRepository:
                 or_(*key_filters),
             )
         )
-        existing_rows = list(result.scalars().all())
-        matches: dict[int, RawArticle] = {}
-        for index, keys in enumerate(candidates):
-            for article in existing_rows:
-                if self._article_matches_keys(article, keys):
-                    matches[index] = article
-                    break
-        return matches
+        return self._match_candidates_to_rows(candidates, list(result.scalars().all()))
 
     async def list_recent_raw_articles(
         self,
@@ -189,53 +213,75 @@ class SourceRepository:
         await self.db.flush()
         return article
 
-    async def insert_raw_article_conflict_safe(self, article: RawArticle) -> RawArticle | None:
-        """
-        Insert article; on (tenant_id, content_hash) conflict return None.
-
-        Preserves race safety when concurrent workers ingest the same hash.
-        """
+    def _raw_article_values(self, article: RawArticle) -> dict[str, object]:
         article_id = article.id or uuid4()
         article.id = article_id
+        return {
+            "id": article_id,
+            "tenant_id": article.tenant_id,
+            "source_id": article.source_id,
+            "fetch_run_id": article.fetch_run_id,
+            "url": article.url,
+            "canonical_url": article.canonical_url,
+            "dedupe_key": article.dedupe_key,
+            "title_normalized": article.title_normalized,
+            "content_hash": article.content_hash,
+            "title": article.title,
+            "summary": article.summary,
+            "body": article.body,
+            "author": article.author,
+            "language": article.language,
+            "published_at": article.published_at,
+            "extraction_confidence": article.extraction_confidence,
+            "source_metadata": article.source_metadata or {},
+            "deleted_at": article.deleted_at,
+        }
+
+    async def insert_raw_article_conflict_safe(self, article: RawArticle) -> RawArticle | None:
+        """Insert one article; on (tenant_id, content_hash) conflict return None."""
+        inserted = await self.insert_raw_articles_conflict_safe([article])
+        return inserted[0] if inserted else None
+
+    async def insert_raw_articles_conflict_safe(self, articles: list[RawArticle]) -> list[RawArticle]:
+        """
+        Bulk insert articles with ON CONFLICT DO NOTHING … RETURNING.
+
+        One DB round trip per batch. Concurrent same-hash writers converge safely.
+        """
+        if not articles:
+            return []
         stmt = (
             insert(RawArticle)
-            .values(
-                id=article_id,
-                tenant_id=article.tenant_id,
-                source_id=article.source_id,
-                fetch_run_id=article.fetch_run_id,
-                url=article.url,
-                canonical_url=article.canonical_url,
-                dedupe_key=article.dedupe_key,
-                title_normalized=article.title_normalized,
-                content_hash=article.content_hash,
-                title=article.title,
-                summary=article.summary,
-                body=article.body,
-                author=article.author,
-                language=article.language,
-                published_at=article.published_at,
-                extraction_confidence=article.extraction_confidence,
-                source_metadata=article.source_metadata or {},
-                deleted_at=article.deleted_at,
-            )
+            .values([self._raw_article_values(article) for article in articles])
             .on_conflict_do_nothing(constraint="uq_raw_articles_tenant_id_content_hash")
-            .returning(RawArticle.id)
+            .returning(RawArticle)
         )
         result = await self.db.execute(stmt)
-        inserted_id = result.scalar_one_or_none()
-        if inserted_id is None:
-            return None
+        inserted = list(result.scalars().all())
         await self.db.flush()
-        loaded = await self.db.execute(select(RawArticle).where(RawArticle.id == inserted_id))
-        return loaded.scalar_one()
+        return inserted
 
-    async def list_raw_articles(self, *, tenant_id: UUID, limit: int = 100) -> list[RawArticle]:
+    async def list_raw_articles(
+        self,
+        *,
+        tenant_id: UUID,
+        limit: int = 100,
+        cursor_created_at: datetime | None = None,
+        cursor_id: UUID | None = None,
+    ) -> list[RawArticle]:
+        statement = select(RawArticle).where(
+            RawArticle.tenant_id == tenant_id,
+            RawArticle.deleted_at.is_(None),
+        )
+        if cursor_created_at is not None and cursor_id is not None:
+            statement = statement.where(
+                or_(
+                    RawArticle.created_at < cursor_created_at,
+                    and_(RawArticle.created_at == cursor_created_at, RawArticle.id < cursor_id),
+                )
+            )
         result = await self.db.execute(
-            select(RawArticle)
-            .where(RawArticle.tenant_id == tenant_id, RawArticle.deleted_at.is_(None))
-            .order_by(RawArticle.created_at.desc())
-            .limit(limit)
+            statement.order_by(RawArticle.created_at.desc(), RawArticle.id.desc()).limit(limit)
         )
         return list(result.scalars().all())
 

@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- test utility module */
 import type { ReactElement, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { render, type RenderOptions } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -26,7 +27,9 @@ export function AllProviders({
 }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+      <Tooltip.Provider delayDuration={200}>
+        <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+      </Tooltip.Provider>
     </QueryClientProvider>
   );
 }

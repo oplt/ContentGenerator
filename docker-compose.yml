@@ -106,12 +106,17 @@ services:
     ports:
       - "8000:8000"
 
-  # Specialized Celery workers (T3.1) — isolate I/O, LLM, media, publishing.
+  # Specialized Celery workers (Phase 14) — isolate I/O, LLM, media, publishing, DB.
   worker-io:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-io@%h --queues=ingestion,enrichment,analytics,email,approvals --concurrency=4 --prefetch-multiplier=1
+    command: >
+      celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
+      --hostname=worker-io@%h
+      --queues=ingestion,enrichment,email,approvals
+      --concurrency=${CELERY_WORKER_IO_CONCURRENCY:-4}
+      --prefetch-multiplier=${CELERY_WORKER_PREFETCH_MULTIPLIER:-1}
     env_file:
       - backend/.env.example
     environment:
@@ -131,7 +136,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-llm@%h --queues=generation --concurrency=2 --prefetch-multiplier=1
+    command: >
+      celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
+      --hostname=worker-llm@%h
+      --queues=generation
+      --concurrency=${CELERY_WORKER_LLM_CONCURRENCY:-2}
+      --prefetch-multiplier=1
     env_file:
       - backend/.env.example
     environment:
@@ -153,7 +163,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-media@%h --queues=video --concurrency=1 --prefetch-multiplier=1
+    command: >
+      celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
+      --hostname=worker-media@%h
+      --queues=video
+      --concurrency=${CELERY_WORKER_MEDIA_CONCURRENCY:-1}
+      --prefetch-multiplier=1
     env_file:
       - backend/.env.example
     environment:
@@ -169,7 +184,33 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-publishing@%h --queues=publishing --concurrency=2 --prefetch-multiplier=1
+    command: >
+      celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
+      --hostname=worker-publishing@%h
+      --queues=publishing
+      --concurrency=${CELERY_WORKER_PUBLISHING_CONCURRENCY:-2}
+      --prefetch-multiplier=1
+    env_file:
+      - backend/.env.example
+    environment:
+      - DB_POOL_PROCESS_ROLE=worker
+    volumes:
+      - ./backend:/app/backend
+      - ./docs:/app/docs
+    depends_on:
+      - api
+      - redis
+
+  worker-db:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: >
+      celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
+      --hostname=worker-db@%h
+      --queues=analytics
+      --concurrency=${CELERY_WORKER_DB_CONCURRENCY:-2}
+      --prefetch-multiplier=1
     env_file:
       - backend/.env.example
     environment:
@@ -187,7 +228,11 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email --concurrency=4 --prefetch-multiplier=1
+    command: >
+      celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
+      --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email
+      --concurrency=4
+      --prefetch-multiplier=1
     env_file:
       - backend/.env.example
     environment:

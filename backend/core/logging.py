@@ -10,6 +10,7 @@ import structlog
 from pythonjsonlogger import jsonlogger  # type: ignore[attr-defined]
 
 from backend.core.config import settings
+from backend.core.log_context import drop_sensitive_log_keys
 
 # Create logs directory if it doesn't exist
 LOG_DIR = Path("/home/polat/Desktop/Projects/content_generator/logs")
@@ -43,6 +44,7 @@ def setup_logging() -> None:
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
+            drop_sensitive_log_keys,
             structlog.stdlib.add_log_level,
             structlog.stdlib.PositionalArgumentsFormatter(),
             timestamper,

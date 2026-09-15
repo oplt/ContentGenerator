@@ -73,6 +73,13 @@ export function verifyEmail(payload: { token: string }) {
   });
 }
 
+export function resendVerification(payload: { email: string }) {
+  return apiFetch<void>("/auth/resend-verification", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function forgotPassword(payload: { email: string }) {
   return apiFetch<void>("/auth/forgot-password", {
     method: "POST",

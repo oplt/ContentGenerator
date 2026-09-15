@@ -1,16 +1,22 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getAnalyticsOverview, syncAnalytics } from "../api/analytics";
-import { getSocialAccounts } from "../api/publishing";
-import { AnalyticsCharts } from "../components/dashboard/AnalyticsCharts";
+import { getSocialAccounts, type SocialAccount } from "../api/publishing";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { HelpDisclosure } from "../components/ui/HelpDisclosure";
+import { LoadingState } from "../components/ui/LoadingState";
 import { QueryBoundary } from "../components/ui/QueryBoundary";
 import { useTenantScope } from "../hooks/useTenantScope";
 import { formatSocialAccountLabel } from "../lib/socialAccounts";
-import { queryKeys } from "../lib/queryKeys";
+import { queryKeyFactories, queryKeys } from "../lib/queryKeys";
+
+const AnalyticsCharts = lazy(() =>
+  import("../components/dashboard/AnalyticsCharts").then((m) => ({
+    default: m.AnalyticsCharts,
+  })),
+);
 
 export default function AnalyticsPage() {
   const { tenantId, enabled } = useTenantScope();
@@ -21,17 +27,25 @@ export default function AnalyticsPage() {
     enabled,
   });
   const analytics = useQuery({
-    queryKey: [...queryKeys.analytics(tenantId ?? "none"), accountFilter || "all"],
+    queryKey: queryKeyFactories.analytics.account(tenantId ?? "none", accountFilter),
     queryFn: () => getAnalyticsOverview(accountFilter || null),
     enabled,
   });
   const syncMutation = useMutation({ mutationFn: syncAnalytics });
 
+  const accountsById = useMemo(() => {
+    const map = new Map<string, SocialAccount>();
+    for (const account of socialAccounts.data ?? []) {
+      map.set(account.id, account);
+    }
+    return map;
+  }, [socialAccounts.data]);
+
   const filterLabel = useMemo(() => {
     if (!accountFilter) return null;
-    const account = (socialAccounts.data ?? []).find((item) => item.id === accountFilter);
+    const account = accountsById.get(accountFilter);
     return account ? formatSocialAccountLabel(account) : accountFilter.slice(0, 8);
-  }, [accountFilter, socialAccounts.data]);
+  }, [accountFilter, accountsById]);
 
   return (
     <div className="space-y-6">
@@ -60,10 +74,7 @@ export default function AnalyticsPage() {
               </option>
             ))}
           </select>
-          <Button
-            disabled={syncMutation.isPending}
-            onClick={() => syncMutation.mutate()}
-          >
+          <Button disabled={syncMutation.isPending} onClick={() => syncMutation.mutate()}>
             {syncMutation.isPending ? "Syncing…" : "Sync Analytics"}
           </Button>
         </div>
@@ -95,13 +106,13 @@ export default function AnalyticsPage() {
             </Button>
           ),
         }}
-        staleHint={
-          <p className="text-xs text-muted-foreground">Refreshing analytics…</p>
-        }
+        staleHint={<p className="text-xs text-muted-foreground">Refreshing analytics…</p>}
       >
         {(data) => (
           <>
-            <AnalyticsCharts data={data} />
+            <Suspense fallback={<LoadingState label="Loading charts" />}>
+              <AnalyticsCharts data={data} />
+            </Suspense>
             <Card className="p-6">
               <h2 className="text-lg font-semibold">Learning Log</h2>
               {data.learning_log.length === 0 ? (
@@ -112,12 +123,17 @@ export default function AnalyticsPage() {
               ) : (
                 <div className="mt-4 space-y-3">
                   {data.learning_log.map((entry) => (
-                    <div key={`${entry.category}-${entry.message}`} className="rounded-2xl border border-border p-4">
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{entry.category}</p>
+                    <div
+                      key={`${entry.category}-${entry.message}`}
+                      className="rounded-2xl border border-border p-4"
+                    >
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        {entry.category}
+                      </p>
                       <p className="mt-2 font-medium">{entry.message}</p>
-                      {entry.recommendation && (
+                      {entry.recommendation ? (
                         <p className="mt-1 text-sm text-muted-foreground">{entry.recommendation}</p>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>

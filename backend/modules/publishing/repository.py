@@ -1,27 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.config import settings
+from backend.modules.publishing.job_claiming import JobClaimingMixin
 from backend.modules.publishing.models import (
     ConnectedAccount,
     ConnectedAccountStatus,
     PublishedPost,
     PublishingAttempt,
-    PublishingAttemptStatus,
     PublishingJob,
-    PublishingJobStatus,
     SocialAccount,
     SocialAccountStatus,
     SocialAccountToken,
 )
 
 
-class PublishingRepository:
+class PublishingRepository(JobClaimingMixin):
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -225,142 +222,6 @@ class PublishingRepository:
             select(PublishingAttempt).where(PublishingAttempt.attempt_key == attempt_key)
         )
         return result.scalar_one_or_none()
-
-    async def get_latest_attempt(self, publishing_job_id: UUID) -> PublishingAttempt | None:
-        result = await self.db.execute(
-            select(PublishingAttempt)
-            .where(PublishingAttempt.publishing_job_id == publishing_job_id)
-            .order_by(PublishingAttempt.attempt_number.desc())
-            .limit(1)
-        )
-        return result.scalar_one_or_none()
-
-    async def claim_due_jobs(
-        self,
-        worker_id: str,
-        batch_size: int | None = None,
-        lease_seconds: int | None = None,
-    ) -> list[PublishingJob]:
-        """
-        Atomically claim due jobs and recover expired leases.
-
-        Uses SELECT ... FOR UPDATE SKIP LOCKED. Sets claim_expires_at lease.
-        Returns claimed jobs (status CLAIMED). Caller must commit before I/O.
-        """
-        now = datetime.now(timezone.utc)
-        size = batch_size or settings.PUBLISHING_CLAIM_BATCH_SIZE
-        lease = lease_seconds or settings.PUBLISHING_CLAIM_LEASE_SECONDS
-        claim_expires_at = now + timedelta(seconds=lease)
-
-        await self._recover_stale_claims(now=now)
-
-        due_status = [PublishingJobStatus.PENDING.value, PublishingJobStatus.SCHEDULED.value]
-        subq = (
-            select(PublishingJob.id)
-            .where(
-                PublishingJob.status.in_(due_status),
-                or_(
-                    PublishingJob.scheduled_for.is_(None),
-                    PublishingJob.scheduled_for <= now,
-                ),
-                or_(
-                    PublishingJob.claimed_at.is_(None),
-                    PublishingJob.claim_expires_at.is_(None),
-                    PublishingJob.claim_expires_at <= now,
-                ),
-            )
-            .order_by(PublishingJob.scheduled_for.asc().nullsfirst(), PublishingJob.created_at.asc())
-            .limit(size)
-            .with_for_update(skip_locked=True)
-        )
-        result = await self.db.execute(subq)
-        job_ids = [row[0] for row in result.fetchall()]
-        if not job_ids:
-            return []
-
-        await self.db.execute(
-            update(PublishingJob)
-            .where(PublishingJob.id.in_(job_ids))
-            .values(
-                status=PublishingJobStatus.CLAIMED.value,
-                claimed_at=now,
-                claim_expires_at=claim_expires_at,
-                worker_id=worker_id,
-            )
-        )
-        await self.db.flush()
-
-        reloaded = await self.db.execute(select(PublishingJob).where(PublishingJob.id.in_(job_ids)))
-        return list(reloaded.scalars().all())
-
-    async def _recover_stale_claims(self, *, now: datetime) -> int:
-        """Release or escalate jobs whose claim lease expired mid-flight."""
-        stale_result = await self.db.execute(
-            select(PublishingJob)
-            .where(
-                PublishingJob.status.in_(
-                    [
-                        PublishingJobStatus.CLAIMED.value,
-                        PublishingJobStatus.RUNNING.value,
-                    ]
-                ),
-                PublishingJob.claim_expires_at.is_not(None),
-                PublishingJob.claim_expires_at <= now,
-            )
-            .with_for_update(skip_locked=True)
-        )
-        stale_jobs = list(stale_result.scalars().all())
-        recovered = 0
-        for job in stale_jobs:
-            latest = await self.get_latest_attempt(job.id)
-            if latest and latest.status == PublishingAttemptStatus.SUCCEEDED.value:
-                # Provider likely succeeded; leave for manual finalize if job not terminal.
-                if job.status not in {
-                    PublishingJobStatus.SUCCEEDED.value,
-                    PublishingJobStatus.SUCCEEDED_DRY_RUN.value,
-                }:
-                    job.status = PublishingJobStatus.MANUAL_REQUIRED.value
-                    job.failure_reason = "stale_claim_after_provider_success"
-                    job.claimed_at = None
-                    job.claim_expires_at = None
-                    job.worker_id = None
-                    job.provider_payload = {
-                        **(job.provider_payload or {}),
-                        "recovery_actions": "reconcile_provider_post,manual_finalize",
-                        "stale_claim_recovery": "manual_required_after_success",
-                    }
-                    recovered += 1
-                continue
-
-            if latest and latest.status == PublishingAttemptStatus.AMBIGUOUS.value:
-                job.status = PublishingJobStatus.MANUAL_REQUIRED.value
-                job.failure_reason = latest.error_message or "stale_claim_ambiguous_attempt"
-                job.claimed_at = None
-                job.claim_expires_at = None
-                job.worker_id = None
-                job.provider_payload = {
-                    **(job.provider_payload or {}),
-                    "recovery_actions": "reconcile_provider_post,manual_delete_if_duplicate,retry_publish",
-                    "stale_claim_recovery": "manual_required_ambiguous",
-                }
-                recovered += 1
-                continue
-
-            # Prepared / transient / no attempt: safe to requeue without bumping attempt number.
-            job.status = PublishingJobStatus.SCHEDULED.value
-            job.scheduled_for = now
-            job.claimed_at = None
-            job.claim_expires_at = None
-            job.worker_id = None
-            job.provider_payload = {
-                **(job.provider_payload or {}),
-                "stale_claim_recovery": "requeued",
-                "recovered_at": now.isoformat(),
-            }
-            recovered += 1
-        if recovered:
-            await self.db.flush()
-        return recovered
 
     async def get_token_for_account(self, social_account_id: UUID) -> SocialAccountToken | None:
         result = await self.db.execute(

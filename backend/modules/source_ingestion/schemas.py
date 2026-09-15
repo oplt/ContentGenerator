@@ -110,6 +110,12 @@ class RawArticleResponse(ORMModel):
     extraction_confidence: float
 
 
+class RawArticlePageResponse(BaseModel):
+    items: list[RawArticleResponse]
+    next_cursor: str | None
+    has_more: bool
+
+
 class SourceHealthResponse(ORMModel):
     source_id: UUID
     status: str
@@ -125,6 +131,7 @@ class IngestionTriggerResponse(BaseModel):
     status: str
     raw_articles_ingested: int
     clusters_updated: int
+    fetch_run_id: UUID | None = None
 
 
 class SourceActionResponse(BaseModel):

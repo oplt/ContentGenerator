@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
 from backend.modules.source_ingestion.service import SourceIngestionService
-from backend.workers.runtime import run_async_task
+from backend.workers.runtime import run_async_task, run_detached_async_task
 from backend.workers.task_defs._common import enqueue_payload, task as _task
 
 
@@ -39,10 +40,12 @@ def poll_sources_task() -> dict[str, int]:
 
 @_task("backend.workers.tasks.ingest_source_task")
 def ingest_source_task(*, tenant_id: str, source_id: str) -> dict[str, str | int]:
-    def operation(db):
-        return SourceIngestionService(db).run_ingestion(UUID(tenant_id), UUID(source_id))
+    """Per-source ingest with no worker DB hold across network fetch."""
 
-    result = run_async_task(
+    async def operation():
+        return await run_ingestion_workflow(tenant_id=UUID(tenant_id), source_id=UUID(source_id))
+
+    result = run_detached_async_task(
         task_name="ingest_source",
         queue_name="ingestion",
         tenant_id=UUID(tenant_id),

@@ -90,7 +90,6 @@ async def upsert_social_account(
 ) -> SocialAccountResponse:
     service = PublishingService(db)
     account = await service.upsert_social_account(membership.tenant_id, payload)
-    await db.commit()
     return SocialAccountResponse(
         id=account.id,
         platform=str(account.platform),
@@ -137,7 +136,6 @@ async def validate_connected_account(
 ) -> ConnectedAccountValidationResponse:
     service = PublishingService(db)
     result = await service.validate_connected_account(membership.tenant_id, connected_account_id)
-    await db.commit()
     return result
 
 
@@ -162,7 +160,6 @@ async def publish_now(
         approval_request_id=None,
         payload=payload,
     )
-    await db.commit()
     return [_job_response(job) for job in jobs]
 
 
@@ -174,7 +171,6 @@ async def cancel_scheduled_publish(
 ) -> PublishingJobActionResponse:
     service = PublishingService(db)
     result = await service.cancel_scheduled_job(membership.tenant_id, job_id)
-    await db.commit()
     return result
 
 
@@ -186,7 +182,6 @@ async def retry_publish_job(
 ) -> PublishingJobActionResponse:
     service = PublishingService(db)
     result = await service.retry_job(membership.tenant_id, job_id)
-    await db.commit()
     return result
 
 

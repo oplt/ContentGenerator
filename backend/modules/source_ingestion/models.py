@@ -128,6 +128,13 @@ class RawArticle(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
         Index("ix_raw_articles_source_id_canonical_url", "source_id", "canonical_url"),
         Index("ix_raw_articles_tenant_id_title_normalized", "tenant_id", "title_normalized"),
         Index("ix_raw_articles_tenant_id_dedupe_key", "tenant_id", "dedupe_key"),
+        Index(
+            "ix_raw_articles_tenant_id_created_at",
+            "tenant_id",
+            text("created_at DESC"),
+            text("id DESC"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         UniqueConstraint("tenant_id", "content_hash", name="uq_raw_articles_tenant_id_content_hash"),
     )
 

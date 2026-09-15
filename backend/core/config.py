@@ -1,14 +1,15 @@
-from functools import cached_property
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend.core.settings_derived import SettingsDerivedMixin
+
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
-class Settings(BaseSettings):
+class Settings(SettingsDerivedMixin, BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     LOG_LEVEL: str = "INFO"
     SQL_ECHO: bool = False
+    SQL_SLOW_QUERY_MS: float = Field(default=500.0, ge=1.0)
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:4173"
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/content_generator"
@@ -65,6 +67,8 @@ class Settings(BaseSettings):
     CELERY_WORKER_LLM_CONCURRENCY: int = Field(default=2, ge=1, le=16)
     CELERY_WORKER_MEDIA_CONCURRENCY: int = Field(default=1, ge=1, le=8)
     CELERY_WORKER_PUBLISHING_CONCURRENCY: int = Field(default=2, ge=1, le=16)
+    # Analytics / bulk persistence — keep ≤ worker DB pool slots.
+    CELERY_WORKER_DB_CONCURRENCY: int = Field(default=2, ge=1, le=16)
 
     JWT_SECRET: str = "change-me"
     JWT_ALGORITHM: str = "HS256"
@@ -124,6 +128,24 @@ class Settings(BaseSettings):
     HTTP_PROVIDER_ANALYTICS_CONCURRENCY: int = 6
     HTTP_PROVIDER_X_CONCURRENCY: int = 4
     HTTP_PROVIDER_LLM_CONCURRENCY: int = 4
+    HTTP_PROVIDER_INGESTION_CONCURRENCY: int = 8
+    HTTP_PROVIDER_PUBLISHING_CONCURRENCY: int = 4
+    HTTP_PROVIDER_IMAGE_CONCURRENCY: int = 2
+    HTTP_PROVIDER_TTS_CONCURRENCY: int = 2
+    HTTP_RETRY_AFTER_MAX_SECONDS: float = 60.0
+    HTTP_INGESTION_HEALTH_CONCURRENCY: int = 8
+    HTTP_INGESTION_ENRICH_CONCURRENCY: int = 6
+    HTTP_SITEMAP_GLOBAL_CONCURRENCY: int = 4
+    HTTP_SITEMAP_PER_ORIGIN_CONCURRENCY: int = 2
+    HTTP_SITEMAP_DEFAULT_TIMEOUT_SECONDS: float = 60.0
+    HTTP_SITEMAP_DEFAULT_MAX_URLS: int = 500
+    CACHE_SINGLEFLIGHT_LOCK_MS: int = 15_000
+    CACHE_DEFAULT_TTL_JITTER_SECONDS: int = 30
+    CACHE_ROBOTS_TTL_SECONDS: int = 3600
+    CACHE_OAUTH_SKEW_SECONDS: int = 60
+    # Optional dedicated app-cache Redis URL (else REDIS_URL). Prefer isolating
+    # cache vs Celery broker/results in production.
+    REDIS_CACHE_URL: str = ""
     PUBLISHING_CLAIM_LEASE_SECONDS: int = 900
     PUBLISHING_MAX_ATTEMPTS: int = 3
     PUBLISHING_CLAIM_BATCH_SIZE: int = 50
@@ -235,103 +257,6 @@ class Settings(BaseSettings):
     DEMO_SEED_ENABLED: bool = True
 
     MFA_ACCESS: bool = False
-
-    @property
-    def db_pool_is_worker(self) -> bool:
-        return self.DB_POOL_PROCESS_ROLE.strip().lower() == "worker"
-
-    @property
-    def effective_db_pool_size(self) -> int:
-        return self.DB_POOL_WORKER_SIZE if self.db_pool_is_worker else self.DB_POOL_SIZE
-
-    @property
-    def effective_db_pool_max_overflow(self) -> int:
-        if self.db_pool_is_worker:
-            return self.DB_POOL_WORKER_MAX_OVERFLOW
-        return self.DB_POOL_MAX_OVERFLOW
-
-    @property
-    def db_pool_max_connections_per_process(self) -> int:
-        """Hard ceiling of checked-out connections for this process."""
-        if self.DB_POOL_USE_NULL:
-            return 1
-        return self.effective_db_pool_size + self.effective_db_pool_max_overflow
-
-    @property
-    def celery_broker_url(self) -> str:
-        return self.CELERY_BROKER_URL or self.REDIS_URL
-
-    @property
-    def celery_result_backend(self) -> str:
-        return self.CELERY_RESULT_BACKEND or self.REDIS_URL
-
-    @cached_property
-    def cors_origins(self) -> list[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
-
-    @cached_property
-    def cookie_samesite(self) -> str:
-        normalized = self.COOKIE_SAMESITE.strip().lower()
-        if normalized not in {"lax", "strict", "none"}:
-            return "lax"
-        return normalized
-
-    @cached_property
-    def encryption_key(self) -> bytes:
-        if self.ENCRYPTION_KEY:
-            return self.ENCRYPTION_KEY.encode("utf-8")
-        from base64 import urlsafe_b64encode
-        import hashlib
-
-        digest = hashlib.sha256(self.JWT_SECRET.encode("utf-8")).digest()
-        return urlsafe_b64encode(digest)
-
-    @cached_property
-    def llm_task_models(self) -> dict[str, str]:
-        import json
-
-        try:
-            parsed = json.loads(self.LLM_TASK_MODELS_JSON or "{}")
-        except json.JSONDecodeError:
-            return {}
-        return {str(key): str(value) for key, value in parsed.items() if key and value}
-
-    @cached_property
-    def llm_task_timeouts(self) -> dict[str, float]:
-        import json
-
-        try:
-            parsed = json.loads(self.LLM_TASK_TIMEOUTS_JSON or "{}")
-        except json.JSONDecodeError:
-            return {}
-
-        timeouts: dict[str, float] = {}
-        for key, value in parsed.items():
-            try:
-                timeout = float(value)
-            except (TypeError, ValueError):
-                continue
-            if timeout > 0:
-                timeouts[str(key)] = timeout
-        return timeouts
-
-    @cached_property
-    def telegram_callback_signing_secret(self) -> str:
-        return self.TELEGRAM_CALLBACK_SIGNING_SECRET or self.JWT_SECRET
-
-    @cached_property
-    def csrf_secret(self) -> str:
-        return self.CSRF_SECRET or self.JWT_SECRET
-
-    @cached_property
-    def external_secret_references(self) -> dict[str, str]:
-        import json
-
-        try:
-            parsed = json.loads(self.EXTERNAL_SECRET_REFERENCES_JSON or "{}")
-        except json.JSONDecodeError:
-            return {}
-        return {str(key): str(value) for key, value in parsed.items() if key and value}
 
 
 settings = Settings()

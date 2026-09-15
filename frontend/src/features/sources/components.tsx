@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { getCatalog, type CatalogEntry, type Source } from "../../api/sources";
 import { useTenantScope } from "../../hooks/useTenantScope";
 import { queryKeys } from "../../lib/queryKeys";
+import { queryPolicy } from "../../lib/queryPolicy";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -31,7 +32,7 @@ export type EditForm = {
   trust_score: number;
 };
 
-export const SOURCES_TABS = ["configured", "add"] as const;
+export const SOURCES_TABS = ["configured", "add", "activity"] as const;
 export type SourcesTab = (typeof SOURCES_TABS)[number];
 
 export type AddMode = "catalog" | "manual";
@@ -202,17 +203,20 @@ export function CatalogBrowser({
   existingUrls,
   onImport,
   importingId,
+  active = true,
 }: {
   existingUrls: Set<string>;
   onImport: (entry: CatalogEntry) => void;
   importingId: string | null;
+  active?: boolean;
 }) {
   const [activeCategory, setActiveCategory] = useState<string | undefined>(undefined);
   const { tenantId, enabled } = useTenantScope();
   const catalog = useQuery({
     queryKey: queryKeys.sourceCatalog(tenantId ?? "none", activeCategory ?? "all"),
     queryFn: () => getCatalog(activeCategory),
-    enabled,
+    enabled: enabled && active,
+    ...queryPolicy.static,
   });
 
   return (

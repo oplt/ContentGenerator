@@ -3,14 +3,12 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.audit.service import AuditService
 from backend.modules.content_strategy.models import Brand, BrandProfile, ContentFormat, ContentPlan, ContentPlanStatus
 from backend.modules.content_strategy.repository import ContentStrategyRepository
-from backend.modules.content_strategy.schemas import BrandProfileUpsertRequest, ContentPlanResponse
-from backend.modules.story_intelligence.models import StoryCluster
+from backend.modules.content_strategy.schemas import BrandProfileUpsertRequest
 from backend.modules.inference.providers import get_llm_provider
 from backend.modules.story_intelligence.repository import StoryIntelligenceRepository
 

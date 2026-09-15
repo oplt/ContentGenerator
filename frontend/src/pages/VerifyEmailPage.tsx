@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { verifyEmail } from "../api/auth";
+import { resendVerification, verifyEmail } from "../api/auth";
 import { useAuth } from "../features/auth/AuthContext";
 import { canAccessAdminRoutes, requiresAdminMfa, requiresEmailVerification } from "../features/auth/access";
 import { Button } from "../components/ui/button";
@@ -15,6 +15,8 @@ export default function VerifyEmailPage() {
     token ? "verifying" : "idle"
   );
   const [message, setMessage] = useState<string | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -52,6 +54,23 @@ export default function VerifyEmailPage() {
     (!needsVerification || verificationCompleted) &&
       (!currentUser || !currentUser.is_admin || canAccessAdminRoutes(currentUser) || verificationCompleted)
   );
+  const canResend = Boolean(currentUser?.email) && (needsVerification || status === "error");
+
+  async function onResend() {
+    if (!currentUser?.email || resendBusy) {
+      return;
+    }
+    setResendBusy(true);
+    setResendMessage(null);
+    try {
+      await resendVerification({ email: currentUser.email });
+      setResendMessage("If an account matches that email, a new verification link is on the way.");
+    } catch {
+      setResendMessage("Could not resend verification email. Try again in a few minutes.");
+    } finally {
+      setResendBusy(false);
+    }
+  }
 
   if (needsAdminMfa && !needsVerification) {
     return <Navigate to="/mfa-setup" replace />;
@@ -77,6 +96,9 @@ export default function VerifyEmailPage() {
               Check your inbox and open the latest verification link. Full access stays blocked until verification completes.
             </p>
           ) : null}
+          {resendMessage ? (
+            <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">{resendMessage}</p>
+          ) : null}
 
           <div className="flex flex-col gap-3 sm:flex-row">
             {canContinue ? (
@@ -88,6 +110,11 @@ export default function VerifyEmailPage() {
                 <Link to="/">Return to sign in</Link>
               </Button>
             )}
+            {canResend ? (
+              <Button type="button" variant="outline" className="w-full" disabled={resendBusy} onClick={onResend}>
+                {resendBusy ? "Sending..." : "Resend verification email"}
+              </Button>
+            ) : null}
           </div>
         </div>
       </Card>
