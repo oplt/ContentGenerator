@@ -86,6 +86,7 @@ export type SocialTabProps = {
 export type SettingsWorkspaceTabsProps = {
   settingsTab: SettingsTab;
   setSettingsTab: (tab: SettingsTab) => void;
+  canManageWorkspace: boolean;
   workspaceForm: UseFormReturn<WorkspaceSettingsForm>;
   workflowForm: UseFormReturn<WorkflowSettingsForm>;
   whatsappForm: UseFormReturn<WhatsAppSettingsForm>;

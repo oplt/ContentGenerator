@@ -16,7 +16,7 @@ describe("T7.2 feature module characterization", () => {
   });
 
   it("keeps settings/sources/trending constants stable for deep links", () => {
-    expect(SETTINGS_TABS).toEqual(["general", "publishing", "integrations", "social"]);
+    expect(SETTINGS_TABS).toEqual(["account", "general", "publishing", "integrations", "social"]);
     expect(SOCIAL_PLATFORM_DEFINITIONS.map((item) => item.platform)).toEqual([
       "youtube",
       "instagram",

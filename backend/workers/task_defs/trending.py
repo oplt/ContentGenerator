@@ -5,6 +5,7 @@ from uuid import UUID
 from backend.modules.trending_repos.service import TrendingReposService
 from backend.workers.runtime import run_async_task, run_async_task_simple
 from backend.workers.task_defs._common import enqueue_payload, task as _task
+from backend.workers.task_lock import periodic_task_lock
 
 
 @_task("backend.workers.tasks.fetch_trending_repos_task")
@@ -52,11 +53,14 @@ def send_trending_repos_digest_task(*, tenant_id: str) -> dict[str, str]:
     """
 
     async def operation(db) -> dict[str, str]:
-        svc = TrendingReposService(db)
-        tid = UUID(tenant_id)
-        updated = await svc.generate_ideas_for_daily_snapshot(tid)
-        await svc.send_daily_digest_to_telegram(tid)
-        return {"repos_with_ideas": str(len(updated))}
+        async with periodic_task_lock(f"trending_digest:{tenant_id}", ttl_seconds=1_800) as acquired:
+            if not acquired:
+                return {"repos_with_ideas": "0", "skipped": "1"}
+            svc = TrendingReposService(db)
+            tid = UUID(tenant_id)
+            updated = await svc.generate_ideas_for_daily_snapshot(tid)
+            await svc.send_daily_digest_to_telegram(tid)
+            return {"repos_with_ideas": str(len(updated)), "skipped": "0"}
 
     return run_async_task(
         task_name="send_trending_repos_digest",

@@ -1,7 +1,13 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { createContentPlan } from "../api/content";
-import { actionTrendCandidate, getStoryCluster, getTrendCandidate, getTrendCandidates } from "../api/stories";
+import {
+  actionTrendCandidate,
+  getStoryCluster,
+  getTrendCandidate,
+  getTrendCandidates,
+  isCanonicalStoryClusterId,
+} from "../api/stories";
 import { queryClient } from "../lib/queryClient";
 import { queryKeyFactories, queryKeys } from "../lib/queryKeys";
 import { useTenantScope } from "../hooks/useTenantScope";
@@ -15,10 +21,11 @@ import { LoadingState } from "../components/ui/LoadingState";
 export default function StoryDetailPage() {
   const params = useParams();
   const { tenantId, enabled } = useTenantScope();
+  const invalidClusterId = Boolean(params.id && !isCanonicalStoryClusterId(params.id));
   const story = useQuery({
     queryKey: queryKeys.story(tenantId ?? "none", params.id ?? ""),
     queryFn: () => getStoryCluster(params.id ?? ""),
-    enabled: enabled && Boolean(params.id),
+    enabled: enabled && Boolean(params.id) && !invalidClusterId,
   });
   const candidates = useQuery({
     queryKey: queryKeys.trendCandidates(tenantId ?? "none"),
@@ -54,6 +61,10 @@ export default function StoryDetailPage() {
     },
   });
 
+  if (invalidClusterId) {
+    return <Navigate to="/dashboard/stories" replace />;
+  }
+
   if (story.isPending && !story.data) {
     return <LoadingState label="Loading trend candidate" />;
   }
@@ -83,7 +94,7 @@ export default function StoryDetailPage() {
       <Card className="p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{d.primary_topic}</p>
+            <p className="text-xs font-medium text-muted-foreground">{d.primary_topic}</p>
             <h1 className="mt-3 text-3xl font-semibold">{d.headline}</h1>
             <p className="mt-4 max-w-3xl text-sm text-muted-foreground">{d.summary}</p>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -176,19 +187,19 @@ export default function StoryDetailPage() {
           <h2 className="text-lg font-semibold">Score Explanation</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-border p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Final Score</p>
+              <p className="text-xs font-medium text-muted-foreground">Final Score</p>
               <p className="mt-2 text-2xl font-semibold">{candidate.final_score.toFixed(2)}</p>
             </div>
             <div className="rounded-2xl border border-border p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Cross-source</p>
+              <p className="text-xs font-medium text-muted-foreground">Cross-source</p>
               <p className="mt-2 text-2xl font-semibold">{candidate.cross_source_count}</p>
             </div>
             <div className="rounded-2xl border border-border p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Velocity</p>
+              <p className="text-xs font-medium text-muted-foreground">Velocity</p>
               <p className="mt-2 text-2xl font-semibold">{candidate.velocity_score.toFixed(2)}</p>
             </div>
             <div className="rounded-2xl border border-border p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Risk Penalty</p>
+              <p className="text-xs font-medium text-muted-foreground">Risk Penalty</p>
               <p className="mt-2 text-2xl font-semibold">{candidate.risk_score.toFixed(2)}</p>
             </div>
           </div>

@@ -1,4 +1,10 @@
-import { apiFetch } from "./client";
+import { ApiRequestError, apiFetch } from "./client";
+
+const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isCanonicalStoryClusterId(value: string): boolean {
+  return CANONICAL_UUID.test(value.trim());
+}
 
 export type StoryCluster = {
   id: string;
@@ -78,6 +84,14 @@ export function getStoryClusters() {
 }
 
 export function getStoryCluster(id: string) {
+  if (!isCanonicalStoryClusterId(id)) {
+    return Promise.reject(
+      new ApiRequestError("This story link does not contain a valid cluster ID.", "http", {
+        retryable: false,
+        status: 400,
+      })
+    );
+  }
   return apiFetch<StoryDetail>(`/stories/clusters/${id}`);
 }
 

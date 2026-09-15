@@ -7,11 +7,11 @@ export default {
   theme: {
     extend: {
       fontFamily: {
+        // Universal Sans stand-in: geometric UI sans (DESIGN.md §3)
         sans: ["Manrope", "Arial", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["IBM Plex Mono", "monospace"],
+        mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
       },
       colors: {
-        // ── shadcn-compatible semantic tokens ─────────────────────────────
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         card: "hsl(var(--card))",
@@ -29,58 +29,39 @@ export default {
         "destructive-foreground": "hsl(var(--destructive-foreground))",
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
-        // ── Modal overlay ──────────────────────────────────────────────────
         overlay: "hsl(var(--overlay) / <alpha-value>)",
-        // ── Warm palette — direct access for brand moments ─────────────────
-        "mistral-orange": "#fa520f",
-        "mistral-flame":  "#fb6424",
-        "block-orange":   "#ff8105",
-        "sunshine-900":   "#ff8a00",
-        "sunshine-700":   "#ffa110",
-        "sunshine-500":   "#ffb83e",
-        "sunshine-300":   "#ffd06a",
-        "block-gold":     "#ffe295",
-        "bright-yellow":  "#ffd900",
-        "warm-ivory":     "#fffaeb",
-        "mistral-black":  "#1f1f1f",
-        // ── Chart palette ──────────────────────────────────────────────────
+        "electric-blue": "#3E6AE1",
+        "carbon-dark": "#171A20",
+        graphite: "#393C41",
+        pewter: "#5C5E62",
+        "silver-fog": "#8E8E8E",
+        "light-ash": "#F4F4F4",
+        "cloud-gray": "#EEEEEE",
         "chart-1": "hsl(var(--chart-1))",
         "chart-2": "hsl(var(--chart-2))",
         "chart-3": "hsl(var(--chart-3))",
       },
-
-      // ── Near-zero architectural corners (DESIGN.md §5) ─────────────────
-      // "Near-zero: the dominant radius — sharp, architectural corners"
       borderRadius: {
-        card: "var(--radius-card)",   // 2px
-        lg:   "var(--radius-lg)",     // 2px
-        md:   "var(--radius-md)",     // 2px
-        sm:   "var(--radius-sm)",     // 2px
-        // xl keeps a slightly larger value for pill/tag shapes if needed
-        xl:   "var(--radius-lg)",     // 2px
-        "2xl": "var(--radius-lg)",    // 2px — collapse all rounded to near-zero
+        card: "var(--radius-card)",
+        lg: "var(--radius-lg)",
+        md: "var(--radius-md)",
+        sm: "var(--radius-sm)",
+        xl: "var(--radius-lg)",
+        "2xl": "var(--radius-lg)",
       },
-
-      // ── Warm amber shadow system (DESIGN.md §6) ─────────────────────────
       boxShadow: {
-        card:    "var(--shadow-card)",
-        soft:    "var(--shadow-card)",   // legacy alias
+        card: "var(--shadow-card)",
+        soft: "var(--shadow-card)",
         overlay: "var(--shadow-overlay)",
       },
-
-      // ── Auth hero — warm gradient replacing cool aurora ──────────────────
-      backgroundImage: {
-        aurora:
-          "linear-gradient(160deg, #fffaeb 0%, #fff0c2 20%, #ffa110 50%, #fa520f 70%, #1f1f1f 100%)",
+      transitionDuration: {
+        ui: "330ms",
       },
-
-      // ── Type scale following DESIGN.md §3 ───────────────────────────────
       fontSize: {
-        display: ["5.125rem", { lineHeight: "1.0",  letterSpacing: "-2.05px" }], // 82px
-        "heading-1": ["3.5rem",  { lineHeight: "0.95", letterSpacing: "0" }],    // 56px
-        "heading-2": ["3rem",    { lineHeight: "0.95", letterSpacing: "0" }],    // 48px
-        "heading-3": ["2rem",    { lineHeight: "1.15", letterSpacing: "0" }],    // 32px
-        "heading-4": ["1.5rem",  { lineHeight: "1.33", letterSpacing: "0" }],    // 24px
+        "hero": ["2.5rem", { lineHeight: "1.2", fontWeight: "500" }],
+        "heading-1": ["2rem", { lineHeight: "1.2", fontWeight: "500" }],
+        "heading-2": ["1.5rem", { lineHeight: "1.25", fontWeight: "500" }],
+        "heading-3": ["1.0625rem", { lineHeight: "1.2", fontWeight: "500" }],
       },
     },
   },

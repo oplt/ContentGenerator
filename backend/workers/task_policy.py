@@ -82,6 +82,13 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
         max_retries=2,
         acks_late=True,
     ),
+    "backend.workers.tasks.generate_chess_video_task": TaskPolicy(
+        workload="media",
+        soft_time_limit=480,
+        time_limit=600,
+        max_retries=1,
+        acks_late=True,
+    ),
     "backend.workers.tasks.send_approval_task": TaskPolicy(
         workload="io",
         soft_time_limit=120,

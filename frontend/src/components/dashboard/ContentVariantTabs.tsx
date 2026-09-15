@@ -25,7 +25,7 @@ export function ContentVariantTabs({ assets }: { assets: ContentAsset[] }) {
         <TabsContent key={platform} value={platform} className="mt-4 space-y-3">
           {grouped[platform].map((asset) => (
             <div key={asset.id} className="rounded-2xl border border-border bg-muted/40 p-4">
-              <div className="mb-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
                 Variant {asset.variant_label}
               </div>
               <div className="text-sm leading-6">{asset.text_content}</div>

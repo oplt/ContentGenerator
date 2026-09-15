@@ -1,4 +1,4 @@
-import { expect, test, devices } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const sessionUser = {
   id: "user-1",
@@ -93,8 +93,6 @@ async function mockSession(page: import("@playwright/test").Page) {
 }
 
 test.describe("mobile navigation and tables", () => {
-  test.use({ ...devices["Pixel 5"] });
-
   test("opens drawer destinations and keeps audit table usable", async ({ page }) => {
     await mockSession(page);
     await page.addInitScript(() => {
@@ -110,7 +108,7 @@ test.describe("mobile navigation and tables", () => {
     await page.getByLabel("Open navigation menu").click();
     const drawer = page.getByRole("dialog");
     await expect(drawer.getByRole("link", { name: "Briefs" })).toBeVisible();
-    await expect(drawer.getByRole("link", { name: "Account" })).toBeVisible();
+    await expect(drawer.getByRole("link", { name: "Connected Accounts" })).toBeVisible();
     await drawer.getByRole("link", { name: "Audit" }).click();
     await expect(page).toHaveURL(/\/dashboard\/audit/);
 

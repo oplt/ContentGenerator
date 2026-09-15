@@ -3,6 +3,7 @@ export {
   SETTINGS_TAB_ALIASES,
   SOCIAL_PLATFORM_DEFINITIONS,
   WHATSAPP_CONFIG_VARIABLES,
+  WORKSPACE_SETTINGS_TABS,
   type SettingsTab,
   type SocialPlatformDefinition,
   type TelegramSettingsForm,
@@ -12,3 +13,4 @@ export {
 } from "./constants";
 export { SocialConnectionsPanel } from "./SocialConnectionsPanel";
 export { SettingsWorkspaceTabs } from "./SettingsWorkspaceTabs";
+export { AccountTab } from "./AccountTab";

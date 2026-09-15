@@ -106,9 +106,10 @@ class AnalyticsService:
         snapshots = await self.repo.list_snapshots(
             tenant_id, social_account_id=social_account_id
         )
-        posts = await self.publishing_repo.list_published_posts(tenant_id)
-        if social_account_id is not None:
-            posts = [post for post in posts if post.social_account_id == social_account_id]
+        posts = await self.publishing_repo.list_published_posts(
+            tenant_id,
+            social_account_id=social_account_id,
+        )
         sources = await self.source_repo.list_sources(tenant_id)
         clusters = await self.story_repo.list_clusters(tenant_id=tenant_id)
 

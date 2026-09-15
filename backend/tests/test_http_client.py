@@ -8,6 +8,7 @@ from email.utils import format_datetime
 
 import httpx
 import respx
+import structlog
 
 from backend.core.http import (
     close_http_client,
@@ -95,6 +96,13 @@ def test_shared_client_reuses_connection_and_retries_429() -> None:
         response = await request("GET", "https://example.test/item", provider="analytics", max_retries=2)
         assert response.status_code == 200
         assert route.call_count == 2
+        context_route = respx.get("https://example.test/context").mock(
+            return_value=httpx.Response(200, json={"ok": True})
+        )
+        structlog.contextvars.bind_contextvars(correlation_id="corr-http-123")
+        await request("GET", "https://example.test/context", provider="analytics", max_retries=0)
+        assert context_route.calls[-1].request.headers["X-Correlation-ID"] == "corr-http-123"
+        structlog.contextvars.clear_contextvars()
         stats = get_http_stats()
         assert stats["rate_limited"] >= 1
         assert stats["retries"] >= 1

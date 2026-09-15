@@ -127,7 +127,7 @@ export default function AnalyticsPage() {
                       key={`${entry.category}-${entry.message}`}
                       className="rounded-2xl border border-border p-4"
                     >
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                      <p className="text-xs font-medium text-muted-foreground">
                         {entry.category}
                       </p>
                       <p className="mt-2 font-medium">{entry.message}</p>

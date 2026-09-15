@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.auth import get_current_membership, require_permission
@@ -24,6 +24,44 @@ from backend.modules.source_ingestion.schemas import (
 from backend.modules.source_ingestion.service import SourceIngestionService
 
 router = APIRouter()
+
+
+async def _enqueue_source_ingestion(
+    *, source_id: UUID, membership: TenantUser, db: AsyncSession, correlation_id: str | None
+) -> IngestionTriggerResponse:
+    service = SourceIngestionService(db)
+    fetch_run, created = await service.queue_ingestion(membership.tenant_id, source_id)
+    metadata = fetch_run.fetch_metadata or {}
+    task_id = metadata.get("celery_task_id")
+    task_id = task_id if isinstance(task_id, str) else ""
+    if created:
+        from backend.workers.tasks import ingest_source_task
+
+        await db.commit()
+        try:
+            ingest_source_task.apply_async(
+                kwargs={
+                    "tenant_id": str(membership.tenant_id),
+                    "source_id": str(source_id),
+                    "fetch_run_id": str(fetch_run.id),
+                    "correlation_id": correlation_id,
+                },
+                task_id=task_id,
+                headers={"correlation_id": correlation_id} if correlation_id else None,
+            )
+        except Exception as exc:
+            fetch_run.status = "failed"
+            fetch_run.error_message = "Unable to enqueue ingestion task"
+            await db.commit()
+            raise HTTPException(status_code=503, detail="Ingestion queue unavailable") from exc
+    return IngestionTriggerResponse(
+        source_id=source_id,
+        status="queued" if created else fetch_run.status,
+        raw_articles_ingested=0,
+        clusters_updated=0,
+        fetch_run_id=fetch_run.id,
+        task_id=task_id or None,
+    )
 
 
 @router.get("", response_model=list[SourceResponse])
@@ -80,24 +118,34 @@ async def disable_source(
     return result
 
 
-@router.post("/{source_id}/ingest", response_model=IngestionTriggerResponse)
+@router.post("/{source_id}/ingest", response_model=IngestionTriggerResponse, status_code=202)
 async def ingest_source(
     source_id: UUID,
+    request: Request,
     membership: TenantUser = Depends(require_permission("sources:write")),
+    db: AsyncSession = Depends(get_db),
 ) -> IngestionTriggerResponse:
-    from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
-
-    return await run_ingestion_workflow(tenant_id=membership.tenant_id, source_id=source_id)
+    return await _enqueue_source_ingestion(
+        source_id=source_id,
+        membership=membership,
+        db=db,
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
 
 
 @router.post("/{source_id}/manual-poll", response_model=IngestionTriggerResponse)
 async def manual_poll_source(
     source_id: UUID,
+    request: Request,
     membership: TenantUser = Depends(require_permission("sources:write")),
+    db: AsyncSession = Depends(get_db),
 ) -> IngestionTriggerResponse:
-    from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
-
-    return await run_ingestion_workflow(tenant_id=membership.tenant_id, source_id=source_id)
+    return await _enqueue_source_ingestion(
+        source_id=source_id,
+        membership=membership,
+        db=db,
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
 
 
 @router.get("/health", response_model=list[SourceHealthResponse])
@@ -119,6 +167,22 @@ async def list_fetch_runs(
         SourceFetchRunResponse.model_validate(run)
         for run in await service.list_fetch_runs(membership.tenant_id)
     ]
+
+
+@router.get("/fetch-runs/{fetch_run_id}", response_model=SourceFetchRunResponse)
+async def get_fetch_run(
+    fetch_run_id: UUID,
+    membership: TenantUser = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db),
+) -> SourceFetchRunResponse:
+    service = SourceIngestionService(db)
+    run = await service.repo.get_fetch_run_for_tenant(
+        tenant_id=membership.tenant_id,
+        fetch_run_id=fetch_run_id,
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Ingestion run not found")
+    return SourceFetchRunResponse.model_validate(run)
 
 
 @router.get("/catalog", response_model=list[CatalogEntryResponse])

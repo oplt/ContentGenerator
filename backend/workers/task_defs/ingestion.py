@@ -6,6 +6,7 @@ from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_wo
 from backend.modules.source_ingestion.service import SourceIngestionService
 from backend.workers.runtime import run_async_task, run_detached_async_task
 from backend.workers.task_defs._common import enqueue_payload, task as _task
+from backend.workers.task_lock import periodic_task_lock
 
 
 @_task("backend.workers.tasks.poll_sources_task")
@@ -17,13 +18,16 @@ def poll_sources_task() -> dict[str, int]:
     """
 
     async def operation(db) -> dict[str, int]:
-        sources = await SourceIngestionService(db).repo.list_due_sources()
-        for source in sources:
-            ingest_source_task.delay(
-                tenant_id=str(source.tenant_id),
-                source_id=str(source.id),
-            )
-        return {"dispatched": len(sources)}
+        async with periodic_task_lock("poll_sources", ttl_seconds=240) as acquired:
+            if not acquired:
+                return {"dispatched": 0, "skipped": 1}
+            sources = await SourceIngestionService(db).repo.list_due_sources()
+            for source in sources:
+                ingest_source_task.delay(
+                    tenant_id=str(source.tenant_id),
+                    source_id=str(source.id),
+                )
+            return {"dispatched": len(sources), "skipped": 0}
 
     return run_async_task(
         task_name="poll_sources",
@@ -39,11 +43,21 @@ def poll_sources_task() -> dict[str, int]:
 
 
 @_task("backend.workers.tasks.ingest_source_task")
-def ingest_source_task(*, tenant_id: str, source_id: str) -> dict[str, str | int]:
+def ingest_source_task(
+    *,
+    tenant_id: str,
+    source_id: str,
+    fetch_run_id: str | None = None,
+    correlation_id: str | None = None,
+) -> dict[str, str | int | None]:
     """Per-source ingest with no worker DB hold across network fetch."""
 
     async def operation():
-        return await run_ingestion_workflow(tenant_id=UUID(tenant_id), source_id=UUID(source_id))
+        return await run_ingestion_workflow(
+            tenant_id=UUID(tenant_id),
+            source_id=UUID(source_id),
+            fetch_run_id=UUID(fetch_run_id) if fetch_run_id else None,
+        )
 
     result = run_detached_async_task(
         task_name="ingest_source",
@@ -52,8 +66,12 @@ def ingest_source_task(*, tenant_id: str, source_id: str) -> dict[str, str | int
         entity_type="source",
         entity_id=source_id,
         celery_task_id=ingest_source_task.request.id,
-        correlation_id=ingest_source_task.request.id,
-        payload=enqueue_payload(source_id=source_id),
+        correlation_id=correlation_id or ingest_source_task.request.id,
+        payload=enqueue_payload(
+            source_id=source_id,
+            fetch_run_id=fetch_run_id or "",
+            correlation_id=correlation_id or "",
+        ),
         operation=operation,
     )
     return result.model_dump()

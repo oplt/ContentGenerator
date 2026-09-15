@@ -4,9 +4,11 @@
  * Beacons to POST /health/web-vitals (public, low-cardinality).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
 type VitalName = "lcp" | "cls" | "inp" | "fcp" | "ttfb";
+
+let initialized = false;
 
 function ratingFor(name: VitalName, value: number): string {
   // Thresholds aligned with docs/benchmarks/baseline.json (p95 budgets).
@@ -116,6 +118,8 @@ function observePaintAndTtfb(): void {
 /** Start observers once per page load. Safe to call from main.tsx. */
 export function initWebVitals(): void {
   if (typeof window === "undefined" || typeof PerformanceObserver === "undefined") return;
+  if (initialized) return;
+  initialized = true;
   observeLcp();
   observeCls();
   observeInp();

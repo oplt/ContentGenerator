@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import queue
+import threading
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
 from typing import TypeVar
 from uuid import UUID
 
@@ -15,21 +18,91 @@ from backend.modules.operations.service import OperationsService
 ResultT = TypeVar("ResultT")
 
 _worker_loop: asyncio.AbstractEventLoop | None = None
+_worker_loop_thread: threading.Thread | None = None
+_worker_loop_ready = threading.Event()
+_worker_loop_lock = threading.Lock()
+_worker_queue: queue.Queue[tuple[Awaitable[object] | None, Future[object]]] = queue.Queue()
 
 
 def _get_worker_loop() -> asyncio.AbstractEventLoop:
-    global _worker_loop
+    global _worker_loop, _worker_loop_thread
 
-    if _worker_loop is None or _worker_loop.is_closed():
-        _worker_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_worker_loop)
+    with _worker_loop_lock:
+        if _worker_loop is not None and not _worker_loop.is_closed():
+            return _worker_loop
 
-    return _worker_loop
+        _worker_loop_ready.clear()
+        loop = asyncio.new_event_loop()
+
+        async def process_queue() -> None:
+            while True:
+                while True:
+                    try:
+                        coroutine, future = _worker_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if coroutine is None:
+                        future.set_result(None)
+                        return
+                    asyncio.create_task(_complete(coroutine, future))
+                await asyncio.sleep(0.001)
+
+        async def _complete(coroutine: Awaitable[object], future: Future[object]) -> None:
+            try:
+                future.set_result(await coroutine)
+            except BaseException as exc:
+                future.set_exception(exc)
+
+        def run_loop() -> None:
+            asyncio.set_event_loop(loop)
+            _worker_loop_ready.set()
+            loop.run_until_complete(process_queue())
+            loop.close()
+
+        _worker_loop = loop
+        _worker_loop_thread = threading.Thread(
+            target=run_loop,
+            name="celery-asyncio-loop",
+            daemon=True,
+        )
+        _worker_loop_thread.start()
+
+    _worker_loop_ready.wait()
+    return loop
 
 
 def _run_on_worker_loop(async_func: Callable[[], Awaitable[ResultT]]) -> ResultT:
-    loop = _get_worker_loop()
-    return loop.run_until_complete(async_func())
+    _get_worker_loop()
+    coroutine = async_func()
+    future: Future[object] = Future()
+    _worker_queue.put((coroutine, future))
+    return future.result()  # type: ignore[return-value]
+
+
+def shutdown_worker_loop(cleanup: Callable[[], Awaitable[None]]) -> None:
+    """Run async worker cleanup on the loop, then stop and join its thread."""
+    global _worker_loop, _worker_loop_thread
+
+    with _worker_loop_lock:
+        loop = _worker_loop
+        thread = _worker_loop_thread
+        if loop is None or loop.is_closed():
+            _worker_loop = None
+            _worker_loop_thread = None
+            return
+
+    cleanup_future: Future[object] = Future()
+    _worker_queue.put((cleanup(), cleanup_future))
+    cleanup_future.result()
+    stop_future: Future[object] = Future()
+    _worker_queue.put((None, stop_future))
+    stop_future.result()
+    if thread is not None and thread is not threading.current_thread():
+        thread.join()
+
+    with _worker_loop_lock:
+        _worker_loop = None
+        _worker_loop_thread = None
 
 
 def _queue_delay_ms(payload: dict[str, str] | None) -> float | None:

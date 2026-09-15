@@ -25,8 +25,7 @@ async def list_content_jobs(
     db: AsyncSession = Depends(get_db),
 ) -> list[ContentJobResponse]:
     service = ContentGenerationService(db)
-    jobs = await service.list_jobs(membership.tenant_id)
-    return [await service.get_job_detail(membership.tenant_id, job.id) for job in jobs]
+    return await service.list_job_details(membership.tenant_id)
 
 
 @router.get("/jobs/{job_id}", response_model=ContentJobResponse)

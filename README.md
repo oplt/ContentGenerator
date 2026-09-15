@@ -31,6 +31,7 @@ AI systems can ingest, rank, summarize, draft, and prepare content, while operat
 - Multi-provider AI routing
 - Webhook and messaging integrations
 - Queue-driven asynchronous processing
+- Chess match video generation (PGN/SAN/UCI → 2D MP4; see [`docs/chess-video.md`](docs/chess-video.md))
 
 > Status: active development platform with production-oriented architecture and semi-autonomous publishing workflows.
 

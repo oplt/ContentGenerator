@@ -8,6 +8,7 @@ describe("queryKeyFactories", () => {
         "auth",
         "briefs",
         "content",
+        "chessVideos",
         "health",
         "publishing",
         "settings",

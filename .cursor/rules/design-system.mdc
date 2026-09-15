@@ -1,0 +1,28 @@
+---
+description: Apply DESIGN.md (Tesla-inspired) visual frame across the SignalForge frontend
+globs: frontend/**/*.{tsx,ts,css}
+alwaysApply: false
+---
+
+# DESIGN.md frontend frame
+
+Source of truth: repo-root `DESIGN.md`.
+
+## Palette
+- Canvas: white (`bg-background`)
+- Text: Carbon Dark (`text-foreground`) / Pewter (`text-muted-foreground`)
+- Sole chromatic accent: Electric Blue `#3E6AE1` (`bg-primary` / `text-primary`) for primary CTAs and focus rings only
+- Borders: Cloud Gray (`border-border`); no decorative gradients, glass, or multi-layer shadows
+
+## Type & motion
+- Manrope 400 body / 500 headings & controls; no uppercase chrome; normal letter-spacing
+- Transitions ~0.33s on color/border only — no hover scale/lift
+
+## Primitives
+- Prefer `Button`, `Card`, `Input`, `Tabs`, `Dialog`, AppShell layout
+- Buttons: 4px radius, `primary` = Electric Blue, `default` = Carbon solid, `secondary` = white + border
+- Cards: flat, hairline border, no shadow; only for interactive work units
+- Nav: quiet muted active state — not loud filled blocks
+
+## Don’t
+- Warm cream/orange “Mistral” leftovers, purple themes, pill CTAs, emoji UI, frosted marketing chrome inside the app shell

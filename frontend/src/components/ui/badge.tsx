@@ -1,17 +1,17 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
-// DESIGN.md: uppercase labels, near-zero radius, warm palette
+// DESIGN.md — sentence case, restrained, 4px radius
 const badgeVariants = cva(
-  "inline-flex items-center border px-2.5 py-1 text-xs font-normal uppercase tracking-[0.14em]",
+  "inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium tracking-normal",
   {
     variants: {
       variant: {
-        default:     "border-primary/30  bg-primary/10  text-primary",
-        muted:       "border-border       bg-muted        text-muted-foreground",
-        success:     "border-success/30  bg-success/10  text-success",
-        warning:     "border-warning/40  bg-warning/10  text-warning",
-        danger:      "border-destructive/30 bg-destructive/10 text-destructive",
+        default: "border-transparent bg-primary text-primary-foreground",
+        muted: "border-border bg-muted text-muted-foreground",
+        success: "border-transparent bg-success/15 text-success",
+        warning: "border-transparent bg-warning/15 text-warning",
+        danger: "border-transparent bg-destructive/15 text-destructive",
       },
     },
     defaultVariants: {
@@ -25,11 +25,5 @@ export function Badge({
   variant,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof badgeVariants>) {
-  return (
-    <div
-      className={cn(badgeVariants({ variant }), className)}
-      style={{ borderRadius: "var(--radius-sm)" }}
-      {...props}
-    />
-  );
+  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
 }

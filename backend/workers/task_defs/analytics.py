@@ -5,13 +5,17 @@ from uuid import UUID
 from backend.modules.analytics.service import AnalyticsService
 from backend.workers.runtime import run_async_task
 from backend.workers.task_defs._common import enqueue_payload, task as _task
+from backend.workers.task_lock import periodic_task_lock
 
 
 @_task("backend.workers.tasks.sync_analytics_task")
 def sync_analytics_task(*, tenant_id: str) -> int:
     async def operation(db):
-        snapshots = await AnalyticsService(db).sync_snapshots(UUID(tenant_id))
-        return len(snapshots)
+        async with periodic_task_lock(f"sync_analytics:{tenant_id}", ttl_seconds=900) as acquired:
+            if not acquired:
+                return 0
+            snapshots = await AnalyticsService(db).sync_snapshots(UUID(tenant_id))
+            return len(snapshots)
 
     return run_async_task(
         task_name="sync_analytics",

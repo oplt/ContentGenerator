@@ -2,13 +2,19 @@ import { createContext, useCallback, useContext, useEffect, useState, type Props
 import { logout, refresh, signIn, signUp, type AuthResponse, type AuthUser } from "../../api/auth";
 import { clearTenantQueryCache, switchActiveTenant } from "../../lib/tenantCache";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { clearCsrfToken, persistCsrfToken } from "./csrf";
 
 type AuthContextValue = {
   isReady: boolean;
   isAuthenticated: boolean;
   currentUser: AuthUser | null;
   reloadSession: () => Promise<void>;
-  signInWithPassword: (payload: { email: string; password: string; mfa_code?: string }) => Promise<void>;
+  signInWithPassword: (payload: {
+    email: string;
+    password: string;
+    mfa_code?: string;
+    remember_me?: boolean;
+  }) => Promise<void>;
   signUpWithPassword: (payload: { email: string; password: string; full_name?: string }) => Promise<AuthResponse>;
   signOut: () => Promise<void>;
   setActiveTenant: (tenantId: string) => void;
@@ -33,6 +39,10 @@ function syncTenantSelection(
   setTenant(membership?.tenant_id ?? null, membership?.tenant_name ?? null);
 }
 
+function applySessionTokens(data: AuthResponse, rememberMe = true) {
+  persistCsrfToken(data.csrf_token, rememberMe);
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const [isReady, setIsReady] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -41,6 +51,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const loadSession = useCallback(async () => {
     try {
       const data = await refresh();
+      applySessionTokens(data, true);
       setCurrentUser(data.user ?? null);
       syncTenantSelection(setTenant, data.user ?? null);
     } catch {
@@ -57,6 +68,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (!active) {
           return;
         }
+        applySessionTokens(data, true);
         setCurrentUser(data.user ?? null);
         syncTenantSelection(setTenant, data.user ?? null);
       })
@@ -88,6 +100,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (!data.user) {
         throw new Error("Session could not be established.");
       }
+      applySessionTokens(data, payload.remember_me !== false);
       setCurrentUser(data.user);
       syncTenantSelection(setTenant, data.user);
     },
@@ -99,6 +112,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     },
     signOut: async () => {
       await logout().catch(() => undefined);
+      clearCsrfToken();
       await clearTenantQueryCache();
       setCurrentUser(null);
       syncTenantSelection(setTenant, null);

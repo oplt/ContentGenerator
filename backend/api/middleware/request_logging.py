@@ -13,6 +13,14 @@ from backend.core.logging import get_logger
 
 logger = get_logger("backend.request")
 
+_QUIET_SUCCESS_ROUTES = {
+    "/metrics",
+    "/api/v1/health/live",
+    "/api/v1/health/ready",
+    "/api/v1/health/metrics",
+    "/api/v1/health/web-vitals",
+}
+
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
@@ -68,14 +76,15 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             status_class=status_class,
             duration_ms=duration_ms,
         )
-        logger.info(
-            "request_complete",
-            method=request.method,
-            route=route,
-            path=request.url.path,
-            status_code=response.status_code,
-            duration_ms=round(duration_ms, 2),
-            correlation_id=correlation_id,
-            tenant_id=tenant_id,
-        )
+        if not (response.status_code < 400 and route in _QUIET_SUCCESS_ROUTES):
+            logger.info(
+                "request_complete",
+                method=request.method,
+                route=route,
+                path=request.url.path,
+                status_code=response.status_code,
+                duration_ms=round(duration_ms, 2),
+                correlation_id=correlation_id,
+                tenant_id=tenant_id,
+            )
         return response

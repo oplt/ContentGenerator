@@ -1,6 +1,7 @@
 from backend.modules.analytics import models as analytics_models  # noqa: F401
 from backend.modules.approvals import models as approvals_models  # noqa: F401
 from backend.modules.audit import models as audit_models  # noqa: F401
+from backend.modules.chess_video import models as chess_video_models  # noqa: F401
 from backend.modules.content_generation import models as content_generation_models  # noqa: F401
 from backend.modules.content_strategy import models as content_strategy_models  # noqa: F401
 from backend.modules.editorial_briefs import models as editorial_briefs_models  # noqa: F401

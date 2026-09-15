@@ -54,7 +54,7 @@ export function CommandPalette() {
                   <command.icon className="size-4 shrink-0" aria-hidden />
                   {command.label}
                 </span>
-                <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Go</span>
+                <span className="text-xs font-medium text-muted-foreground">Go</span>
               </button>
             ))
           )}

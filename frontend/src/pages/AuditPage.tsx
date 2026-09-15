@@ -11,7 +11,7 @@ export default function AuditPage() {
   const { tenantId, enabled } = useTenantScope();
   const logs = useQuery({
     queryKey: queryKeys.auditLogs(tenantId ?? "none"),
-    queryFn: getAuditLogs,
+    queryFn: () => getAuditLogs(),
     enabled,
   });
 

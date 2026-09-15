@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from uuid import UUID
 
 from sqlalchemy import select
@@ -35,6 +36,37 @@ class ContentGenerationRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def list_assets_for_jobs(self, job_ids: list[UUID]) -> dict[UUID, list[GeneratedAsset]]:
+        if not job_ids:
+            return {}
+        result = await self.db.execute(
+            select(GeneratedAsset)
+            .where(
+                GeneratedAsset.content_job_id.in_(job_ids),
+                GeneratedAsset.deleted_at.is_(None),
+            )
+            .order_by(GeneratedAsset.created_at.asc())
+        )
+        assets_by_job: dict[UUID, list[GeneratedAsset]] = defaultdict(list)
+        for asset in result.scalars().all():
+            assets_by_job[asset.content_job_id].append(asset)
+        return dict(assets_by_job)
+
+    async def list_asset_groups_for_jobs(
+        self, job_ids: list[UUID]
+    ) -> dict[UUID, GeneratedAssetGroup]:
+        if not job_ids:
+            return {}
+        result = await self.db.execute(
+            select(GeneratedAssetGroup)
+            .where(GeneratedAssetGroup.content_job_id.in_(job_ids))
+            .order_by(GeneratedAssetGroup.created_at.desc())
+        )
+        groups_by_job: dict[UUID, GeneratedAssetGroup] = {}
+        for group in result.scalars().all():
+            groups_by_job.setdefault(group.content_job_id, group)
+        return groups_by_job
 
     async def get_job(self, tenant_id: UUID, job_id: UUID) -> ContentJob | None:
         result = await self.db.execute(

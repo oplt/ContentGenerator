@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.middleware.correlation_id import CorrelationIdMiddleware
 from backend.api.middleware.request_logging import RequestLoggingMiddleware
 from backend.api.router import api_router
+from backend.api.v1.health import MetricsResponse, metrics as health_metrics
 from backend.core.bootstrap import bootstrap_application
 from backend.core.cache import redis_cache
 from backend.core.config import settings
@@ -52,6 +53,12 @@ app = FastAPI(
     redoc_url="/redoc" if settings.APP_ENV != "production" else None,
     lifespan=lifespan,
 )
+
+
+@app.get("/metrics", response_model=MetricsResponse, include_in_schema=False)
+async def root_metrics() -> MetricsResponse:
+    """Compatibility endpoint for scrapers configured with the root path."""
+    return await health_metrics()
 
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)

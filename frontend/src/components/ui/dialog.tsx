@@ -15,11 +15,16 @@ export function DialogClose(props: DialogPrimitive.DialogCloseProps) {
 }
 
 export function DialogTitle({ className, ...props }: DialogPrimitive.DialogTitleProps) {
-  return <DialogPrimitive.Title className={cn(className)} {...props} />;
+  return <DialogPrimitive.Title className={cn("text-lg font-medium", className)} {...props} />;
 }
 
 export function DialogDescription({ className, ...props }: DialogPrimitive.DialogDescriptionProps) {
-  return <DialogPrimitive.Description className={cn(className)} {...props} />;
+  return (
+    <DialogPrimitive.Description
+      className={cn("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  );
 }
 
 export function DialogContent({
@@ -29,21 +34,18 @@ export function DialogContent({
 }: DialogPrimitive.DialogContentProps) {
   return (
     <DialogPrimitive.Portal>
-      {/* Warm-tinted dark overlay */}
-      <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-overlay/70 backdrop-blur-sm" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#171A20]/65" />
       <DialogPrimitive.Content
         className={cn(
           "fixed left-1/2 top-1/2 z-50 w-[min(92vw,760px)] -translate-x-1/2 -translate-y-1/2",
-          "bg-card p-6 shadow-overlay",
+          "rounded border border-border bg-background p-6 shadow-overlay",
           className
         )}
-        style={{ borderRadius: "var(--radius-card)" }}
         {...props}
       >
         {children}
         <DialogPrimitive.Close
-          className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center border border-border p-2 text-muted-foreground transition hover:bg-muted"
-          style={{ borderRadius: "var(--radius-sm)" }}
+          className="absolute right-4 top-4 inline-flex min-h-10 min-w-10 items-center justify-center rounded border border-border p-2 text-muted-foreground transition-colors duration-300 hover:bg-muted"
           aria-label="Close dialog"
         >
           <X className="size-4" aria-hidden />

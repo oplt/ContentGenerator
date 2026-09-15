@@ -31,13 +31,13 @@ export function useSourcesQueries({ sourcesTab, addMode }: UseSourcesQueriesArgs
   });
   const health = useQuery({
     queryKey: queryKeys.sourceHealth(tenantId ?? "none"),
-    queryFn: getSourceHealth,
+    queryFn: ({ signal }) => getSourceHealth({ signal }),
     enabled: onConfigured,
     ...queryPolicy.health,
   });
   const rawArticles = useQuery({
     queryKey: queryKeyFactories.sources.articlePage(tenantId ?? "none", 8),
-    queryFn: () => getRawArticles({ limit: 8 }),
+    queryFn: ({ signal }) => getRawArticles({ limit: 8 }, { signal }),
     enabled: onConfigured,
     ...queryPolicy.moderate,
   });
@@ -51,13 +51,14 @@ export function useSourcesQueries({ sourcesTab, addMode }: UseSourcesQueriesArgs
     [sources.data],
   );
 
+  const healthData = health.data;
   const healthBySourceId = useMemo(() => {
-    const map = new Map<string, NonNullable<typeof health.data>[number]>();
-    for (const item of health.data ?? []) {
+    const map = new Map<string, NonNullable<typeof healthData>[number]>();
+    for (const item of healthData ?? []) {
       map.set(item.source_id, item);
     }
     return map;
-  }, [health.data]);
+  }, [healthData]);
 
   const sourceNameById = useMemo(() => {
     const map = new Map<string, string>();

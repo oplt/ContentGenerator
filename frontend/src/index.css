@@ -4,119 +4,95 @@
 
 @layer base {
   :root {
-    /* ── Mistral-inspired warm palette ──────────────────────────────────────
-       Source of truth: DESIGN.md
-       Warm Ivory  #fffaeb → background canvas
-       Cream       #fff0c2 → card / elevated surface
-       Mistral Black #1f1f1f → foreground text & dark CTA
-       Mistral Orange #fa520f → primary brand action
-       Sunshine 700  #ffa110 → accent / warning
-    ─────────────────────────────────────────────────────────────────────── */
+    /* DESIGN.md — Electric Blue #3E6AE1 · White · Carbon #171A20 */
 
-    --background: 48 100% 95%;          /* Warm Ivory  #fffaeb */
-    --foreground: 0 0% 12%;             /* Mistral Black #1f1f1f */
+    --background: 0 0% 100%;
+    --foreground: 220 16% 11%;
 
-    --card: 47 100% 88%;                /* Cream  #fff0c2 */
-    --card-foreground: 0 0% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 16% 11%;
 
-    --muted: 45 55% 82%;                /* mid-warm tint */
-    --muted-foreground: 0 0% 36%;       /* warm medium gray */
+    --muted: 0 0% 96%;
+    --muted-foreground: 220 4% 37%;
 
-    /* Mistral Orange — the primary brand action */
-    --primary: 17 96% 52%;              /* #fa520f */
-    --primary-foreground: 0 0% 100%;    /* white on orange */
-
-    --border: 43 38% 76%;               /* warm amber border */
-    --input: 48 80% 91%;                /* warm input surface */
-    --ring: 17 96% 52%;                 /* orange focus ring */
-
-    /* Sunshine 700 #ffa110 as accent */
-    --accent: 37 100% 53%;
-    --accent-foreground: 0 0% 12%;
-
-    --destructive: 0 84% 50%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 152 55% 38%;
-    --warning: 37 100% 53%;             /* same hue as accent */
-
-    /* Modal backdrop — warm-tinted near-black */
-    --overlay: 30 20% 6%;
-
-    /* ── Semantic alias tokens ─────────────────────────────────────────── */
-    --color-chart-1: hsl(17 96% 52%);   /* Mistral Orange */
-    --color-chart-2: hsl(37 100% 53%);  /* Sunshine Amber */
-    --color-chart-3: hsl(152 55% 38%);  /* muted green */
-
-    --color-bg:          hsl(var(--background));
-    --color-surface:     hsl(var(--card));
-    --color-text:        hsl(var(--foreground));
-    --color-text-muted:  hsl(var(--muted-foreground));
-    --color-border:      hsl(var(--border));
-    --color-accent:      hsl(var(--accent));
-    --color-primary:     hsl(var(--primary));
-    --color-destructive: hsl(var(--destructive));
-
-    /* ── Radius — near-zero architectural corners (DESIGN.md §5) ─────── */
-    --radius-sm:   2px;
-    --radius-md:   2px;
-    --radius-lg:   2px;
-    --radius-card: 2px;
-
-    /* ── Warm amber shadow system (DESIGN.md §6) ─────────────────────── */
-    /* Multi-layer golden shadow: rgba(127,99,21,…) — the "golden hour" effect */
-    --shadow-card:
-      rgba(127, 99, 21, 0.12) -8px 16px 39px,
-      rgba(127, 99, 21, 0.10) -33px 64px 72px,
-      rgba(127, 99, 21, 0.06) -73px 144px 97px;
-    --shadow-overlay:
-      rgba(127, 99, 21, 0.22) 0px 8px 32px,
-      rgba(127, 99, 21, 0.14) 0px 32px 64px;
-
-    /* ── Chart palette tokens ──────────────────────────────────────────── */
-    --chart-1: 17 96% 52%;
-    --chart-2: 37 100% 53%;
-    --chart-3: 152 55% 38%;
-  }
-
-  /* ── Dark theme — Mistral Black surfaces ────────────────────────────── */
-  .dark {
-    --background: 0 0% 12%;            /* Mistral Black #1f1f1f */
-    --foreground: 0 0% 100%;           /* Pure White */
-
-    --card: 0 0% 17%;
-    --card-foreground: 0 0% 100%;
-
-    --muted: 0 0% 22%;
-    --muted-foreground: 0 0% 60%;
-
-    --primary: 17 96% 58%;             /* slightly brighter on dark */
+    --primary: 224 72% 56%;
     --primary-foreground: 0 0% 100%;
 
-    --border: 0 0% 26%;
-    --input: 0 0% 19%;
-    --ring: 17 96% 58%;
+    --border: 0 0% 93%;
+    --input: 0 0% 100%;
+    --ring: 224 72% 56%;
 
-    --accent: 37 100% 55%;
-    --accent-foreground: 0 0% 12%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 220 16% 11%;
+
+    --destructive: 0 72% 46%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 40% 36%;
+    --warning: 38 80% 44%;
+
+    --overlay: 220 10% 40%;
+
+    --color-chart-1: hsl(224 72% 56%);
+    --color-chart-2: hsl(220 16% 11%);
+    --color-chart-3: hsl(220 4% 50%);
+
+    --color-bg: hsl(var(--background));
+    --color-surface: hsl(var(--card));
+    --color-text: hsl(var(--foreground));
+    --color-text-muted: hsl(var(--muted-foreground));
+    --color-border: hsl(var(--border));
+    --color-accent: hsl(var(--primary));
+    --color-primary: hsl(var(--primary));
+    --color-destructive: hsl(var(--destructive));
+
+    --radius-sm: 4px;
+    --radius-md: 4px;
+    --radius-lg: 4px;
+    --radius-card: 4px;
+
+    --shadow-card: none;
+    --shadow-overlay: rgba(0, 0, 0, 0.12) 0 8px 32px;
+
+    --chart-1: 224 72% 56%;
+    --chart-2: 220 16% 11%;
+    --chart-3: 220 4% 50%;
+  }
+
+  .dark {
+    --background: 220 16% 11%;
+    --foreground: 0 0% 100%;
+
+    --card: 220 14% 14%;
+    --card-foreground: 0 0% 100%;
+
+    --muted: 220 12% 18%;
+    --muted-foreground: 0 0% 68%;
+
+    --primary: 224 72% 62%;
+    --primary-foreground: 0 0% 100%;
+
+    --border: 220 10% 22%;
+    --input: 220 14% 14%;
+    --ring: 224 72% 62%;
+
+    --accent: 220 12% 18%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 55% 44%;
-    --warning: 37 100% 55%;
+    --success: 152 40% 44%;
+    --warning: 38 80% 52%;
 
     --overlay: 0 0% 4%;
 
-    --shadow-card:
-      rgba(0, 0, 0, 0.45) 0px 16px 40px,
-      rgba(127, 99, 21, 0.08) -8px 24px 48px;
-    --shadow-overlay:
-      rgba(0, 0, 0, 0.65) 0px 8px 32px;
+    --shadow-card: none;
+    --shadow-overlay: rgba(0, 0, 0, 0.45) 0 8px 32px;
 
-    --chart-1: 17 96% 62%;
-    --chart-2: 37 100% 58%;
-    --chart-3: 152 55% 50%;
+    --chart-1: 224 72% 62%;
+    --chart-2: 0 0% 100%;
+    --chart-3: 0 0% 70%;
   }
 
   * {
@@ -125,6 +101,9 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.43;
+    font-weight: 400;
     min-height: 100vh;
   }
 
@@ -132,57 +111,51 @@
     min-height: 100vh;
   }
 
-  /* ── Typography: weight 400, size drives hierarchy (DESIGN.md §3) ───── */
-  /* "Single weight, maximum impact — even at 82px" */
-  h1, h2, h3, h4, h5, h6 {
-    font-weight: 400;
-    line-height: 1.1;
-    @apply text-foreground tracking-tight;
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 500;
+    letter-spacing: normal;
+    @apply text-foreground;
+  }
+
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    line-height: 1.25;
+  }
+
+  h3 {
+    font-size: 1.0625rem;
+    line-height: 1.2;
   }
 }
 
 @layer components {
-  /* ── Warm surface gradient — subtle warmth on card surfaces ─────────── */
-  /* Mistral uses flat surfaces defined by bg color, not glass effects */
   .panel-gradient {
     background: hsl(var(--card));
   }
 
-  .dark .panel-gradient {
-    background: hsl(var(--card));
-  }
-
-  /* ── Native <select> styled to match Input ───────────────────────────── */
-  .select-field {
-    @apply flex h-11 w-full border border-input bg-input px-3 py-2 text-sm
-           text-foreground transition
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
-    border-radius: var(--radius-sm) !important;
-  }
-
-  /* ── Inset metadata panel ────────────────────────────────────────────── */
-  .inset-panel {
-    @apply border border-border bg-muted/50 p-4;
-    border-radius: var(--radius-sm);
-  }
-
-  /* ── Eyebrow — uppercase section label ───────────────────────────────── */
-  /* DESIGN.md: "Uppercase typography used strategically for section labels" */
   .eyebrow {
-    @apply text-xs font-normal uppercase tracking-[0.18em] text-muted-foreground;
+    @apply text-sm font-medium tracking-normal text-foreground;
   }
 
-  /* ── Mistral block gradient strip ────────────────────────────────────── */
-  /* The signature yellow → amber → orange identity element */
   .block-gradient {
-    background: linear-gradient(
-      to right,
-      #ffd900,
-      #ffe295,
-      #ffa110,
-      #ff8105,
-      #fb6424,
-      #fa520f
-    );
+    height: 2px;
+    width: 100%;
+    background: hsl(var(--primary));
+  }
+
+  .select-field {
+    @apply flex h-10 w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground
+      transition-[border-color,box-shadow,background-color] duration-300
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
 }

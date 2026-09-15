@@ -65,7 +65,7 @@ describe("mobile navigation and accessible controls", () => {
     const drawer = await screen.findByRole("dialog");
     expect(within(drawer).getByRole("link", { name: "Briefs" })).toBeInTheDocument();
     expect(within(drawer).getByRole("link", { name: "Trending Repos" })).toBeInTheDocument();
-    expect(within(drawer).getByRole("link", { name: "Account" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("link", { name: "Connected Accounts" })).toBeInTheDocument();
     expect(within(drawer).getByRole("link", { name: "Brand" })).toBeInTheDocument();
     expect(within(drawer).getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(within(drawer).getByRole("link", { name: "Audit" })).toBeInTheDocument();
@@ -84,7 +84,7 @@ describe("mobile navigation and accessible controls", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText("Search destinations")).toBeInTheDocument();
     expect(within(dialog).getByRole("option", { name: "Briefs" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("option", { name: "Account" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: "Connected Accounts" })).toBeInTheDocument();
     expect(within(dialog).getByRole("option", { name: "Trending Repos" })).toBeInTheDocument();
     expect(within(dialog).getByRole("option", { name: "Settings" })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Close dialog")).toBeInTheDocument();

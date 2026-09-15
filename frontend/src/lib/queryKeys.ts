@@ -86,6 +86,11 @@ export const queryKeyFactories = {
         ? tenantQueryKey(tenantId, "trending-repos")
         : tenantQueryKey(tenantId, "trending-repos", period),
   },
+  chessVideos: {
+    all: (tenantId: string) => tenantQueryKey(tenantId, "chess-videos"),
+    job: (tenantId: string, jobId: string) =>
+      tenantQueryKey(tenantId, "chess-videos", "job", jobId),
+  },
   health: {
     ready: globalQueryKeys.healthReady,
   },
@@ -121,4 +126,6 @@ export const queryKeys = {
   dashboardTrends: (tenantId: string) => tenantQueryKey(tenantId, "dashboard", "trends"),
   dashboardAnalytics: (tenantId: string) => tenantQueryKey(tenantId, "dashboard", "analytics"),
   trendingRepos: queryKeyFactories.trending.repos,
+  chessVideos: queryKeyFactories.chessVideos.all,
+  chessVideoJob: queryKeyFactories.chessVideos.job,
 } as const;

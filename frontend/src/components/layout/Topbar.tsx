@@ -16,14 +16,14 @@ export const Topbar = forwardRef<
   const { tenantId, theme, toggleTheme } = useWorkspaceStore();
 
   return (
-    <header className="flex flex-col gap-3 border-b border-border bg-card px-4 py-3 md:flex-row md:items-center md:justify-between md:px-8">
+    <header className="flex flex-col gap-3 border-b border-border bg-background px-4 py-3 md:flex-row md:items-center md:justify-between md:px-8">
       <div className="flex items-center gap-3">
         <Button
           ref={menuButtonRef}
           type="button"
           variant="outline"
           size="icon"
-          className="min-h-11 min-w-11 lg:hidden"
+          className="min-h-10 min-w-10 lg:hidden"
           aria-label="Open navigation menu"
           aria-expanded={mobileNavOpen}
           aria-controls="mobile-nav-drawer"
@@ -35,7 +35,7 @@ export const Topbar = forwardRef<
           type="button"
           variant="outline"
           size="sm"
-          className="min-h-11"
+          className="min-h-10"
           aria-label="Open command palette"
           onClick={onOpenPalette}
         >
@@ -49,7 +49,7 @@ export const Topbar = forwardRef<
           id="tenant-switcher"
           value={tenantId ?? ""}
           onChange={(e) => setActiveTenant(e.target.value)}
-          className="select-field h-11 min-h-11 w-auto text-xs"
+          className="select-field h-10 min-h-10 w-auto text-sm"
           aria-label="Active workspace"
         >
           {currentUser?.memberships.map((m) => (
@@ -65,17 +65,17 @@ export const Topbar = forwardRef<
           type="button"
           variant="ghost"
           size="icon"
-          className="min-h-11 min-w-11"
+          className="min-h-10 min-w-10"
           aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           onClick={toggleTheme}
         >
           {theme === "dark" ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
         </Button>
         <div className="text-right">
-          <div className="text-sm">{currentUser?.full_name ?? currentUser?.email}</div>
+          <div className="text-sm font-medium">{currentUser?.full_name ?? currentUser?.email}</div>
           <button
             type="button"
-            className="min-h-11 text-xs uppercase tracking-wider text-muted-foreground transition hover:text-foreground"
+            className="min-h-8 text-sm text-muted-foreground transition-colors duration-300 hover:text-foreground"
             onClick={() => void signOut()}
           >
             Sign out

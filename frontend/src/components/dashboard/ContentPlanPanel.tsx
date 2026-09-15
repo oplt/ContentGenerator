@@ -21,7 +21,7 @@ export function ContentPlanPanel({
     <Card className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Plan</p>
+          <p className="text-xs font-medium text-muted-foreground">Plan</p>
           <h3 className="mt-2 text-lg font-semibold">{plan.content_format.toUpperCase()} strategy</h3>
         </div>
         <Badge variant={plan.safe_to_publish ? "success" : "warning"}>{plan.decision}</Badge>
@@ -34,7 +34,7 @@ export function ContentPlanPanel({
       </div>
       {selectedAccounts.length > 0 ? (
         <div className="mt-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Will generate for</p>
+          <p className="text-xs font-medium text-muted-foreground">Will generate for</p>
           <ul className="mt-2 space-y-1 text-sm">
             {selectedAccounts.map((account) => (
               <li key={account.id}>{formatSocialAccountLabel(account)}</li>

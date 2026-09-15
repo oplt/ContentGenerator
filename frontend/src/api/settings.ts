@@ -87,6 +87,6 @@ export function sendTelegramDailyDigestTest() {
   });
 }
 
-export function getAuditLogs() {
-  return apiFetch<AuditLog[]>("/audit/logs");
+export function getAuditLogs(limit = 50) {
+  return apiFetch<AuditLog[]>(`/audit/logs?limit=${limit}`);
 }

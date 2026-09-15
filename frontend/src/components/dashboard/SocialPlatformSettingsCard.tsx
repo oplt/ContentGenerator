@@ -129,7 +129,7 @@ export function SocialPlatformSettingsCard({
       {configFields.length > 0 && (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <h3 className="text-sm font-semibold font-medium text-muted-foreground">
             Provider Config Variables
           </h3>
           <div className="flex flex-wrap gap-2">

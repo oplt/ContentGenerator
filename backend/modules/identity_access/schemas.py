@@ -16,6 +16,7 @@ class SignInRequest(BaseModel):
     email: EmailStr
     password: str
     mfa_code: str | None = Field(default=None, min_length=6, max_length=6)
+    remember_me: bool = True
 
     @field_validator("mfa_code", mode="before")
     @classmethod
@@ -59,6 +60,7 @@ class AuthSessionResponse(BaseModel):
     user: AuthUserResponse | None = None
     requires_email_verification: bool = False
     message: str | None = None
+    csrf_token: str | None = None
 
 
 class VerifyEmailRequest(BaseModel):

@@ -159,7 +159,7 @@ export default function EditorialBriefsPage() {
             type="button"
             onClick={() => setActiveStatus(tab.value)}
             className={[
-              "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+              "rounded px-3 py-1 text-sm font-medium transition-colors",
               activeStatus === tab.value
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:bg-muted/70",

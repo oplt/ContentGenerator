@@ -5,6 +5,7 @@ from uuid import UUID
 from backend.modules.story_intelligence.service import StoryIntelligenceService
 from backend.workers.runtime import run_async_task, run_async_task_simple
 from backend.workers.task_defs._common import enqueue_payload, task as _task
+from backend.workers.task_lock import periodic_task_lock
 
 
 @_task("backend.workers.tasks.rescore_clusters_task")
@@ -34,14 +35,17 @@ def rescore_all_tenants_task() -> dict[str, int]:
     """
 
     async def operation(db) -> dict[str, int]:
-        from backend.modules.identity_access.repository import TenantRepository
+        async with periodic_task_lock("rescore_all_tenants", ttl_seconds=1_800) as acquired:
+            if not acquired:
+                return {"tenants_dispatched": 0, "skipped": 1}
+            from backend.modules.identity_access.repository import TenantRepository
 
-        repo = TenantRepository(db)
-        tenants = await repo.list_active_tenants()
-        dispatched = 0
-        for tenant in tenants:
-            rescore_clusters_task.delay(tenant_id=str(tenant.id))
-            dispatched += 1
-        return {"tenants_dispatched": dispatched}
+            repo = TenantRepository(db)
+            tenants = await repo.list_active_tenants()
+            dispatched = 0
+            for tenant in tenants:
+                rescore_clusters_task.delay(tenant_id=str(tenant.id))
+                dispatched += 1
+            return {"tenants_dispatched": dispatched, "skipped": 0}
 
     return run_async_task_simple(operation)

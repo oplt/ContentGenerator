@@ -3,7 +3,6 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from "react
 import { useAuth } from "../features/auth/AuthContext";
 import {
   canAccessAuditLogs,
-  canAccessTenantSettings,
   requiresAdminMfa,
   requiresEmailVerification,
 } from "../features/auth/access";
@@ -32,6 +31,7 @@ const MfaSetupPage = React.lazy(() => import("../pages/MfaSetupPage"));
 const AccountSecurityPage = React.lazy(() => import("../pages/AccountSecurityPage"));
 const ResetPasswordPage = React.lazy(() => import("../pages/ResetPasswordPage"));
 const TrendingReposPage = React.lazy(() => import("../pages/TrendingReposPage"));
+const ChessVideoPage = React.lazy(() => import("../pages/ChessVideoPage"));
 
 function ProtectedApp() {
   const { isReady, isAuthenticated, currentUser } = useAuth();
@@ -56,7 +56,6 @@ function ProtectedApp() {
 
 function SettingsRoute() {
   const { isReady, isAuthenticated, currentUser } = useAuth();
-  const tenantId = useWorkspaceStore((state) => state.tenantId);
   if (!isReady) {
     return <LoadingState label="Checking access" />;
   }
@@ -65,9 +64,6 @@ function SettingsRoute() {
   }
   if (requiresEmailVerification(currentUser)) {
     return <Navigate to="/verify-email" replace />;
-  }
-  if (!canAccessTenantSettings(currentUser, tenantId)) {
-    return <Navigate to="/dashboard" replace />;
   }
   return <Outlet />;
 }
@@ -192,7 +188,12 @@ export function AppRouter() {
               <TrendingReposPage />
             </React.Suspense>
           } />
-          <Route element={<SettingsRoute />}>            
+          <Route path="chess-video" element={
+            <React.Suspense fallback={<LoadingState label="Loading chess video..." />}>
+              <ChessVideoPage />
+            </React.Suspense>
+          } />
+          <Route element={<SettingsRoute />}>
             <Route path="settings" element={
               <React.Suspense fallback={<LoadingState label="Loading settings..." />}>  
                 <SettingsPage />

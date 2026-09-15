@@ -1,8 +1,9 @@
+import { getCsrfToken, persistCsrfToken } from "../features/auth/csrf";
 import { useWorkspaceStore } from "../store/workspaceStore";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
-let refreshPromise: Promise<boolean> | null = null;
+let refreshPromise: Promise<unknown | null> | null = null;
 
 /** Monotonic counter so callers can detect superseded in-flight responses. */
 let requestGeneration = 0;
@@ -13,17 +14,19 @@ export class ApiRequestError extends Error {
   readonly code: ApiErrorCode;
   readonly retryable: boolean;
   readonly status?: number;
+  readonly details?: unknown;
 
   constructor(
     message: string,
     code: ApiErrorCode,
-    options?: { retryable?: boolean; status?: number; cause?: unknown }
+    options?: { retryable?: boolean; status?: number; cause?: unknown; details?: unknown }
   ) {
     super(message, options?.cause ? { cause: options.cause } : undefined);
     this.name = "ApiRequestError";
     this.code = code;
     this.retryable = options?.retryable ?? (code === "timeout" || code === "network");
     this.status = options?.status;
+    this.details = options?.details;
   }
 }
 
@@ -33,6 +36,9 @@ export type ApiFetchOptions = RequestInit & {
 };
 
 function getCookie(name: string): string | null {
+  if (name === "csrf_token") {
+    return getCsrfToken();
+  }
   if (typeof document === "undefined" || typeof document.cookie !== "string") {
     return null;
   }
@@ -80,18 +86,32 @@ function createTimeoutSignal(timeoutMs: number): { signal: AbortSignal; clear: (
   };
 }
 
-async function refreshAccessToken(signal?: AbortSignal): Promise<boolean> {
+async function performRefresh(): Promise<unknown | null> {
   try {
     const response = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       credentials: "include",
-      signal,
-      headers: getCookie("csrf_token") ? { "X-CSRF-Token": getCookie("csrf_token") as string } : undefined,
+      headers: getCsrfToken() ? { "X-CSRF-Token": getCsrfToken() as string } : undefined,
     });
-    return response.ok;
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json().catch(() => null) as { csrf_token?: string } | null;
+    persistCsrfToken(payload?.csrf_token, true);
+    return payload;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Share one refresh request between auth bootstrap and 401 retries. */
+export function refreshSession<T>(): Promise<T | null> {
+  if (!refreshPromise) {
+    refreshPromise = performRefresh().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise as Promise<T | null>;
 }
 
 function toApiError(error: unknown, timedOut: boolean): ApiRequestError {
@@ -187,12 +207,7 @@ export async function apiFetch<T>(
       ].includes(path);
 
     if (canRetryWithRefresh) {
-      if (!refreshPromise) {
-        refreshPromise = refreshAccessToken(signal).finally(() => {
-          refreshPromise = null;
-        });
-      }
-      const refreshed = await refreshPromise;
+      const refreshed = await refreshSession<{ csrf_token?: string }>();
       if (!refreshed) {
         throw new ApiRequestError("Session expired. Please sign in again.", "http", {
           retryable: false,
@@ -206,14 +221,24 @@ export async function apiFetch<T>(
       const error = await response
         .json()
         .catch(() => ({ error: { message: "Request failed" } }));
-      const message =
+      const details = error.error?.details ?? error.detail ?? undefined;
+      let message =
         error.error?.message ??
         error.detail ??
         error.message ??
         "Request failed";
+      if (Array.isArray(details) && details.length > 0) {
+        const first = details[0] as { msg?: string; loc?: unknown[] };
+        const loc = Array.isArray(first.loc) ? first.loc.join(".") : "";
+        const detailMsg = first.msg ? `${loc ? `${loc}: ` : ""}${first.msg}` : "";
+        if (detailMsg) {
+          message = `${message} (${detailMsg})`;
+        }
+      }
       throw new ApiRequestError(String(message), "http", {
         retryable: response.status >= 500,
         status: response.status,
+        details,
       });
     }
 

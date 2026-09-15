@@ -26,6 +26,7 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     LOG_LEVEL: str = "INFO"
     SQL_ECHO: bool = False
     SQL_SLOW_QUERY_MS: float = Field(default=500.0, ge=1.0)
+    HEALTH_CHECK_TIMEOUT_SECONDS: float = Field(default=0.75, gt=0, le=5)
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:4173"
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/content_generator"
@@ -108,6 +109,9 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     STORAGE_AUTO_CREATE_BUCKET: bool = True
     STORAGE_PUBLIC_READ: bool = True
     STORAGE_SIGNED_URL_EXPIRES_SECONDS: int = 900
+    # "s3" talks to MinIO/S3; "local" writes under STORAGE_LOCAL_ROOT and serves via /api/v1/media.
+    STORAGE_BACKEND: str = "s3"
+    STORAGE_LOCAL_ROOT: str = ""
 
     SENTRY_DSN: str = ""
     SENTRY_TRACES_SAMPLE_RATE: float = 0.1

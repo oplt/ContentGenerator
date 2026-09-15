@@ -2,12 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { getSocialAccounts, upsertSocialAccount } from "../api/publishing";
-import { getTelegramSettings, getTenantSettings, getWhatsAppSettings, registerTelegramWebhook, sendTelegramDailyDigestTest, updateTelegramSettings, updateTenantSettings, updateWhatsAppSettings } from "../api/settings";
+import {
+  getTelegramSettings,
+  getTenantSettings,
+  getWhatsAppSettings,
+  registerTelegramWebhook,
+  sendTelegramDailyDigestTest,
+  updateTelegramSettings,
+  updateTenantSettings,
+  updateWhatsAppSettings,
+} from "../api/settings";
 import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
 import { LoadingState } from "../components/ui/LoadingState";
 import { useAuth } from "../features/auth/AuthContext";
-import { getActiveMembership } from "../features/auth/access";
+import { canAccessTenantSettings, getActiveMembership } from "../features/auth/access";
 import { useDeepLinkTab } from "../hooks/useDeepLinkTab";
 import { useTenantScope } from "../hooks/useTenantScope";
 import { queryClient } from "../lib/queryClient";
@@ -19,6 +28,7 @@ import {
   SETTINGS_TABS,
   SETTINGS_TAB_ALIASES,
   SOCIAL_PLATFORM_DEFINITIONS,
+  WORKSPACE_SETTINGS_TABS,
   type SettingsTab,
   type TelegramSettingsForm,
   type WhatsAppSettingsForm,
@@ -27,35 +37,47 @@ import {
   SettingsWorkspaceTabs,
 } from "../features/settings";
 
+function isWorkspaceTab(tab: SettingsTab): boolean {
+  return (WORKSPACE_SETTINGS_TABS as readonly string[]).includes(tab);
+}
+
 export default function SettingsPage() {
   const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useDeepLinkTab<SettingsTab>(
     "tab",
     SETTINGS_TABS,
-    "general",
+    "account",
     SETTINGS_TAB_ALIASES,
   );
   const { currentUser } = useAuth();
   const { tenantId, enabled } = useTenantScope();
+  const canManageWorkspace = canAccessTenantSettings(currentUser, tenantId);
+
+  useEffect(() => {
+    if (!canManageWorkspace && isWorkspaceTab(settingsTab)) {
+      setSettingsTab("account");
+    }
+  }, [canManageWorkspace, settingsTab, setSettingsTab]);
+
   const tenantSettings = useQuery({
     queryKey: queryKeys.tenantSettings(tenantId ?? "none"),
     queryFn: getTenantSettings,
-    enabled,
+    enabled: enabled && canManageWorkspace,
   });
   const whatsappSettings = useQuery({
     queryKey: queryKeys.whatsappSettings(tenantId ?? "none"),
     queryFn: getWhatsAppSettings,
-    enabled: enabled && settingsTab === "integrations",
+    enabled: enabled && canManageWorkspace && settingsTab === "integrations",
   });
   const telegramSettings = useQuery({
     queryKey: queryKeys.telegramSettings(tenantId ?? "none"),
     queryFn: getTelegramSettings,
-    enabled: enabled && settingsTab === "integrations",
+    enabled: enabled && canManageWorkspace && settingsTab === "integrations",
   });
   const socialAccounts = useQuery({
     queryKey: queryKeys.socialAccounts(tenantId ?? "none"),
     queryFn: getSocialAccounts,
-    enabled: enabled && settingsTab === "social",
+    enabled: enabled && canManageWorkspace && settingsTab === "social",
   });
 
   const workspaceForm = useForm<WorkspaceSettingsForm>({
@@ -177,20 +199,25 @@ export default function SettingsPage() {
   );
   const whatsappProvider = whatsappForm.watch("provider");
 
-  const shellStatus = resolveQueriesStatus([tenantSettings]);
-
-  if (shellStatus.status === "loading") {
-    return <LoadingState label="Loading settings" />;
-  }
-  if (shellStatus.status === "error" || !tenantSettings.data) {
-    return (
-      <ErrorState
-        message="Workspace settings could not be loaded."
-        onRetry={shellStatus.status === "error" ? shellStatus.retry : () => {
-          void tenantSettings.refetch();
-        }}
-      />
-    );
+  if (canManageWorkspace) {
+    const shellStatus = resolveQueriesStatus([tenantSettings]);
+    if (shellStatus.status === "loading") {
+      return <LoadingState label="Loading settings" />;
+    }
+    if (shellStatus.status === "error" || !tenantSettings.data) {
+      return (
+        <ErrorState
+          message="Workspace settings could not be loaded."
+          onRetry={
+            shellStatus.status === "error"
+              ? shellStatus.retry
+              : () => {
+                  void tenantSettings.refetch();
+                }
+          }
+        />
+      );
+    }
   }
 
   return (
@@ -200,28 +227,36 @@ export default function SettingsPage() {
           <div>
             <h1 className="text-2xl font-semibold">Settings</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Manage workspace defaults, approval delivery, and social media account connections from one place.
+              Manage your account security
+              {canManageWorkspace
+                ? ", workspace defaults, approval delivery, and social connections"
+                : ""}
+              .
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="muted">{tenantSettings.data.slug}</Badge>
-            <Badge variant="default">{tenantSettings.data.plan_tier}</Badge>
-            <Badge variant={tenantSettings.data.status === "active" ? "success" : "warning"}>
-              {tenantSettings.data.status}
-            </Badge>
-          </div>
+          {tenantSettings.data ? (
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="muted">{tenantSettings.data.slug}</Badge>
+              <Badge variant="default">{tenantSettings.data.plan_tier}</Badge>
+              <Badge variant={tenantSettings.data.status === "active" ? "success" : "warning"}>
+                {tenantSettings.data.status}
+              </Badge>
+            </div>
+          ) : null}
         </div>
       </Card>
 
       <SectionHelp summary="About these settings sections">
-        General stores workspace identity. Publishing holds approval/publish defaults. Integrations covers Telegram
-        (primary) and WhatsApp (legacy). Social stores per-platform credentials—unsaved form values stay in memory
-        while you switch tabs via <code className="mx-1">?tab=</code>.
+        Account covers your profile, password, MFA, and sessions. When you have workspace access, General stores
+        identity, Publishing holds approval/publish defaults, Integrations covers Telegram and WhatsApp, and Social
+        stores per-platform credentials—unsaved form values stay in memory while you switch tabs via{" "}
+        <code className="mx-1">?tab=</code>.
       </SectionHelp>
 
       <SettingsWorkspaceTabs
         settingsTab={settingsTab}
         setSettingsTab={setSettingsTab}
+        canManageWorkspace={canManageWorkspace}
         workspaceForm={workspaceForm}
         workflowForm={workflowForm}
         whatsappForm={whatsappForm}

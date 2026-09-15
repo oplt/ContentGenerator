@@ -8,10 +8,22 @@
 import { queryClient } from "../lib/queryClient";
 import { queryKeys } from "../lib/queryKeys";
 
-const WS_BASE =
-  (import.meta.env.VITE_WS_BASE as string | undefined) ??
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/api\/v1\/?$/, "") ??
-  "ws://localhost:8000";
+function resolveWsBase(): string {
+  if (import.meta.env.VITE_WS_BASE) {
+    return import.meta.env.VITE_WS_BASE as string;
+  }
+  const apiBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? "/api/v1";
+  if (/^https?:\/\//i.test(apiBase)) {
+    return apiBase.replace(/\/api\/v1\/?$/, "").replace(/^http/i, "ws");
+  }
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}`;
+  }
+  return "ws://127.0.0.1:8000";
+}
+
+const WS_BASE = resolveWsBase();
 
 export type JobStatusSocketHandlers = {
   onUpdate?: (payload: Record<string, unknown>) => void;

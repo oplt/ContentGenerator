@@ -132,6 +132,7 @@ class IngestionTriggerResponse(BaseModel):
     raw_articles_ingested: int
     clusters_updated: int
     fetch_run_id: UUID | None = None
+    task_id: str | None = None
 
 
 class SourceActionResponse(BaseModel):

@@ -11,7 +11,7 @@ from backend.modules.content_generation.asset_persistence import AssetPersistenc
 from backend.modules.content_generation.asset_specs import build_platform_asset_specs
 from backend.modules.content_generation.brand_voice import BrandVoiceMixin
 from backend.modules.content_generation.generation_context import PLATFORM_LIMITS, GenerationContextMixin
-from backend.modules.content_generation.models import ContentJob
+from backend.modules.content_generation.models import ContentJob, GeneratedAsset, GeneratedAssetGroup
 from backend.modules.content_generation.originality import OriginalityMixin
 from backend.modules.content_generation.quality import QualityMixin
 from backend.modules.content_generation.repository import ContentGenerationRepository
@@ -131,18 +131,30 @@ class ContentGenerationService(
     async def list_jobs(self, tenant_id: UUID) -> list[ContentJob]:
         return await self.repo.list_jobs(tenant_id)
 
-    async def get_job_detail(self, tenant_id: UUID, job_id: UUID) -> ContentJobResponse:
-        job = await self.repo.get_job(tenant_id, job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Content job not found")
-        assets = await self.repo.list_assets(job.id)
+    async def list_job_details(self, tenant_id: UUID) -> list[ContentJobResponse]:
+        jobs = await self.repo.list_jobs(tenant_id)
+        job_ids = [job.id for job in jobs]
+        assets_by_job = await self.repo.list_assets_for_jobs(job_ids)
+        groups_by_job = await self.repo.list_asset_groups_for_jobs(job_ids)
+        return [
+            self._build_job_response(
+                job,
+                assets_by_job.get(job.id, []),
+                groups_by_job.get(job.id),
+            )
+            for job in jobs
+        ]
+
+    @staticmethod
+    def _build_job_response(
+        job: ContentJob,
+        assets: list[GeneratedAsset],
+        asset_group: GeneratedAssetGroup | None = None,
+    ) -> ContentJobResponse:
         asset_group_id = next(
-            (asset.asset_group_id for asset in assets if getattr(asset, "asset_group_id", None)),
-            None,
+            (asset.asset_group_id for asset in assets if asset.asset_group_id),
+            asset_group.id if asset_group else None,
         )
-        if asset_group_id is None:
-            group = await self.repo.get_asset_group_for_job(job.id)
-            asset_group_id = group.id if group else None
         return ContentJobResponse(
             id=job.id,
             content_plan_id=job.content_plan_id,
@@ -179,3 +191,14 @@ class ContentGenerationService(
                 for asset in assets
             ],
         )
+
+    async def get_job_detail(self, tenant_id: UUID, job_id: UUID) -> ContentJobResponse:
+        job = await self.repo.get_job(tenant_id, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Content job not found")
+        assets = await self.repo.list_assets(job.id)
+        asset_group = None
+        if not any(asset.asset_group_id for asset in assets):
+            group = await self.repo.get_asset_group_for_job(job.id)
+            asset_group = group
+        return self._build_job_response(job, assets, asset_group)

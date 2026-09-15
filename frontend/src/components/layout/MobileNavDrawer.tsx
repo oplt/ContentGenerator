@@ -25,12 +25,12 @@ export function MobileNavDrawer({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-overlay/70 backdrop-blur-sm lg:hidden" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-overlay/65 lg:hidden" />
         <DialogPrimitive.Content
           id="mobile-nav-drawer"
           aria-describedby={undefined}
           className={cn(
-            "fixed inset-y-0 left-0 z-50 flex w-[min(92vw,20rem)] flex-col border-r border-border bg-card p-4 shadow-overlay outline-none lg:hidden"
+            "fixed inset-y-0 left-0 z-50 flex w-[min(92vw,20rem)] flex-col border-r border-border bg-background p-4 outline-none lg:hidden"
           )}
           onCloseAutoFocus={(event) => {
             // Topbar restores focus to the menu trigger.
@@ -39,16 +39,15 @@ export function MobileNavDrawer({
         >
           <div className="flex items-start justify-between gap-3 px-2 pb-4">
             <div>
-              <DialogPrimitive.Title id={titleId} className="eyebrow text-primary">
-                SignalForge
+              <DialogPrimitive.Title id={titleId} className="text-sm font-medium tracking-[0.2em]">
+                SIGNALFORGE
               </DialogPrimitive.Title>
               <p className="mt-1 text-sm text-muted-foreground">Navigate</p>
             </div>
             <DialogPrimitive.Close
               ref={closeRef}
               aria-label="Close navigation menu"
-              className="inline-flex min-h-11 min-w-11 items-center justify-center border border-border text-muted-foreground transition hover:bg-muted"
-              style={{ borderRadius: "var(--radius-sm)" }}
+              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded border border-border text-muted-foreground transition-colors duration-300 hover:bg-muted"
             >
               <X className="size-4" aria-hidden />
             </DialogPrimitive.Close>

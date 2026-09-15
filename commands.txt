@@ -1,0 +1,17 @@
+redis-server
+uvicorn backend.api.main:app --reload --reload-dir backend --port 8000
+celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --pool=gevent --concurrency=16 --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email
+celery -A backend.workers.celery_app:celery_app beat --loglevel=INFO --scheduler celery.beat.PersistentScheduler --schedule=/tmp/celerybeat-schedule
+npm run dev
+
+
+ruff check --fix .
+
+alembic -c backend/alembic.ini revision --autogenerate -m "generate tables"
+alembic -c backend/alembic.ini upgrade head
+alembic -c backend/alembic.ini downgrade base
+
+pip freeze > requirements.txt
+openssl rand -hex 64
+
+ngrok http 8080

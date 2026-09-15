@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -256,6 +256,26 @@ class SourceIngestionService:
         from backend.modules.source_ingestion.ingestion_workflow import run_ingestion_workflow
 
         return await run_ingestion_workflow(tenant_id=tenant_id, source_id=source_id)
+
+    async def queue_ingestion(self, tenant_id: UUID, source_id: UUID) -> tuple[SourceFetchRun, bool]:
+        """Create one durable queued run for a manual ingestion request."""
+        source = await self.get_source(tenant_id, source_id)
+        existing = await self.repo.get_open_fetch_run(tenant_id=tenant_id, source_id=source.id)
+        if existing is not None:
+            return existing, False
+
+        run = await self.repo.create_fetch_run(
+            SourceFetchRun(
+                tenant_id=tenant_id,
+                source_id=source.id,
+                status="queued",
+                fetch_metadata={
+                    "trigger": "manual",
+                    "celery_task_id": str(uuid4()),
+                },
+            )
+        )
+        return run, True
 
     async def trigger_manual_poll(self, tenant_id: UUID, source_id: UUID) -> IngestionTriggerResponse:
         return await self.run_ingestion(tenant_id, source_id)

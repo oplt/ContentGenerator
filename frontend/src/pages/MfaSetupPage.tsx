@@ -94,7 +94,7 @@ export default function MfaSetupPage() {
             <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
               <p className="font-medium">Add this account in your authenticator app</p>
               <p className="mt-2 break-all text-xs text-muted-foreground">{enrollment.provisioning_uri}</p>
-              <p className="mt-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">Manual secret</p>
+              <p className="mt-3 text-xs font-medium text-muted-foreground">Manual secret</p>
               <p className="mt-1 font-mono text-sm">{enrollment.secret}</p>
             </div>
             <div className="space-y-2">

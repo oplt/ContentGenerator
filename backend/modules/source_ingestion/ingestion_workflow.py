@@ -77,12 +77,32 @@ def _unbound_source_copy(source: Source) -> Source:
     )
 
 
-async def prepare_ingestion(*, tenant_id: UUID, source_id: UUID) -> PreparedIngestion | IngestionTriggerResponse:
+async def prepare_ingestion(
+    *, tenant_id: UUID, source_id: UUID, fetch_run_id: UUID | None = None
+) -> PreparedIngestion | IngestionTriggerResponse:
     """Transaction A: claim fetch run and snapshot source config."""
     async with session_scope() as db:
         service = SourceIngestionService(db)
         source = await service.get_source(tenant_id, source_id)
         now = utc_now()
+        fetch_run: SourceFetchRun | None = None
+        if fetch_run_id is not None:
+            fetch_run = await service.repo.get_fetch_run(
+                tenant_id=tenant_id,
+                source_id=source_id,
+                fetch_run_id=fetch_run_id,
+            )
+            if fetch_run is None:
+                raise HTTPException(status_code=404, detail="Ingestion run not found")
+            if fetch_run.status != FetchRunStatus.QUEUED.value:
+                return IngestionTriggerResponse(
+                    source_id=source.id,
+                    status=f"already_{fetch_run.status}",
+                    raw_articles_ingested=fetch_run.new_articles,
+                    clusters_updated=0,
+                    fetch_run_id=fetch_run.id,
+                    task_id=(fetch_run.fetch_metadata or {}).get("celery_task_id"),
+                )
         negative_cache_until = as_utc(source.negative_cache_until)
         if (
             source.circuit_state == CircuitState.OPEN.value
@@ -95,22 +115,33 @@ async def prepare_ingestion(*, tenant_id: UUID, source_id: UUID) -> PreparedInge
                 status="circuit_open_using_cache" if cached else "circuit_open",
                 raw_articles_ingested=0,
                 clusters_updated=0,
+                fetch_run_id=fetch_run.id if fetch_run else None,
             )
 
         adapter = get_source_adapter(source)
-        fetch_run = await service.repo.create_fetch_run(
-            SourceFetchRun(
-                tenant_id=tenant_id,
-                source_id=source.id,
-                status=FetchRunStatus.RUNNING.value,
-                started_at=now,
-                fetch_metadata={
-                    "connector": adapter.connector_name,
-                    "rate_limit_policy": adapter.rate_limit_policy(),
-                    "source_metadata": adapter.source_metadata(),
-                },
+        if fetch_run is None:
+            fetch_run = await service.repo.create_fetch_run(
+                SourceFetchRun(
+                    tenant_id=tenant_id,
+                    source_id=source.id,
+                    status=FetchRunStatus.RUNNING.value,
+                    started_at=now,
+                    fetch_metadata={
+                        "connector": adapter.connector_name,
+                        "rate_limit_policy": adapter.rate_limit_policy(),
+                        "source_metadata": adapter.source_metadata(),
+                    },
+                )
             )
-        )
+        else:
+            fetch_run.status = FetchRunStatus.RUNNING.value
+            fetch_run.started_at = now
+            fetch_run.fetch_metadata = {
+                **(fetch_run.fetch_metadata or {}),
+                "connector": adapter.connector_name,
+                "rate_limit_policy": adapter.rate_limit_policy(),
+                "source_metadata": adapter.source_metadata(),
+            }
         await db.flush()
         return PreparedIngestion(
             tenant_id=tenant_id,
@@ -234,13 +265,19 @@ async def persist_fetch_success(
         )
 
 
-async def run_ingestion_workflow(*, tenant_id: UUID, source_id: UUID) -> IngestionTriggerResponse:
+async def run_ingestion_workflow(
+    *, tenant_id: UUID, source_id: UUID, fetch_run_id: UUID | None = None
+) -> IngestionTriggerResponse:
     """
     Full split-phase ingestion.
 
     Prepare session commits+closes before network. Persist/failure use fresh sessions.
     """
-    prepared = await prepare_ingestion(tenant_id=tenant_id, source_id=source_id)
+    prepared = await prepare_ingestion(
+        tenant_id=tenant_id,
+        source_id=source_id,
+        fetch_run_id=fetch_run_id,
+    )
     if isinstance(prepared, IngestionTriggerResponse):
         return prepared
 

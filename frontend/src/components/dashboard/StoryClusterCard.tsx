@@ -51,7 +51,7 @@ export function StoryClusterCard({ cluster }: { cluster: StoryCluster }) {
       <Link to={`/dashboard/stories/${cluster.id}`} className="block">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{cluster.primary_topic}</p>
+            <p className="text-xs font-medium text-muted-foreground">{cluster.primary_topic}</p>
             <h3 className="mt-2 text-lg font-semibold leading-tight">{cluster.headline}</h3>
           </div>
           <TrendScoreBadge score={cluster.latest_trend_score} />

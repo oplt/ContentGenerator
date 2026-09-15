@@ -37,7 +37,7 @@ function PipelineStrip({ stages }: { stages: PipelineStage[] }) {
             <span className="text-2xl font-semibold tabular-nums">
               {stage.count ?? "—"}
             </span>
-            <span className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+            <span className="mt-1 text-xs font-medium text-muted-foreground">
               {stage.label}
             </span>
           </Link>
@@ -131,14 +131,14 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <section>
-        <p className="mb-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">Pipeline</p>
+        <p className="mb-3 text-xs font-medium text-muted-foreground">Pipeline</p>
         <PipelineStrip stages={pipelineStages} />
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
         {analytics.data.summary.map((item) => (
           <Card key={item.key} className="p-6">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{item.label}</p>
+            <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
             <p className="mt-3 text-3xl font-semibold">
               {typeof item.value === "number" ? formatRelativeNumber(item.value) : item.value}
             </p>
@@ -149,15 +149,15 @@ export default function DashboardPage() {
       {health.data && (
         <section className="grid gap-4 lg:grid-cols-3">
           <Card className="p-6">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Readiness</p>
+            <p className="text-xs font-medium text-muted-foreground">Readiness</p>
             <p className="mt-3 text-xl font-semibold capitalize">{health.data.status}</p>
           </Card>
           <Card className="p-6">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Worker Queues</p>
+            <p className="text-xs font-medium text-muted-foreground">Worker Queues</p>
             <p className="mt-3 text-xl font-semibold">{health.data.worker_status.length}</p>
           </Card>
           <Card className="p-6">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Inference</p>
+            <p className="text-xs font-medium text-muted-foreground">Inference</p>
             <p className="mt-3 text-xl font-semibold">{health.data.checks.inference}</p>
           </Card>
         </section>

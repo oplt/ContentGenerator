@@ -20,10 +20,15 @@ SERVICE_COMMIT_ALLOWLIST: frozenset[str] = frozenset(
         "modules/approvals/webhook_processing.py",
         "modules/identity_access/auth_credentials.py",
         "modules/identity_access/auth_sessions.py",
+        "modules/chess_video/service.py",
     }
 )
 
-ROUTER_COMMIT_ALLOWLIST: set[tuple[str, str]] = set()
+ROUTER_COMMIT_ALLOWLIST: set[tuple[str, str]] = {
+    ("modules/chess_video/router.py", "create_chess_video"),
+    ("modules/chess_video/router.py", "retry_chess_video"),
+    ("modules/source_ingestion/router.py", "_enqueue_source_ingestion"),
+}
 
 
 def _relative(path: Path) -> str:

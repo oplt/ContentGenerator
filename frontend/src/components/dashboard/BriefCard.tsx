@@ -122,7 +122,7 @@ export function BriefCard({
 
       {brief.talking_points.length > 0 && (
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground mb-2">Talking Points</p>
+          <p className="text-xs font-medium text-muted-foreground mb-2">Talking Points</p>
           <ul className="space-y-1">
             {brief.talking_points.map((point, i) => (
               <li key={i} className="flex gap-2 text-sm">

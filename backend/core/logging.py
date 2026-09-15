@@ -16,7 +16,21 @@ from backend.core.log_context import drop_sensitive_log_keys
 LOG_DIR = Path("/home/polat/Desktop/Projects/content_generator/logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+
+class CorrelationIdFilter(logging.Filter):
+    """Copy async structlog context onto standard-library log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        context = structlog.contextvars.get_contextvars()
+        record.correlation_id = context.get("correlation_id", "n/a")
+        return True
+
+
 def setup_logging() -> None:
+    root_logger = logging.getLogger()
+    if getattr(root_logger, "_signalforge_logging_configured", False):
+        return
+
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
 
     # Configure file handler with daily rotation
@@ -25,20 +39,24 @@ def setup_logging() -> None:
     
     # Use JSON formatter for structured logging
     formatter = jsonlogger.JsonFormatter(
-        "%(asctime)s %(name)s %(levelname)s %(message)s",
+        "%(asctime)s %(name)s %(levelname)s %(correlation_id)s %(message)s",
         timestamp=True
     )
     file_handler.setFormatter(formatter)
     
     # Configure root logger
-    root_logger = logging.getLogger()
+    correlation_filter = CorrelationIdFilter()
     root_logger.setLevel(settings.LOG_LEVEL.upper())
+    file_handler.addFilter(correlation_filter)
     root_logger.addHandler(file_handler)
     
     # Also keep console output for development
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(correlation_filter)
     root_logger.addHandler(console_handler)
+    root_logger._signalforge_logging_configured = True  # type: ignore[attr-defined]
+    logging.getLogger("uvicorn.access").disabled = True
     
     # Configure structlog
     structlog.configure(

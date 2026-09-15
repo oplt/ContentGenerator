@@ -245,27 +245,27 @@ export default function ContentDetailPage() {
             <h2 className="text-lg font-semibold">Job history</h2>
             <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
               <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Job ID</dt>
+                <dt className="text-xs font-medium text-muted-foreground">Job ID</dt>
                 <dd className="mt-1 font-mono text-xs">{job.data.id}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Stage</dt>
+                <dt className="text-xs font-medium text-muted-foreground">Stage</dt>
                 <dd className="mt-1 font-medium">{job.data.stage}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Started</dt>
+                <dt className="text-xs font-medium text-muted-foreground">Started</dt>
                 <dd className="mt-1 font-medium">{job.data.started_at ?? "—"}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Completed</dt>
+                <dt className="text-xs font-medium text-muted-foreground">Completed</dt>
                 <dd className="mt-1 font-medium">{job.data.completed_at ?? "—"}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Progress</dt>
+                <dt className="text-xs font-medium text-muted-foreground">Progress</dt>
                 <dd className="mt-1 font-medium">{Math.round(job.data.progress ?? 0)}%</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Assets</dt>
+                <dt className="text-xs font-medium text-muted-foreground">Assets</dt>
                 <dd className="mt-1 font-medium">{job.data.assets.length}</dd>
               </div>
             </dl>

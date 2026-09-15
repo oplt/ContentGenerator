@@ -17,7 +17,7 @@ export function ErrorState({
       className="border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive"
       style={{ borderRadius: "var(--radius-card)" }}
     >
-      <h2 className="text-base font-semibold text-destructive">{title}</h2>
+      <h2 className="text-base font-medium text-destructive">{title}</h2>
       <p className="mt-2">{message}</p>
       {onRetry ? (
         <Button type="button" variant="outline" className="mt-4" onClick={onRetry}>

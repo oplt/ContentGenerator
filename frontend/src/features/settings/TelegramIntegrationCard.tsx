@@ -40,17 +40,17 @@ export function TelegramIntegrationCard({
 
       <div className="mt-6 grid gap-3 rounded-2xl border border-border bg-muted/40 p-4 text-sm md:grid-cols-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Bot Token</p>
+          <p className="text-xs font-medium text-muted-foreground">Bot Token</p>
           <p className="mt-2 font-medium">
             {telegramSettings?.bot_token_configured ? "Configured" : "Not configured"}
           </p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Chat ID</p>
+          <p className="text-xs font-medium text-muted-foreground">Chat ID</p>
           <p className="mt-2 font-medium">{telegramSettings?.chat_id || "Not set"}</p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Status</p>
+          <p className="text-xs font-medium text-muted-foreground">Status</p>
           <p className="mt-2 font-medium">{telegramSettings?.enabled ? "Active" : "Inactive"}</p>
         </div>
       </div>

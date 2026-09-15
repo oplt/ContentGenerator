@@ -11,8 +11,8 @@ import {
   Settings2,
   ShieldCheck,
   TrendingUp,
-  UserRound,
   Workflow,
+  Crown,
 } from "lucide-react";
 import type { AuthUser } from "../api/auth";
 import { canAccessAuditLogs, canAccessTenantSettings } from "../features/auth/access";
@@ -62,7 +62,6 @@ export const NAV_ROUTES: readonly NavRoute[] = [
     icon: Settings2,
     keywords: ["social", "oauth"],
   },
-  { to: "/dashboard/account", label: "Account", icon: UserRound, keywords: ["security", "mfa", "profile"] },
   { to: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
   {
     to: "/dashboard/trending-repos",
@@ -70,13 +69,18 @@ export const NAV_ROUTES: readonly NavRoute[] = [
     icon: TrendingUp,
     keywords: ["github"],
   },
+  {
+    to: "/dashboard/chess-video",
+    label: "ChessMaster",
+    icon: Crown,
+    keywords: ["chess", "pgn", "video", "san", "uci"],
+  },
   { to: "/dashboard/brand-profile", label: "Brand", icon: Settings2, keywords: ["voice"] },
   {
     to: "/dashboard/settings",
     label: "Settings",
     icon: Cog,
-    requires: "settings",
-    keywords: ["workspace", "telegram", "whatsapp"],
+    keywords: ["workspace", "telegram", "whatsapp", "account", "security", "mfa", "profile"],
   },
   {
     to: "/dashboard/audit",

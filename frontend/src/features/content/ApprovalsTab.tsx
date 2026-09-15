@@ -80,7 +80,7 @@ export function ApprovalsTab({ active }: ApprovalsTabProps) {
               <h3 className="text-lg font-semibold capitalize">{approval.status}</h3>
               <p className="text-sm text-muted-foreground">{approval.recipient}</p>
             </div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+            <p className="text-xs font-medium text-muted-foreground">
               {approval.provider}
             </p>
           </div>

@@ -77,6 +77,45 @@ class SourceRepository:
         await self.db.flush()
         return run
 
+    async def get_open_fetch_run(self, *, tenant_id: UUID, source_id: UUID) -> SourceFetchRun | None:
+        result = await self.db.execute(
+            select(SourceFetchRun)
+            .where(
+                SourceFetchRun.tenant_id == tenant_id,
+                SourceFetchRun.source_id == source_id,
+                SourceFetchRun.status.in_(
+                    ("queued", "running"),
+                ),
+            )
+            .order_by(SourceFetchRun.created_at.desc())
+            .with_for_update()
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_fetch_run(
+        self, *, tenant_id: UUID, source_id: UUID, fetch_run_id: UUID
+    ) -> SourceFetchRun | None:
+        result = await self.db.execute(
+            select(SourceFetchRun).where(
+                SourceFetchRun.id == fetch_run_id,
+                SourceFetchRun.tenant_id == tenant_id,
+                SourceFetchRun.source_id == source_id,
+            ).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def get_fetch_run_for_tenant(
+        self, *, tenant_id: UUID, fetch_run_id: UUID
+    ) -> SourceFetchRun | None:
+        result = await self.db.execute(
+            select(SourceFetchRun).where(
+                SourceFetchRun.id == fetch_run_id,
+                SourceFetchRun.tenant_id == tenant_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def create_health_event(self, event: SourceHealthEvent) -> SourceHealthEvent:
         self.db.add(event)
         await self.db.flush()

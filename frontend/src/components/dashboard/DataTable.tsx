@@ -37,7 +37,7 @@ export function DataTable<T>({
                 <th
                   key={col.key}
                   scope="col"
-                  className="whitespace-nowrap px-4 py-3 text-xs font-normal uppercase tracking-[0.14em] text-muted-foreground"
+                  className="whitespace-nowrap px-4 py-3 text-xs font-normal font-medium text-muted-foreground"
                 >
                   {col.header}
                 </th>
@@ -63,7 +63,7 @@ export function DataTable<T>({
           <li key={`mobile-${i}`} className="space-y-3 p-4">
             {columns.map((col) => (
               <div key={col.key} className="grid gap-1">
-                <span className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{col.header}</span>
+                <span className="text-xs font-medium text-muted-foreground">{col.header}</span>
                 <div className="text-sm">{col.render(row)}</div>
               </div>
             ))}

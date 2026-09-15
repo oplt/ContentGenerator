@@ -20,7 +20,7 @@ export function PublishingStatusCard({
     <Card className="p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{job.platform}</p>
+          <p className="text-xs font-medium text-muted-foreground">{job.platform}</p>
           <h3 className="mt-2 text-base font-semibold">
             {account ? formatSocialAccountLabel(account) : job.social_account_id
               ? `Account ${job.social_account_id.slice(0, 8)}`

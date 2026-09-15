@@ -195,3 +195,6 @@ dump.rdb
 # LSP config files
 pyrightconfig.json
 ../commands.txt
+# Local filesystem object storage (STORAGE_BACKEND=local)
+.data/
+

@@ -39,17 +39,17 @@ export function WhatsAppIntegrationCard({
 
       <div className="grid gap-3 rounded-2xl border border-border bg-muted/40 p-4 text-sm md:grid-cols-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Recipient</p>
+          <p className="text-xs font-medium text-muted-foreground">Recipient</p>
           <p className="mt-2 font-medium">{whatsappSettings.recipient || "Not configured"}</p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Access Token</p>
+          <p className="text-xs font-medium text-muted-foreground">Access Token</p>
           <p className="mt-2 font-medium">
             {whatsappSettings.access_token_configured ? "Configured" : "Not configured"}
           </p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">App Secret</p>
+          <p className="text-xs font-medium text-muted-foreground">App Secret</p>
           <p className="mt-2 font-medium">
             {whatsappSettings.app_secret_configured ? "Configured" : "Not configured"}
           </p>

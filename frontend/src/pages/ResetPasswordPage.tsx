@@ -66,7 +66,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-lg p-8">
-        <p className="text-xs uppercase tracking-[0.16em] text-primary">Account recovery</p>
+        <p className="text-xs font-medium text-primary">Account recovery</p>
         <h1 className="mt-3 text-2xl font-semibold">Reset your password</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Choose a new password, then return to sign in with the updated credentials.

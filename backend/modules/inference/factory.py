@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from typing import Any, cast
 
 import structlog
@@ -224,7 +225,21 @@ async def collect_inference_readiness() -> dict[str, ProviderHealth]:
             provider_name="llamacpp",
         ),
     }
-    results: dict[str, ProviderHealth] = {}
-    for name, provider in providers.items():
-        results[name] = await provider.healthcheck()
-    return results
+    async def check(name: str, provider: LLMProvider) -> tuple[str, ProviderHealth]:
+        try:
+            health = await asyncio.wait_for(
+                provider.healthcheck(),
+                timeout=settings.HEALTH_CHECK_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            health = ProviderHealth(
+                provider_name=name,
+                status="timeout",
+                detail="health check timed out",
+            )
+        except Exception as exc:
+            health = ProviderHealth(provider_name=name, status="error", detail=str(exc))
+        return name, health
+
+    checked = await asyncio.gather(*(check(name, provider) for name, provider in providers.items()))
+    return dict(checked)

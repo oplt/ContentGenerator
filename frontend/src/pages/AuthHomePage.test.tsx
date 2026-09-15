@@ -74,6 +74,28 @@ describe("AuthHomePage", () => {
     ).toBeInTheDocument();
   });
 
+  it("sends stay-logged-in preference on sign-in", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<AuthHomePage />);
+
+    const stayLoggedIn = screen.getByRole("checkbox", { name: /Stay logged in on this browser/i });
+    expect(stayLoggedIn).toBeChecked();
+
+    await user.type(screen.getByLabelText("Email"), "demo@example.com");
+    await user.type(screen.getByLabelText("Password"), "password1234");
+    await user.click(stayLoggedIn);
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
+
+    expect(signInWithPassword).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "demo@example.com",
+        password: "password1234",
+        remember_me: false,
+      })
+    );
+  });
+
   it("shows a generic sign-up verification message", async () => {
     const user = userEvent.setup();
 

@@ -108,7 +108,7 @@ export function SourceEditRow({
 
   return (
     <Card className="p-5">
-      <p className="mb-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+      <p className="mb-3 text-xs font-medium text-muted-foreground">
         Editing — {source.url}
       </p>
       <form
@@ -229,7 +229,7 @@ export function CatalogBrowser({
             type="button"
             onClick={() => setActiveCategory(tab.key)}
             className={[
-              "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+              "rounded px-3 py-1 text-sm font-medium transition-colors",
               activeCategory === tab.key
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:bg-muted/70",

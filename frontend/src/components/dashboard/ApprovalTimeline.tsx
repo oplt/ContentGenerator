@@ -10,7 +10,7 @@ export function ApprovalTimeline({ approval }: { approval: ApprovalRequest }) {
             <Badge variant={message.direction === "inbound" ? "default" : "muted"}>
               {message.direction}
             </Badge>
-            <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+            <span className="text-xs font-medium text-muted-foreground">
               {message.parsed_intent}
             </span>
           </div>

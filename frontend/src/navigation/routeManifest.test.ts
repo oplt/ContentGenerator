@@ -39,21 +39,21 @@ describe("routeManifest", () => {
       "/dashboard/content",
       "/dashboard/publishing",
       "/dashboard/accounts",
-      "/dashboard/account",
       "/dashboard/analytics",
       "/dashboard/trending-repos",
+      "/dashboard/chess-video",
       "/dashboard/brand-profile",
       "/dashboard/settings",
       "/dashboard/audit",
     ]);
   });
 
-  it("hides settings and audit without permissions", () => {
+  it("hides audit without permissions; settings stays visible for account access", () => {
     const visible = getVisibleNavRoutes(baseUser, "t1").map((route) => route.to);
-    expect(visible).not.toContain("/dashboard/settings");
+    expect(visible).toContain("/dashboard/settings");
     expect(visible).not.toContain("/dashboard/audit");
     expect(visible).toContain("/dashboard/briefs");
-    expect(visible).toContain("/dashboard/account");
+    expect(visible).not.toContain("/dashboard/account");
     expect(visible).toContain("/dashboard/trending-repos");
     expect(visible).toContain("/dashboard/brand-profile");
   });
@@ -80,6 +80,6 @@ describe("routeManifest", () => {
 
   it("filters command palette results by label and keywords", () => {
     const matches = filterNavRoutes(NAV_ROUTES, "mfa").map((route) => route.to);
-    expect(matches).toEqual(["/dashboard/account"]);
+    expect(matches).toEqual(["/dashboard/settings"]);
   });
 });

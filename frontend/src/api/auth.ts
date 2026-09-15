@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { ApiRequestError, apiFetch, refreshSession } from "./client";
 
 export type Membership = {
   tenant_id: string;
@@ -29,6 +29,7 @@ export type AuthResponse = {
   user?: AuthUser | null;
   requires_email_verification?: boolean;
   message?: string | null;
+  csrf_token?: string | null;
 };
 
 export function signUp(payload: {
@@ -43,17 +44,27 @@ export function signUp(payload: {
   });
 }
 
-export function signIn(payload: { email: string; password: string; mfa_code?: string }) {
+export function signIn(payload: {
+  email: string;
+  password: string;
+  mfa_code?: string;
+  remember_me?: boolean;
+}) {
   return apiFetch<AuthResponse>("/auth/sign-in", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export function refresh() {
-  return apiFetch<AuthResponse>("/auth/refresh", {
-    method: "POST",
-  });
+export async function refresh() {
+  const payload = await refreshSession<AuthResponse>();
+  if (!payload) {
+    throw new ApiRequestError("Session expired. Please sign in again.", "http", {
+      retryable: false,
+      status: 401,
+    });
+  }
+  return payload;
 }
 
 export function me() {

@@ -17,11 +17,12 @@ def init_worker_process(**kwargs: Any) -> None:
 
 @signals.worker_process_shutdown.connect
 def shutdown_worker_process(**kwargs: Any) -> None:
-    loop = runtime._worker_loop
-    if loop and not loop.is_closed():
+    async def cleanup() -> None:
+        from backend.core.cache import redis_cache
         from backend.core.http import close_http_client
 
-        loop.run_until_complete(close_http_client())
-        loop.run_until_complete(dispose_engine())
-        loop.close()
-        runtime._worker_loop = None
+        await close_http_client()
+        await redis_cache.close()
+        await dispose_engine()
+
+    runtime.shutdown_worker_loop(cleanup)

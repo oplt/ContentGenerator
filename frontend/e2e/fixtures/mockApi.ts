@@ -1,4 +1,3 @@
-\
 import type { Page } from "@playwright/test";
 import { DEMO_SESSION_USER } from "./session";
 
@@ -384,7 +383,5 @@ export async function installDashboardApiMocks(page: Page, ctx: MockApiContext):
     }
 
     await route.fulfill({ status: 200, body: JSON.stringify([]) });
-  });
-
   });
 }

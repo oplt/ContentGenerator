@@ -203,10 +203,17 @@ class PublishingRepository(JobClaimingMixin):
         )
         return result.scalar_one_or_none()
 
-    async def list_published_posts(self, tenant_id: UUID, limit: int = 100) -> list[PublishedPost]:
+    async def list_published_posts(
+        self,
+        tenant_id: UUID,
+        limit: int = 100,
+        social_account_id: UUID | None = None,
+    ) -> list[PublishedPost]:
+        statement = select(PublishedPost).where(PublishedPost.tenant_id == tenant_id)
+        if social_account_id is not None:
+            statement = statement.where(PublishedPost.social_account_id == social_account_id)
         result = await self.db.execute(
-            select(PublishedPost)
-            .where(PublishedPost.tenant_id == tenant_id)
+            statement
             .order_by(PublishedPost.created_at.desc())
             .limit(limit)
         )

@@ -2,9 +2,11 @@ from fastapi import APIRouter, WebSocket
 from fastapi.responses import RedirectResponse
 
 from backend.api.v1.health import health_router
+from backend.api.v1.media import router as media_router
 from backend.modules.analytics.router import router as analytics_router
 from backend.modules.approvals.router import router as approvals_router
 from backend.modules.audit.router import router as audit_router
+from backend.modules.chess_video.router import router as chess_video_router
 from backend.modules.trending_repos.router import router as trending_repos_router
 from backend.modules.content_generation.router import router as content_generation_router
 from backend.modules.content_strategy.router import router as content_strategy_router
@@ -35,6 +37,8 @@ api_router.include_router(analytics_router, prefix="/analytics", tags=["analytic
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
 api_router.include_router(audit_router, prefix="/audit", tags=["audit"])
 api_router.include_router(trending_repos_router, prefix="/trending-repos", tags=["trending-repos"])
+api_router.include_router(chess_video_router, prefix="/chess-videos", tags=["chess-videos"])
+api_router.include_router(media_router, prefix="/media", tags=["media"])
 api_router.include_router(health_router)
 
 

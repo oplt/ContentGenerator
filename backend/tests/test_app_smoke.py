@@ -15,6 +15,7 @@ REQUIRED_PATH_PREFIXES = (
     "/api/v1/settings",
     "/api/v1/audit",
     "/api/v1/trending-repos",
+    "/api/v1/chess-videos",
     "/api/v1/health",
 )
 

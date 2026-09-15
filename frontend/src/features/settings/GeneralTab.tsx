@@ -42,33 +42,33 @@ export function GeneralTab({
         </FormField>
         <div className="grid gap-3 rounded-2xl border border-border bg-muted/40 p-4 text-sm md:col-span-2 md:grid-cols-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Slug</p>
+            <p className="text-xs font-medium text-muted-foreground">Slug</p>
             <p className="mt-2 font-medium">{tenantSettings.slug}</p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Plan</p>
+            <p className="text-xs font-medium text-muted-foreground">Plan</p>
             <p className="mt-2 font-medium">{tenantSettings.plan_tier}</p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Status</p>
+            <p className="text-xs font-medium text-muted-foreground">Status</p>
             <p className="mt-2 font-medium">{tenantSettings.status}</p>
           </div>
         </div>
         <div className="grid gap-3 rounded-2xl border border-border bg-muted/40 p-4 text-sm md:col-span-2 md:grid-cols-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">RBAC Mode</p>
+            <p className="text-xs font-medium text-muted-foreground">RBAC Mode</p>
             <p className="mt-2 font-medium">{tenantSettings.rbac_mode}</p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Active Role</p>
+            <p className="text-xs font-medium text-muted-foreground">Active Role</p>
             <p className="mt-2 font-medium">{activeMembership?.role?.name ?? "Workspace operator"}</p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Permission Count</p>
+            <p className="text-xs font-medium text-muted-foreground">Permission Count</p>
             <p className="mt-2 font-medium">{permissionCodes.length}</p>
           </div>
           <div className="md:col-span-3">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Permission Placeholders</p>
+            <p className="text-xs font-medium text-muted-foreground">Permission Placeholders</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {permissionCodes.length > 0 ? (
                 permissionCodes.map((code) => (

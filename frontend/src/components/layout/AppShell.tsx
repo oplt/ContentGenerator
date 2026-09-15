@@ -12,7 +12,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="flex min-h-screen bg-transparent">
+    <div className="flex min-h-screen bg-background">
       <Sidebar />
       <div className="flex min-h-screen flex-1 flex-col">
         <Topbar

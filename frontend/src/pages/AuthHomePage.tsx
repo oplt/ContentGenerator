@@ -44,7 +44,7 @@ export default function AuthHomePage() {
   const [signUpSuccess, setSignUpSuccess] = useState<string | null>(null);
   const signInForm = useForm<SignInValues>({
     resolver: zodResolver(signInSchema),
-    defaultValues: { email: "", password: "", mfa_code: "" },
+    defaultValues: { email: "", password: "", mfa_code: "", remember_me: true },
   });
   const signUpForm = useForm<SignUpValues>({
     resolver: zodResolver(signUpSchema),
@@ -66,47 +66,30 @@ export default function AuthHomePage() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr,0.9fr]">
-      {/* Left - warm Mistral gradient hero */}
-      <div
-        className="hidden px-10 py-12 text-white lg:flex lg:flex-col lg:justify-between"
-        style={{
-          background:
-            "linear-gradient(160deg, #fffaeb 0%, #fff0c2 18%, #ffa110 48%, #fa520f 68%, #1f1f1f 100%)",
-        }}
-      >
+    <div className="grid min-h-screen lg:grid-cols-[1.05fr,0.95fr]">
+      <div className="hidden bg-[#171A20] px-10 py-12 text-white lg:flex lg:flex-col lg:justify-between">
         <div>
-          {/* Block gradient identity strip */}
-          <div className="h-1 w-24 block-gradient mb-6" />
-          <p className="eyebrow text-[#1f1f1f]">SignalForge</p>
-          <h1
-            className="mt-6 max-w-xl text-[#1f1f1f]"
-            style={{ fontSize: "3.5rem", lineHeight: 0.95, fontWeight: 400 }}
-          >
-            Turn live news signals into approved multi-platform content operations.
+          <p className="text-sm font-medium tracking-[0.28em] text-white">SIGNALFORGE</p>
+          <h1 className="mt-8 max-w-xl text-hero font-medium text-white">
+            Turn live news signals into approved multi-platform content.
           </h1>
-          <p className="mt-6 max-w-xl text-lg text-white/80">
-            Ingest, score, brief, approve in Telegram, publish, and track analytics from one tenant-aware editorial control center.
+          <p className="mt-6 max-w-xl text-sm leading-relaxed text-white/70">
+            Ingest, score, brief, approve, publish, and track analytics from one tenant-aware editorial control center.
           </p>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
           {["Signal ingestion", "Editorial approvals", "Publishing + analytics"].map((item) => (
-            <div
-              key={item}
-              className="border border-white/20 bg-white/10 p-4"
-              style={{ borderRadius: "var(--radius-sm)" }}
-            >
-              <p className="text-sm uppercase tracking-wider text-white/90">{item}</p>
+            <div key={item} className="border border-white/15 bg-white/5 p-4">
+              <p className="text-sm font-medium text-white/90">{item}</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Right - auth form on warm ivory */}
       <div className="flex items-center justify-center bg-background px-4 py-10">
-        <Card className="w-full max-w-md p-6">
-          <p className="eyebrow text-primary">Workspace access</p>
-          <h2 className="mt-3 text-2xl">Authenticate to your dashboard</h2>
+        <Card className="w-full max-w-md border-border p-6 shadow-none">
+          <p className="text-sm font-medium text-primary">Workspace access</p>
+          <h2 className="mt-3 text-2xl font-medium">Authenticate to your dashboard</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Sign in to continue, or create a new workspace account.
           </p>
@@ -162,6 +145,19 @@ export default function AuthHomePage() {
                     {...signInForm.register("mfa_code")}
                   />
                 )}
+                <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-border"
+                    {...signInForm.register("remember_me")}
+                  />
+                  <span>
+                    <span className="font-medium text-foreground">Stay logged in on this browser</span>
+                    <span className="mt-0.5 block text-muted-foreground">
+                      Keep you signed in until you sign out or clear browser cookies.
+                    </span>
+                  </span>
+                </label>
                 <Button type="submit" className="w-full" disabled={signInForm.formState.isSubmitting}>
                   {signInForm.formState.isSubmitting ? "Signing In..." : "Sign In"}
                 </Button>

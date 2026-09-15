@@ -191,6 +191,16 @@ async def request(
     Does not raise on 4xx/5xx (caller uses ``raise_for_status``).
     """
     client = await get_http_client()
+    try:
+        import structlog
+
+        correlation_id = structlog.contextvars.get_contextvars().get("correlation_id")
+    except Exception:
+        correlation_id = None
+    if correlation_id and "X-Correlation-ID" not in (kwargs.get("headers") or {}):
+        headers = dict(kwargs.get("headers") or {})
+        headers["X-Correlation-ID"] = str(correlation_id)
+        kwargs["headers"] = headers
     retries = settings.HTTP_MAX_RETRIES if max_retries is None else max_retries
     sem = provider_semaphore(provider)
     last_error: BaseException | None = None

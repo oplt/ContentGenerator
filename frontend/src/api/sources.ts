@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, type ApiFetchOptions } from "./client";
 
 export type Source = {
   id: string;
@@ -82,6 +82,7 @@ export function triggerIngestion(sourceId: string) {
     raw_articles_ingested: number;
     clusters_updated: number;
     fetch_run_id?: string | null;
+    task_id?: string | null;
   }>(`/sources/${sourceId}/ingest`, { method: "POST" });
 }
 
@@ -91,6 +92,7 @@ export function triggerManualPoll(sourceId: string) {
     raw_articles_ingested: number;
     clusters_updated: number;
     fetch_run_id?: string | null;
+    task_id?: string | null;
   }>(`/sources/${sourceId}/manual-poll`, { method: "POST" });
 }
 
@@ -101,8 +103,8 @@ export function disableSource(sourceId: string) {
   );
 }
 
-export function getSourceHealth() {
-  return apiFetch<SourceHealth[]>("/sources/health");
+export function getSourceHealth(init?: ApiFetchOptions) {
+  return apiFetch<SourceHealth[]>("/sources/health", init);
 }
 
 export type SourceFetchRun = {
@@ -122,10 +124,17 @@ export function getSourceFetchRuns() {
   return apiFetch<SourceFetchRun[]>("/sources/fetch-runs");
 }
 
-export function getRawArticles({ limit = 50, cursor }: { limit?: number; cursor?: string } = {}) {
+export function getSourceFetchRun(fetchRunId: string, init?: ApiFetchOptions) {
+  return apiFetch<SourceFetchRun>(`/sources/fetch-runs/${fetchRunId}`, init);
+}
+
+export function getRawArticles(
+  { limit = 50, cursor }: { limit?: number; cursor?: string } = {},
+  init?: ApiFetchOptions,
+) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
-  return apiFetch<RawArticlePage>(`/sources/articles?${params.toString()}`);
+  return apiFetch<RawArticlePage>(`/sources/articles?${params.toString()}`, init);
 }
 
 export type CatalogEntry = {

@@ -15,6 +15,7 @@ from backend.workers.task_defs.generation import (
     generate_image_asset_task,
     generate_tts_asset_task,
 )
+from backend.workers.task_defs.chess_video import generate_chess_video_task
 from backend.workers.task_defs.ingestion import ingest_source_task, poll_sources_task
 from backend.workers.task_defs.publishing import publish_due_jobs_task
 from backend.workers.task_defs.stories import rescore_all_tenants_task, rescore_clusters_task
@@ -31,6 +32,7 @@ __all__ = [
     "generate_content_task",
     "generate_image_asset_task",
     "generate_tts_asset_task",
+    "generate_chess_video_task",
     "send_approval_task",
     "publish_due_jobs_task",
     "process_webhook_inbox_task",

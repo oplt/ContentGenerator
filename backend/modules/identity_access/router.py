@@ -37,16 +37,26 @@ router = APIRouter()
 _REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * settings.REFRESH_TOKEN_EXPIRE_DAYS
 _ACCESS_COOKIE_MAX_AGE = 60 * settings.ACCESS_TOKEN_EXPIRE_MINUTES
 _COOKIE_SAMESITE = cast(Literal["lax", "strict", "none"], settings.cookie_samesite)
+_PERSIST_COOKIE = "sf_persist"
 
 
-def _set_auth_cookies(response: Response, access_token: str, refresh_token: str, csrf_token: str) -> None:
+def _set_auth_cookies(
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+    csrf_token: str,
+    *,
+    remember_me: bool = True,
+) -> None:
+    access_max_age = _ACCESS_COOKIE_MAX_AGE if remember_me else None
+    refresh_max_age = _REFRESH_COOKIE_MAX_AGE if remember_me else None
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         secure=settings.COOKIE_SECURE,
         samesite=_COOKIE_SAMESITE,
-        max_age=_ACCESS_COOKIE_MAX_AGE,
+        max_age=access_max_age,
         path="/",
     )
     response.set_cookie(
@@ -55,7 +65,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         httponly=True,
         secure=settings.COOKIE_SECURE,
         samesite=_COOKIE_SAMESITE,
-        max_age=_REFRESH_COOKIE_MAX_AGE,
+        max_age=refresh_max_age,
         path="/api/v1/auth",
     )
     response.set_cookie(
@@ -64,9 +74,29 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         httponly=False,
         secure=settings.COOKIE_SECURE,
         samesite=_COOKIE_SAMESITE,
-        max_age=_REFRESH_COOKIE_MAX_AGE,
+        max_age=refresh_max_age,
         path="/",
     )
+    if remember_me:
+        response.set_cookie(
+            key=_PERSIST_COOKIE,
+            value="1",
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite=_COOKIE_SAMESITE,
+            max_age=refresh_max_age,
+            path="/api/v1/auth",
+        )
+    else:
+        response.set_cookie(
+            key=_PERSIST_COOKIE,
+            value="0",
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite=_COOKIE_SAMESITE,
+            max_age=None,
+            path="/api/v1/auth",
+        )
 
 
 def _assert_csrf(
@@ -122,14 +152,17 @@ async def sign_in(
         await record_auth_failure(rate_limit_key)
         raise
     await clear_auth_failures(rate_limit_key)
+    csrf = generate_csrf_token()
     _set_auth_cookies(
         response,
         str(result["access_token"]),
         str(result["refresh_token"]),
-        generate_csrf_token(),
+        csrf,
+        remember_me=payload.remember_me,
     )
     return AuthSessionResponse(
         user=await service.build_auth_user(cast(User, result["user"])),
+        csrf_token=csrf,
     )
 
 
@@ -138,6 +171,7 @@ async def refresh(
     response: Response,
     refresh_token: str | None = Cookie(default=None),
     csrf_token: str | None = Cookie(default=None),
+    sf_persist: str | None = Cookie(default=None, alias=_PERSIST_COOKIE),
     x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> AuthSessionResponse:
@@ -146,14 +180,18 @@ async def refresh(
     _assert_csrf(csrf_token, x_csrf_token)
     service = IdentityService(db)
     result = await service.refresh(refresh_token)
+    csrf = generate_csrf_token()
     _set_auth_cookies(
         response,
         str(result["access_token"]),
         str(result["refresh_token"]),
-        generate_csrf_token(),
+        csrf,
+        # Missing cookie = legacy persistent sessions (pre-remember_me flag).
+        remember_me=sf_persist != "0",
     )
     return AuthSessionResponse(
         user=await service.build_auth_user(cast(User, result["user"])),
+        csrf_token=csrf,
     )
 
 
@@ -172,6 +210,7 @@ async def logout(
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/api/v1/auth")
     response.delete_cookie("csrf_token", path="/")
+    response.delete_cookie(_PERSIST_COOKIE, path="/api/v1/auth")
 
 
 @router.get("/me", response_model=AuthUserResponse)
