@@ -3,6 +3,13 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
+from backend.modules.content_strategy.service import ContentStrategyService
+from backend.modules.identity_access.repository import IdentityRepository
+from backend.modules.identity_access.service import IdentityService
+from backend.modules.publishing.schemas import SocialAccountUpsertRequest
+from backend.modules.publishing.service import PublishingService
+from backend.modules.source_ingestion.schemas import SourceCreateRequest
+from backend.modules.source_ingestion.service import SourceIngestionService
 
 _WEAK_SECRETS = {"change-me", "secret", "changeme", "dev", ""}
 
@@ -26,13 +33,6 @@ def _assert_production_secrets() -> None:
         raise RuntimeError("TELEGRAM_WEBHOOK_SECRET must be set to a strong secret in production")
     if settings.TELEGRAM_CALLBACK_SIGNING_SECRET in _WEAK_SECRETS:
         raise RuntimeError("TELEGRAM_CALLBACK_SIGNING_SECRET must be set to a strong secret in production")
-from backend.modules.content_strategy.service import ContentStrategyService
-from backend.modules.identity_access.repository import IdentityRepository
-from backend.modules.identity_access.service import IdentityService
-from backend.modules.publishing.schemas import SocialAccountUpsertRequest
-from backend.modules.publishing.service import PublishingService
-from backend.modules.source_ingestion.schemas import SourceCreateRequest
-from backend.modules.source_ingestion.service import SourceIngestionService
 
 
 async def bootstrap_application(db: AsyncSession) -> None:
@@ -55,6 +55,9 @@ async def bootstrap_application(db: AsyncSession) -> None:
         settings.DEMO_ADMIN_PASSWORD,
         settings.DEMO_ADMIN_NAME,
     )
+    if demo_user is None:
+        await db.commit()
+        return
     if not demo_user.default_tenant_id:
         await db.commit()
         return

@@ -53,7 +53,7 @@ def send_email_sync(*, to: str, subject: str, html_body: str, text_body: str | N
 
 
 def queue_email(*, to: str, subject: str, html_body: str, text_body: str | None = None) -> None:
-    payload = {
+    payload: dict[str, str | None] = {
         "to": to,
         "subject": subject,
         "html_body": html_body,
@@ -65,9 +65,9 @@ def queue_email(*, to: str, subject: str, html_body: str, text_body: str | None 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            send_email_sync(**payload)
+            send_email_sync(to=to, subject=subject, html_body=html_body, text_body=text_body)
         else:
-            loop.create_task(send_email(**payload))
+            loop.create_task(send_email(to=to, subject=subject, html_body=html_body, text_body=text_body))
         return
 
     from backend.workers.tasks import send_email_task

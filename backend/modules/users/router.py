@@ -17,9 +17,9 @@ router = APIRouter()
 
 
 @router.get("/me", response_model=UserProfileResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_current_user)) -> UserProfileResponse:
     return UserProfileResponse(
-        id=current_user.id,
+        id=str(current_user.id),
         email=current_user.email,
         full_name=current_user.full_name,
         is_verified=current_user.is_verified,
@@ -31,12 +31,12 @@ async def get_me(current_user: User = Depends(get_current_user)):
 async def list_directory(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
-):
+) -> list[UserDirectoryResponse]:
     service = UsersService(db)
     users = await service.list_directory()
     return [
         UserDirectoryResponse(
-            id=user.id,
+            id=str(user.id),
             email=user.email,
             full_name=user.full_name,
         )
@@ -49,11 +49,11 @@ async def update_me(
     payload: UserProfileUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> UserProfileResponse:
     service = UsersService(db)
     updated = await service.update_profile(current_user, payload.full_name)
     return UserProfileResponse(
-        id=updated.id,
+        id=str(updated.id),
         email=updated.email,
         full_name=updated.full_name,
         is_verified=updated.is_verified,
@@ -66,7 +66,7 @@ async def change_password(
     payload: PasswordChangeRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> None:
     service = UsersService(db)
     await service.change_password(current_user, payload.current_password, payload.new_password)
 
@@ -75,11 +75,11 @@ async def change_password(
 async def list_sessions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> list[SessionResponse]:
     service = UsersService(db)
     sessions = await service.list_sessions(current_user)
     return [
-        SessionResponse(id=s.id, created_at=s.created_at, expires_at=s.expires_at)
+        SessionResponse(id=str(s.id), created_at=s.created_at, expires_at=s.expires_at)
         for s in sessions
     ]
 
@@ -89,6 +89,6 @@ async def revoke_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> None:
     service = UsersService(db)
     await service.revoke_session(current_user, session_id)

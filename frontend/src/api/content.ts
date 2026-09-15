@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, type ApiFetchOptions } from "./client";
 
 export type BrandProfile = {
   id: string;
@@ -24,6 +24,7 @@ export type ContentPlan = {
   decision: string;
   content_format: string;
   target_platforms: string[];
+  target_social_account_ids?: string[];
   tone: string;
   urgency: string;
   risk_flags: string[];
@@ -45,6 +46,7 @@ export type ContentAsset = {
   metadata: Record<string, string>;
   source_trace: Record<string, string>;
   text_content: string | null;
+  asset_group_id?: string | null;
 };
 
 export type ContentJob = {
@@ -59,6 +61,9 @@ export type ContentJob = {
   error_message: string | null;
   risk_label: string | null;
   risk_review: Record<string, unknown>;
+  target_social_account_ids?: string[];
+  variant_fingerprints?: Record<string, string[]>;
+  asset_group_id?: string | null;
   started_at: string | null;
   completed_at: string | null;
   assets: ContentAsset[];
@@ -86,18 +91,21 @@ export function createContentPlan(payload: { story_cluster_id: string; brand_pro
   });
 }
 
-export function getContentJobs() {
-  return apiFetch<ContentJob[]>("/content/jobs");
+export function getContentJobs(init?: ApiFetchOptions) {
+  return apiFetch<ContentJob[]>("/content/jobs", init);
 }
 
-export function getContentJob(id: string) {
-  return apiFetch<ContentJob>(`/content/jobs/${id}`);
+export function getContentJob(id: string, init?: ApiFetchOptions) {
+  return apiFetch<ContentJob>(`/content/jobs/${id}`, init);
 }
 
-export function generateContent(content_plan_id: string) {
+export function generateContent(payload: {
+  content_plan_id: string;
+  social_account_ids?: string[] | null;
+}) {
   return apiFetch<ContentJob>("/content/generate", {
     method: "POST",
-    body: JSON.stringify({ content_plan_id }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -105,5 +113,12 @@ export function regenerateContent(jobId: string, feedback: string) {
   return apiFetch<ContentJob>(`/content/jobs/${jobId}/regenerate`, {
     method: "POST",
     body: JSON.stringify({ feedback }),
+  });
+}
+
+export function regenerateAssetGroup(assetGroupId: string, instruction: string) {
+  return apiFetch<ContentJob>(`/content/asset-groups/${assetGroupId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify({ instruction }),
   });
 }

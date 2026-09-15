@@ -1,8 +1,14 @@
+import os
+
+# Prefer worker pool ceilings unless the process explicitly opts into api sizing.
+os.environ.setdefault("DB_POOL_PROCESS_ROLE", "worker")
+
 from celery import Celery
 from celery.schedules import crontab
 
 from backend.core.config import settings
 import backend.workers.signals
+from backend.workers.task_policy import WORKER_QUEUE_GROUPS
 
 
 celery_app = Celery(
@@ -20,9 +26,20 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_track_started=True,
     task_ignore_result=False,
-    timezone="Europe/Brussels",  # Changed from "UTC" to "Europe/Brussels"
-    enable_utc=False,  # Changed from True to False
+    timezone="Europe/Brussels",
+    enable_utc=False,
     task_default_queue=settings.CELERY_QUEUE_GENERATION,
+    # Bound execution: reject/requeue on worker loss; do not prefetch huge batches.
+    worker_prefetch_multiplier=settings.CELERY_WORKER_PREFETCH_MULTIPLIER,
+    task_acks_late=settings.CELERY_TASK_ACKS_LATE_DEFAULT,
+    task_reject_on_worker_lost=settings.CELERY_TASK_REJECT_ON_WORKER_LOST,
+    task_acks_on_failure_or_timeout=True,
+    task_soft_time_limit=settings.CELERY_TASK_DEFAULT_SOFT_TIME_LIMIT,
+    task_time_limit=settings.CELERY_TASK_DEFAULT_TIME_LIMIT,
+    # Visibility for ops / queue isolation checks.
+    worker_queue_groups={
+        name: list(queues) for name, queues in WORKER_QUEUE_GROUPS.items()
+    },
     task_routes={
         "backend.workers.tasks.send_email_task": {"queue": settings.CELERY_QUEUE_EMAIL},
         "backend.workers.tasks.poll_sources_task": {"queue": settings.CELERY_QUEUE_INGESTION},

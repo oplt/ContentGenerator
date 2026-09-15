@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 import sys
-import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import structlog
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger import jsonlogger  # type: ignore[attr-defined]
 
 from backend.core.config import settings
 
@@ -56,11 +56,11 @@ def setup_logging() -> None:
     )
 
 
-def get_logger(name: str):
+def get_logger(name: str) -> Any:
     return structlog.get_logger(name)
 
 # Cleanup old logs (keep only last 2 days)
-def cleanup_old_logs():
+def cleanup_old_logs() -> None:
     """Remove log files older than 2 days"""
     now = datetime.now()
     for log_file in LOG_DIR.glob("app_*.log"):

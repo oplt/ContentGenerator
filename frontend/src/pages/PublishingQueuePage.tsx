@@ -1,29 +1,62 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { cancelPublishingJob, getPublishedPosts, getPublishingJobs, retryPublishingJob } from "../api/publishing";
+import {
+  cancelPublishingJob,
+  getPublishedPosts,
+  getPublishingJobs,
+  getSocialAccounts,
+  retryPublishingJob,
+} from "../api/publishing";
+import { useTenantScope } from "../hooks/useTenantScope";
+import { useDocumentVisible } from "../hooks/useDocumentVisible";
 import { queryClient } from "../lib/queryClient";
+import { queryKeys } from "../lib/queryKeys";
+import { publishingJobsNeedPolling, statusAwareRefetchInterval } from "../lib/polling";
+import { formatSocialAccountLabel } from "../lib/socialAccounts";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { LoadingState } from "../components/ui/LoadingState";
 
 export default function PublishingQueuePage() {
-  const jobs = useQuery({ queryKey: ["publishing", "jobs"], queryFn: getPublishingJobs, refetchInterval: 10_000 });
-  const posts = useQuery({ queryKey: ["publishing", "posts"], queryFn: getPublishedPosts });
+  const { tenantId, enabled } = useTenantScope();
+  const visible = useDocumentVisible();
+  const jobs = useQuery({
+    queryKey: queryKeys.publishingJobs(tenantId ?? "none"),
+    queryFn: ({ signal }) => getPublishingJobs({ signal }),
+    enabled,
+    refetchInterval: visible
+      ? statusAwareRefetchInterval(10_000, publishingJobsNeedPolling)
+      : false,
+  });
+  const posts = useQuery({
+    queryKey: queryKeys.publishingPosts(tenantId ?? "none"),
+    queryFn: getPublishedPosts,
+    enabled,
+  });
+  const socialAccounts = useQuery({
+    queryKey: queryKeys.socialAccounts(tenantId ?? "none"),
+    queryFn: getSocialAccounts,
+    enabled,
+  });
   const retryMutation = useMutation({
     mutationFn: retryPublishingJob,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["publishing", "jobs"] });
+      if (!tenantId) return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.publishingJobs(tenantId) });
     },
   });
   const cancelMutation = useMutation({
     mutationFn: cancelPublishingJob,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["publishing", "jobs"] });
+      if (!tenantId) return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.publishingJobs(tenantId) });
     },
   });
 
-  if (jobs.isLoading || posts.isLoading) {
+  if (jobs.isLoading || posts.isLoading || socialAccounts.isLoading) {
     return <LoadingState label="Loading publish queue" />;
   }
+
+  const accounts = socialAccounts.data ?? [];
 
   return (
     <div className="space-y-6">
@@ -35,46 +68,57 @@ export default function PublishingQueuePage() {
       </Card>
 
       <div className="grid gap-4">
-        {(jobs.data ?? []).map((job) => (
-          <Card key={job.id} className="p-5">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold capitalize">{job.platform}</h2>
-                <p className="text-sm text-muted-foreground">
-                  {job.status} · retry #{job.retry_count}
-                </p>
-                {job.failure_reason && (
-                  <p className="mt-2 text-sm text-destructive">{job.failure_reason}</p>
-                )}
-                {job.recovery_actions.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    {job.recovery_actions.map((action) => (
-                      <span key={action} className="rounded-full border px-2 py-1">
-                        {action}
-                      </span>
-                    ))}
-                  </div>
-                )}
+        {(jobs.data ?? []).map((job) => {
+          const account = accounts.find((item) => item.id === job.social_account_id);
+          return (
+            <Card key={job.id} className="p-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold capitalize">
+                    {account ? formatSocialAccountLabel(account) : job.platform}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {job.status} · retry #{job.retry_count}
+                    {job.social_account_id
+                      ? ` · account ${job.social_account_id.slice(0, 8)}`
+                      : ""}
+                  </p>
+                  {job.failure_reason && (
+                    <p className="mt-2 text-sm text-destructive">{job.failure_reason}</p>
+                  )}
+                  {job.recovery_actions.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {job.recovery_actions.map((action) => (
+                        <span key={action} className="rounded-full border px-2 py-1">
+                          {action}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => retryMutation.mutate(job.id)}
+                    disabled={retryMutation.isPending}
+                  >
+                    Retry
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => cancelMutation.mutate(job.id)}
+                    disabled={
+                      cancelMutation.isPending ||
+                      !["scheduled", "pending", "failed"].includes(job.status)
+                    }
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => retryMutation.mutate(job.id)}
-                  disabled={retryMutation.isPending}
-                >
-                  Retry
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => cancelMutation.mutate(job.id)}
-                  disabled={cancelMutation.isPending || !["scheduled", "pending", "failed"].includes(job.status)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </div>
 
       <Card className="p-6">

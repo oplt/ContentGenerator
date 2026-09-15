@@ -363,3 +363,13 @@ frontend/node_modules
 .gitnexus
 .omx/
 .claude
+
+# Runtime / generated artifacts (T7.3)
+dump.rdb
+*.rdb
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/playwright/.cache/
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo

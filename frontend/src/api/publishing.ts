@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, type ApiFetchOptions } from "./client";
 
 export type SocialAccount = {
   id: string;
@@ -7,8 +7,12 @@ export type SocialAccount = {
   handle: string | null;
   account_external_id: string | null;
   status: string;
+  auth_type?: string;
   capability_flags: Record<string, string>;
   metadata: Record<string, string>;
+  settings?: Record<string, unknown>;
+  legacy_connected_account_id?: string | null;
+  quarantine_reason?: string | null;
 };
 
 export type ConnectedAccount = {
@@ -63,6 +67,7 @@ export type PublishingJob = {
   provider_payload: Record<string, string>;
   recovery_actions: string[];
   native_scheduling_supported: boolean;
+  account_rate_limited?: boolean;
 };
 
 export type PublishedPost = {
@@ -73,6 +78,15 @@ export type PublishedPost = {
   external_url: string | null;
   status: string;
   published_at: string | null;
+};
+
+export type PublishNowPayload = {
+  content_job_id: string;
+  platforms?: string[] | null;
+  social_account_ids?: string[] | null;
+  scheduled_for?: string | null;
+  dry_run?: boolean;
+  idempotency_key?: string | null;
 };
 
 export function getSocialAccounts() {
@@ -86,11 +100,11 @@ export function upsertSocialAccount(payload: SocialAccountUpsertPayload) {
   });
 }
 
-export function getPublishingJobs() {
-  return apiFetch<PublishingJob[]>("/publishing/queue");
+export function getPublishingJobs(init?: ApiFetchOptions) {
+  return apiFetch<PublishingJob[]>("/publishing/queue", init);
 }
 
-export function publishNow(payload: Record<string, unknown>) {
+export function publishNow(payload: PublishNowPayload) {
   return apiFetch<PublishingJob[]>("/publishing/publish-now", {
     method: "POST",
     body: JSON.stringify(payload),

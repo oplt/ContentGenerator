@@ -3,10 +3,25 @@ import { useMutation } from "@tanstack/react-query";
 import type { StoryCluster } from "../../api/stories";
 import { createContentPlan, generateContent } from "../../api/content";
 import { queryClient } from "../../lib/queryClient";
+import { queryKeys } from "../../lib/queryKeys";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { Card } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { TrendScoreBadge } from "./TrendScoreBadge";
+
+function readSelectedAccountIds(tenantId: string | null): string[] | undefined {
+  if (!tenantId || typeof window === "undefined") return undefined;
+  try {
+    const raw = window.sessionStorage.getItem(`cg:selected-social-accounts:${tenantId}`);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return undefined;
+  }
+}
 
 export function StoryClusterCard({ cluster }: { cluster: StoryCluster }) {
   const navigate = useNavigate();
@@ -14,11 +29,19 @@ export function StoryClusterCard({ cluster }: { cluster: StoryCluster }) {
   const planAndGenerate = useMutation({
     mutationFn: async () => {
       const plan = await createContentPlan({ story_cluster_id: cluster.id });
-      const job = await generateContent(plan.id);
+      const tenantId = useWorkspaceStore.getState().tenantId;
+      const social_account_ids = readSelectedAccountIds(tenantId);
+      const job = await generateContent({
+        content_plan_id: plan.id,
+        social_account_ids,
+      });
       return job;
     },
     onSuccess: async (job) => {
-      await queryClient.invalidateQueries({ queryKey: ["content"] });
+      const tenantId = useWorkspaceStore.getState().tenantId;
+      if (tenantId) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.content(tenantId) });
+      }
       navigate(`/dashboard/content/${job.id}`);
     },
   });

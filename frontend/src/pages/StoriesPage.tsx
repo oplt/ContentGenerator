@@ -4,10 +4,17 @@ import { getStoryClusters } from "../api/stories";
 import { FilterBar } from "../components/dashboard/FilterBar";
 import { StoryClusterCard } from "../components/dashboard/StoryClusterCard";
 import { LoadingState } from "../components/ui/LoadingState";
+import { useTenantScope } from "../hooks/useTenantScope";
+import { queryKeys } from "../lib/queryKeys";
 
 export default function StoriesPage() {
   const [query, setQuery] = useState("");
-  const stories = useQuery({ queryKey: ["stories"], queryFn: getStoryClusters });
+  const { tenantId, enabled } = useTenantScope();
+  const stories = useQuery({
+    queryKey: queryKeys.stories(tenantId ?? "none"),
+    queryFn: getStoryClusters,
+    enabled,
+  });
   const filtered = useMemo(
     () =>
       (stories.data ?? []).filter((cluster) =>

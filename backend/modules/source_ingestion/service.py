@@ -7,8 +7,8 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import RetryError
 
-from backend.core.cache import redis_client
 from backend.core.config import settings
+from backend.core.tenant_cache import OWNER_INGESTION, CachePolicy, build_cache_key, tenant_cache
 from backend.core.time_utils import as_utc, utc_now
 from backend.modules.audit.service import AuditService
 from backend.modules.source_ingestion.adapters import (
@@ -25,7 +25,14 @@ from backend.modules.source_ingestion.models import (
     SourceFetchRun,
     SourceHealthEvent,
 )
-from backend.modules.source_ingestion.repository import SourceRepository
+from backend.modules.source_ingestion.repository import ArticleDedupeKeys, SourceRepository
+from backend.modules.source_ingestion.fetch_cache import (
+    articles_from_cache,
+    describe_fetch_error,
+    save_cache,
+    semantic_duplicate,
+)
+from backend.modules.source_ingestion.scheduling import compute_next_poll_at, schedule_after_poll
 from backend.modules.source_ingestion.schemas import (
     IngestionTriggerResponse,
     SourceActionResponse,
@@ -59,15 +66,31 @@ class SourceIngestionService:
         return round(min(max(computed, 0.0), 1.0), 4)
 
     async def create_source(self, tenant_id: UUID, payload: SourceCreateRequest) -> Source:
-        source = Source(tenant_id=tenant_id, **payload.model_dump())
+        data = payload.model_dump()
+        now = utc_now()
+        source = Source(
+            tenant_id=tenant_id,
+            **data,
+            next_poll_at=compute_next_poll_at(
+                last_polled_at=None,
+                polling_interval_minutes=data.get("polling_interval_minutes", 30),
+                now=now,
+            ),
+        )
         return await self.repo.create_source(source)
 
     async def update_source(self, tenant_id: UUID, source_id: UUID, payload: SourceUpdateRequest) -> Source:
         source = await self.repo.get_source(tenant_id, source_id)
         if not source:
             raise HTTPException(status_code=404, detail="Source not found")
-        for key, value in payload.model_dump(exclude_none=True).items():
+        updates = payload.model_dump(exclude_none=True)
+        for key, value in updates.items():
             setattr(source, key, value)
+        if "polling_interval_minutes" in updates or source.next_poll_at is None:
+            source.next_poll_at = compute_next_poll_at(
+                last_polled_at=source.last_polled_at,
+                polling_interval_minutes=source.polling_interval_minutes,
+            )
         await self.db.flush()
         return source
 
@@ -92,7 +115,14 @@ class SourceIngestionService:
         if not source:
             raise HTTPException(status_code=404, detail="Source not found")
         await self.repo.hard_delete_source(source)
-        await redis_client.delete(f"ingestion:source:{source.id}:last_success")
+        await tenant_cache.delete(
+            build_cache_key(
+                owner=OWNER_INGESTION,
+                tenant_id=source.tenant_id,
+                identity=f"source:{source.id}:last_success",
+            ),
+            f"ingestion:source:{source.id}:last_success",
+        )
         await self.audit.record(
             tenant_id=tenant_id,
             actor_user_id=None,
@@ -167,76 +197,26 @@ class SourceIngestionService:
         return health_items
 
     def _semantic_duplicate(self, candidate: FetchedArticle, recent_articles: list[RawArticle]) -> RawArticle | None:
-        candidate_tokens = tokenize_for_similarity(f"{candidate.title} {candidate.summary or ''}")
-        if not candidate_tokens:
-            return None
-        for existing in recent_articles:
-            existing_tokens = tokenize_for_similarity(f"{existing.title} {existing.summary or ''}")
-            if not existing_tokens:
-                continue
-            overlap = len(candidate_tokens & existing_tokens)
-            union = len(candidate_tokens | existing_tokens) or 1
-            if overlap / union >= 0.88:
-                return existing
-        return None
+        return semantic_duplicate(candidate, recent_articles)
 
     async def _articles_from_cache(self, source: Source) -> list[FetchedArticle]:
-        cache_key = f"ingestion:source:{source.id}:last_success"
-        cached = await redis_client.get(cache_key)
-        if not cached:
-            return []
-        import json
-
-        payload = json.loads(cached)
-        articles: list[FetchedArticle] = []
-        for item in payload:
-            articles.append(
-                FetchedArticle(
-                    url=item["url"],
-                    canonical_url=item["canonical_url"],
-                    title=item["title"],
-                    summary=item.get("summary"),
-                    body=item.get("body"),
-                    author=item.get("author"),
-                    published_at=None,
-                    metadata=item.get("metadata", {}),
-                )
-            )
-        return articles
+        return await articles_from_cache(source)
 
     async def _save_cache(self, source: Source, articles: list[FetchedArticle]) -> None:
-        cache_key = f"ingestion:source:{source.id}:last_success"
-        import json
-
-        payload = [
-            {
-                "url": article.url,
-                "canonical_url": article.canonical_url,
-                "title": article.title,
-                "summary": article.summary,
-                "body": article.body,
-                "author": article.author,
-                "metadata": article.metadata,
-            }
-            for article in articles
-        ]
-        await redis_client.setex(cache_key, source.stale_cache_ttl_seconds, json.dumps(payload))
+        await save_cache(source, articles)
 
     def _describe_fetch_error(self, exc: Exception) -> str:
-        if isinstance(exc, RetryError):
-            last_error = exc.last_attempt.exception()
-            if last_error:
-                return str(last_error)
-        return str(exc)
+        return describe_fetch_error(exc)
 
     async def run_ingestion(self, tenant_id: UUID, source_id: UUID) -> IngestionTriggerResponse:
         source = await self.get_source(tenant_id, source_id)
         now = utc_now()
         live_fetch_succeeded = False
+        negative_cache_until = as_utc(source.negative_cache_until)
         if (
             source.circuit_state == CircuitState.OPEN.value
-            and source.negative_cache_until
-            and as_utc(source.negative_cache_until) > now
+            and negative_cache_until is not None
+            and negative_cache_until > now
         ):
             cached = await self._articles_from_cache(source)
             return IngestionTriggerResponse(
@@ -318,53 +298,67 @@ class SourceIngestionService:
                 )
             else:
                 fetch_run.finished_at = utc_now()
+                # Durable failure ledger before HTTP error (entrypoint would roll back a flush-only path).
                 await self.db.commit()
                 raise HTTPException(status_code=502, detail=f"Source fetch failed: {error_message}") from exc
 
         new_raw_articles: list[RawArticle] = []
         recent_articles = await self.repo.list_recent_raw_articles(tenant_id=tenant_id, within_hours=24)
+
+        candidate_keys: list[ArticleDedupeKeys] = []
+        prepared: list[tuple[FetchedArticle, str, str]] = []
         for article in fetched_articles:
             dedupe_key = adapter.dedupe_key(article)
             title_normalized = normalize_title(article.title)
-            existing = await self.repo.get_existing_article(
-                tenant_id=tenant_id,
-                canonical_url=article.canonical_url,
-                content_hash=article.content_hash,
-                dedupe_key=dedupe_key,
-                title_normalized=title_normalized,
+            candidate_keys.append(
+                ArticleDedupeKeys(
+                    canonical_url=article.canonical_url,
+                    content_hash=article.content_hash,
+                    dedupe_key=dedupe_key,
+                    title_normalized=title_normalized,
+                )
             )
-            if existing:
+            prepared.append((article, dedupe_key, title_normalized))
+
+        existing_by_index = await self.repo.find_existing_articles_batch(
+            tenant_id=tenant_id,
+            candidates=candidate_keys,
+        )
+
+        for index, (article, dedupe_key, title_normalized) in enumerate(prepared):
+            if index in existing_by_index:
                 continue
             if self._semantic_duplicate(article, recent_articles):
                 continue
-            raw_article = await self.repo.create_raw_article(
-                RawArticle(
-                    tenant_id=tenant_id,
-                    source_id=source.id,
-                    fetch_run_id=fetch_run.id,
-                    url=article.url,
-                    canonical_url=article.canonical_url,
-                    dedupe_key=dedupe_key,
-                    title_normalized=title_normalized,
-                    content_hash=article.content_hash,
-                    title=article.title,
-                    summary=article.summary,
-                    body=article.body,
-                    author=article.author,
-                    language=article.language or next(iter(source.language_tags), None),
-                    published_at=article.published_at,
-                    extraction_confidence=0.75,
-                    source_metadata={
-                        **article.metadata,
-                        "category_tags": ",".join(article.category_tags),
-                        "region_tags": ",".join(article.region_tags),
-                        "raw_payload_present": "true" if article.raw_payload else "false",
-                        **article.parser_diagnostics,
-                    },
-                )
+            raw_article = RawArticle(
+                tenant_id=tenant_id,
+                source_id=source.id,
+                fetch_run_id=fetch_run.id,
+                url=article.url,
+                canonical_url=article.canonical_url,
+                dedupe_key=dedupe_key,
+                title_normalized=title_normalized,
+                content_hash=article.content_hash,
+                title=article.title,
+                summary=article.summary,
+                body=article.body,
+                author=article.author,
+                language=article.language or next(iter(source.language_tags), None),
+                published_at=article.published_at,
+                extraction_confidence=0.75,
+                source_metadata={
+                    **article.metadata,
+                    "category_tags": ",".join(article.category_tags),
+                    "region_tags": ",".join(article.region_tags),
+                    "raw_payload_present": "true" if article.raw_payload else "false",
+                    **article.parser_diagnostics,
+                },
             )
-            new_raw_articles.append(raw_article)
-            recent_articles.insert(0, raw_article)
+            inserted = await self.repo.insert_raw_article_conflict_safe(raw_article)
+            if inserted is None:
+                continue
+            new_raw_articles.append(inserted)
+            recent_articles.insert(0, inserted)
 
         fetch_run.articles_found = len(fetched_articles)
         fetch_run.new_articles = len(new_raw_articles)
@@ -372,6 +366,10 @@ class SourceIngestionService:
         if fetch_run.status == FetchRunStatus.RUNNING.value:
             fetch_run.status = FetchRunStatus.SUCCESS.value
         source.last_polled_at = now
+        source.next_poll_at = schedule_after_poll(
+            polled_at=now,
+            polling_interval_minutes=source.polling_interval_minutes,
+        )
         if live_fetch_succeeded:
             source.last_success_at = utc_now()
             source.success_count += 1
@@ -412,7 +410,8 @@ class SourceIngestionService:
             payload_schema="ingestion.source_poll.v1",
             outcome=fetch_run.status,
         )
-        await self.db.commit()
+        # Entrypoint (get_db / run_async_task) owns the final commit.
+        await self.db.flush()
         return IngestionTriggerResponse(
             source_id=source.id,
             status=fetch_run.status,

@@ -46,7 +46,11 @@ async def generate_content(
     db: AsyncSession = Depends(get_db),
 ) -> ContentJobResponse:
     service = ContentGenerationService(db)
-    job = await service.generate(tenant_id=membership.tenant_id, plan_id=payload.content_plan_id)
+    job = await service.generate(
+        tenant_id=membership.tenant_id,
+        plan_id=payload.content_plan_id,
+        social_account_ids=payload.social_account_ids,
+    )
     await db.commit()
     return await service.get_job_detail(membership.tenant_id, job.id)
 

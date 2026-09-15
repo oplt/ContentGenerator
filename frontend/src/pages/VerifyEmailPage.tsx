@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { verifyEmail } from "../api/auth";
 import { useAuth } from "../features/auth/AuthContext";
 import { canAccessAdminRoutes, requiresAdminMfa, requiresEmailVerification } from "../features/auth/access";
@@ -53,16 +53,16 @@ export default function VerifyEmailPage() {
       (!currentUser || !currentUser.is_admin || canAccessAdminRoutes(currentUser) || verificationCompleted)
   );
 
+  if (needsAdminMfa && !needsVerification) {
+    return <Navigate to="/mfa-setup" replace />;
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="max-w-lg p-8">
-        <h1 className="text-2xl font-semibold">
-          {needsAdminMfa ? "Additional account security required" : "Verify your email"}
-        </h1>
+        <h1 className="text-2xl font-semibold">Verify your email</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          {needsAdminMfa
-            ? "Admin access is blocked until multi-factor authentication is enabled for this account."
-            : "Open the verification link from your inbox to finish activating the account before using the dashboard."}
+          Open the verification link from your inbox to finish activating the account before using the dashboard.
         </p>
 
         <div className="mt-6 space-y-4">
@@ -75,11 +75,6 @@ export default function VerifyEmailPage() {
           {!token && needsVerification ? (
             <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
               Check your inbox and open the latest verification link. Full access stays blocked until verification completes.
-            </p>
-          ) : null}
-          {needsAdminMfa ? (
-            <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
-              This frontend now blocks admin-only routes unless the session reports `mfa_enabled=true`. The MFA enrollment flow must be completed in the backend or identity provider.
             </p>
           ) : null}
 

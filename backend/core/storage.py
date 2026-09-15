@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from functools import cached_property
+from typing import Any, cast
 
 from backend.core.config import settings
 
@@ -23,10 +24,10 @@ class ObjectStorage:
         return bool(settings.STORAGE_BUCKET)
 
     @cached_property
-    def _client(self):
+    def _client(self) -> Any:
         try:
-            import boto3
-            from botocore.client import Config
+            import boto3  # type: ignore[import-untyped]
+            from botocore.client import Config  # type: ignore[import-untyped]
         except ImportError as exc:
             raise ObjectStorageError(
                 "Object storage dependencies are not installed. Run `uv sync` in `backend/`."
@@ -54,7 +55,7 @@ class ObjectStorage:
             try:
                 self._client.head_bucket(Bucket=settings.STORAGE_BUCKET)
             except Exception:
-                create_kwargs = {"Bucket": settings.STORAGE_BUCKET}
+                create_kwargs: dict[str, object] = {"Bucket": settings.STORAGE_BUCKET}
                 if settings.STORAGE_REGION != "us-east-1":
                     create_kwargs["CreateBucketConfiguration"] = {
                         "LocationConstraint": settings.STORAGE_REGION
@@ -105,11 +106,11 @@ class ObjectStorage:
     def signed_url_for(self, object_key: str, expires_in: int | None = None) -> str:
         if not self.is_configured:
             raise StorageNotConfiguredError("Object storage is not configured")
-        return self._client.generate_presigned_url(
+        return cast(str, self._client.generate_presigned_url(
             "get_object",
             Params={"Bucket": settings.STORAGE_BUCKET, "Key": object_key},
             ExpiresIn=expires_in or settings.STORAGE_SIGNED_URL_EXPIRES_SECONDS,
-        )
+        ))
 
 
 object_storage = ObjectStorage()

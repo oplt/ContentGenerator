@@ -211,7 +211,7 @@ class StoryIntelligenceRepository:
             .order_by(NormalizedArticle.created_at.desc())
             .limit(200)
         )
-        from backend.modules.story_intelligence.providers import cosine_similarity
+        from backend.modules.inference.providers import cosine_similarity
         candidates = list(result.scalars().all())
         threshold = 0.97
         for candidate in candidates:

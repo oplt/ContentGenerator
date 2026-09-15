@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:4173"
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/content_generator"
+    # Bounded async pool (API/workers). Totals must stay under PostgreSQL max_connections:
+    #   processes * (DB_POOL_SIZE + DB_POOL_MAX_OVERFLOW) < max_connections - reserve
+    # Set DB_POOL_USE_NULL=true for alembic/one-shot scripts that must not hold pooled conns.
+    DB_POOL_USE_NULL: bool = False
+    DB_POOL_SIZE: int = Field(default=5, ge=1, le=100)
+    DB_POOL_MAX_OVERFLOW: int = Field(default=10, ge=0, le=100)
+    DB_POOL_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
+    DB_POOL_RECYCLE_SECONDS: int = Field(default=1800, ge=0)
+    # api|worker — selects documented defaults via effective_* helpers; override sizes with env.
+    DB_POOL_PROCESS_ROLE: str = "api"
+    DB_POOL_WORKER_SIZE: int = Field(default=2, ge=1, le=50)
+    DB_POOL_WORKER_MAX_OVERFLOW: int = Field(default=2, ge=0, le=50)
     REDIS_URL: str = "redis://localhost:6379/0"
     CELERY_TASK_ALWAYS_EAGER: bool = False
     CELERY_RESULT_EXPIRES_SECONDS: int = 3600
@@ -43,6 +55,16 @@ class Settings(BaseSettings):
     CELERY_QUEUE_PUBLISHING: str = "publishing"
     CELERY_QUEUE_ANALYTICS: str = "analytics"
     CELERY_QUEUE_EMAIL: str = "email"
+    # Global worker execution policy (per-task soft/hard limits live in task_policy.py).
+    CELERY_WORKER_PREFETCH_MULTIPLIER: int = Field(default=1, ge=1, le=16)
+    CELERY_TASK_REJECT_ON_WORKER_LOST: bool = True
+    CELERY_TASK_ACKS_LATE_DEFAULT: bool = False
+    CELERY_TASK_DEFAULT_SOFT_TIME_LIMIT: int = Field(default=300, ge=10)
+    CELERY_TASK_DEFAULT_TIME_LIMIT: int = Field(default=360, ge=15)
+    CELERY_WORKER_IO_CONCURRENCY: int = Field(default=4, ge=1, le=32)
+    CELERY_WORKER_LLM_CONCURRENCY: int = Field(default=2, ge=1, le=16)
+    CELERY_WORKER_MEDIA_CONCURRENCY: int = Field(default=1, ge=1, le=8)
+    CELERY_WORKER_PUBLISHING_CONCURRENCY: int = Field(default=2, ge=1, le=16)
 
     JWT_SECRET: str = "change-me"
     JWT_ALGORITHM: str = "HS256"
@@ -91,6 +113,22 @@ class Settings(BaseSettings):
 
     HTTP_TIMEOUT_SECONDS: float = 20.0
     HTTP_MAX_RETRIES: int = 3
+    HTTP_CONNECT_TIMEOUT_SECONDS: float = 5.0
+    HTTP_READ_TIMEOUT_SECONDS: float = 20.0
+    HTTP_WRITE_TIMEOUT_SECONDS: float = 20.0
+    HTTP_POOL_TIMEOUT_SECONDS: float = 5.0
+    HTTP_MAX_CONNECTIONS: int = 100
+    HTTP_MAX_KEEPALIVE_CONNECTIONS: int = 20
+    HTTP_PROVIDER_MAX_CONCURRENCY: int = 8
+    HTTP_PROVIDER_GITHUB_CONCURRENCY: int = 4
+    HTTP_PROVIDER_ANALYTICS_CONCURRENCY: int = 6
+    HTTP_PROVIDER_X_CONCURRENCY: int = 4
+    HTTP_PROVIDER_LLM_CONCURRENCY: int = 4
+    PUBLISHING_CLAIM_LEASE_SECONDS: int = 900
+    PUBLISHING_MAX_ATTEMPTS: int = 3
+    PUBLISHING_CLAIM_BATCH_SIZE: int = 50
+    PUBLISHING_ACCOUNT_MAX_PUBLISHES_PER_HOUR: int = Field(default=30, ge=1, le=10_000)
+    PUBLISHING_ACCOUNT_MAX_RETRIES_PER_HOUR: int = Field(default=10, ge=1, le=10_000)
     INGESTION_STALE_CACHE_TTL_SECONDS: int = 3600
     INGESTION_NEGATIVE_CACHE_TTL_SECONDS: int = 900
     INGESTION_DEFAULT_POLL_MINUTES: int = 30
@@ -176,6 +214,11 @@ class Settings(BaseSettings):
     WHATSAPP_DEFAULT_RECIPIENT: str = "+10000000000"
 
     SOCIAL_DRY_RUN_BY_DEFAULT: bool = True
+    # Multi-account staged rollout: off | shadow | canary | on (default on = shipped T4).
+    MULTI_ACCOUNT_ROLLOUT_MODE: str = "on"
+    MULTI_ACCOUNT_CANARY_PERCENT: int = Field(default=0, ge=0, le=100)
+    # Comma-separated tenant UUIDs always included in canary.
+    MULTI_ACCOUNT_CANARY_TENANT_IDS: str = ""
     X_API_BASE_URL: str = "https://api.x.com"
     X_UPLOAD_BASE_URL: str = "https://upload.twitter.com"
     BLUESKY_PDS_URL: str = "https://bsky.social"
@@ -183,7 +226,7 @@ class Settings(BaseSettings):
     INSTAGRAM_GRAPH_BASE_URL: str = "https://graph.facebook.com"
     TIKTOK_API_BASE_URL: str = "https://open.tiktokapis.com"
     ANALYTICS_SYNTHETIC_MODE: bool = False
-    PUBLIC_URL: str
+    PUBLIC_URL: str = "http://localhost:5173"
 
     DEMO_TENANT_SLUG: str = "demo-agency"
     DEMO_ADMIN_EMAIL: str = "demo@example.com"
@@ -192,6 +235,27 @@ class Settings(BaseSettings):
     DEMO_SEED_ENABLED: bool = True
 
     MFA_ACCESS: bool = False
+
+    @property
+    def db_pool_is_worker(self) -> bool:
+        return self.DB_POOL_PROCESS_ROLE.strip().lower() == "worker"
+
+    @property
+    def effective_db_pool_size(self) -> int:
+        return self.DB_POOL_WORKER_SIZE if self.db_pool_is_worker else self.DB_POOL_SIZE
+
+    @property
+    def effective_db_pool_max_overflow(self) -> int:
+        if self.db_pool_is_worker:
+            return self.DB_POOL_WORKER_MAX_OVERFLOW
+        return self.DB_POOL_MAX_OVERFLOW
+
+    @property
+    def db_pool_max_connections_per_process(self) -> int:
+        """Hard ceiling of checked-out connections for this process."""
+        if self.DB_POOL_USE_NULL:
+            return 1
+        return self.effective_db_pool_size + self.effective_db_pool_max_overflow
 
     @property
     def celery_broker_url(self) -> str:

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -43,13 +43,18 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin,
         UniqueConstraint("tenant_id", "name", name="uq_sources_tenant_id_name"),
         Index("ix_sources_tenant_id_active", "tenant_id", "active"),
         Index("ix_sources_tenant_id_tier_vertical", "tenant_id", "source_tier", "content_vertical"),
+        Index(
+            "ix_sources_due_next_poll_at",
+            "next_poll_at",
+            postgresql_where=text("active IS true AND deleted_at IS NULL"),
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    source_type: Mapped[SourceType] = mapped_column(String(32), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
     parser_type: Mapped[str] = mapped_column(String(64), nullable=False, default="auto")
     category: Mapped[str] = mapped_column(String(64), nullable=False, default="general")
@@ -81,11 +86,12 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin,
     robots_respected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    circuit_state: Mapped[CircuitState] = mapped_column(
+    circuit_state: Mapped[str] = mapped_column(
         String(32), nullable=False, default=CircuitState.CLOSED.value
     )
     negative_cache_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     disabled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -102,7 +108,7 @@ class SourceFetchRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("sources.id", ondelete="CASCADE"), nullable=False
     )
-    status: Mapped[FetchRunStatus] = mapped_column(String(32), nullable=False, default="queued")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -112,7 +118,7 @@ class SourceFetchRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     new_articles: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     response_cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fetch_metadata: Mapped[dict[str, str]] = mapped_column("metadata", default=dict, nullable=False)
+    fetch_metadata: Mapped[dict[str, object]] = mapped_column("metadata", default=dict, nullable=False)
 
 
 class RawArticle(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
@@ -146,7 +152,7 @@ class RawArticle(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     language: Mapped[str | None] = mapped_column(String(32), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     extraction_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    source_metadata: Mapped[dict[str, str]] = mapped_column("metadata", default=dict, nullable=False)
+    source_metadata: Mapped[dict[str, object]] = mapped_column("metadata", default=dict, nullable=False)
 
 
 class SourceHealthEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -4,6 +4,7 @@ import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -154,7 +155,12 @@ class EditorialBriefService:
             candidate = await self.story_repo.get_trend_candidate_for_cluster(tenant_id, cluster.id)
             evidence_links = candidate.evidence_links if candidate else []
             extracted_claims = candidate.extracted_claims if candidate else []
-            preferred_platforms = brand_profile.preferred_platforms if brand_profile else ["x", "instagram", "threads"]
+            preferred_platforms_raw = getattr(brand_profile, "preferred_platforms", None) if brand_profile else None
+            preferred_platforms = (
+                list(preferred_platforms_raw)
+                if isinstance(preferred_platforms_raw, list)
+                else ["x", "instagram", "threads"]
+            )
 
             prompt = _BRIEF_PROMPT_TEMPLATE.format(
                 headline=cluster.headline,
@@ -178,10 +184,10 @@ class EditorialBriefService:
                     "recommended_format": "text",
                     "target_platforms": self._default_target_platforms(cluster.risk_level, preferred_platforms),
                     "evidence_links": evidence_links[:5],
-                    "audience_segment": brand_profile.audience if brand_profile else "general social audience",
+                    "audience_segment": str(getattr(brand_profile, "audience", "general social audience")),
                     "platform_recommendations": preferred_platforms[:3],
-                    "tone_guidance": brand_profile.tone if brand_profile else "authoritative",
-                    "cta_strategy": brand_profile.default_cta if brand_profile else "Follow for more updates",
+                    "tone_guidance": str(getattr(brand_profile, "tone", "authoritative")),
+                    "cta_strategy": str(getattr(brand_profile, "default_cta", "Follow for more updates")),
                     "caveats": [],
                     "suggested_formats": [],
                     "risk_notes": "",
@@ -203,11 +209,14 @@ class EditorialBriefService:
             brief.evidence_links = parsed.get("evidence_links", evidence_links[:5])
             brief.audience_segment = parsed.get(
                 "audience_segment",
-                brand_profile.audience if brand_profile else "general social audience",
+                str(getattr(brand_profile, "audience", "general social audience")),
             )
             brief.platform_recommendations = parsed.get("platform_recommendations", brief.target_platforms)
-            brief.tone_guidance = parsed.get("tone_guidance", brand_profile.tone if brand_profile else "authoritative")
-            brief.cta_strategy = parsed.get("cta_strategy", brand_profile.default_cta if brand_profile else "Follow for more updates")
+            brief.tone_guidance = parsed.get("tone_guidance", str(getattr(brand_profile, "tone", "authoritative")))
+            brief.cta_strategy = parsed.get(
+                "cta_strategy",
+                str(getattr(brand_profile, "default_cta", "Follow for more updates")),
+            )
             brief.caveats = parsed.get("caveats", [])
             brief.suggested_formats = parsed.get(
                 "suggested_formats",
@@ -394,7 +403,7 @@ class EditorialBriefService:
     ) -> list[EditorialBrief]:
         return await self.repo.list_by_tenant(tenant_id, status=status, limit=limit)
 
-    async def send_to_telegram(self, tenant_id: UUID, brief_id: UUID) -> dict:
+    async def send_to_telegram(self, tenant_id: UUID, brief_id: UUID) -> dict[str, Any]:
         """
         Gate 1 — send editorial brief card to Telegram for topic approval.
         Generates an 8-char short_id, stores brief_id in Redis, sends the card.
@@ -451,7 +460,7 @@ class EditorialBriefService:
         """Look up a brief from its Redis short-ID (used by Telegram callback handler)."""
         return await self.repo.get_by_telegram_short_id(short_id)
 
-    async def handle_telegram_brief_callback(self, payload: dict) -> None:
+    async def handle_telegram_brief_callback(self, payload: dict[str, Any]) -> None:
         """
         Handle gate-1 Telegram callback: approve_brief:<short_id> or reject_brief:<short_id>.
         Resolves the brief via short_id, transitions status, acks the callback, and edits the

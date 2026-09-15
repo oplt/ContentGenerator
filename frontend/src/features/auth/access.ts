@@ -12,16 +12,22 @@ export function canAccessAdminRoutes(user: AuthUser | null) {
   return Boolean(user?.is_admin && user.mfa_enabled);
 }
 
-function hasPermission(user: AuthUser | null, permissionCode: string) {
-  return Boolean(
-    user?.memberships.some((membership) => membership.role?.permission_codes.includes(permissionCode))
-  );
+export function getActiveMembership(user: AuthUser | null, tenantId: string | null) {
+  if (!user || !tenantId) {
+    return null;
+  }
+  return user.memberships.find((membership) => membership.tenant_id === tenantId) ?? null;
 }
 
-export function canAccessTenantSettings(user: AuthUser | null) {
-  return hasPermission(user, "settings:write");
+function hasPermission(user: AuthUser | null, permissionCode: string, tenantId: string | null) {
+  const membership = getActiveMembership(user, tenantId);
+  return Boolean(membership?.role?.permission_codes.includes(permissionCode));
 }
 
-export function canAccessAuditLogs(user: AuthUser | null) {
-  return hasPermission(user, "audit:read");
+export function canAccessTenantSettings(user: AuthUser | null, tenantId: string | null) {
+  return hasPermission(user, "settings:write", tenantId);
+}
+
+export function canAccessAuditLogs(user: AuthUser | null, tenantId: string | null) {
+  return hasPermission(user, "audit:read", tenantId);
 }

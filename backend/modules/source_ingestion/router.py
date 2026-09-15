@@ -130,7 +130,19 @@ async def list_catalog(
     membership: TenantUser = Depends(get_current_membership),
 ) -> list[CatalogEntryResponse]:
     entries = CATALOG if category is None else [e for e in CATALOG if e["category"] == category]
-    return [CatalogEntryResponse(**e) for e in entries]
+    return [
+        CatalogEntryResponse(
+            id=e["id"],
+            name=e["name"],
+            url=e["url"],
+            source_type=e["source_type"],
+            category=e["category"],
+            description=e["description"],
+            trust_score=e["trust_score"],
+            polling_interval_minutes=e["polling_interval_minutes"],
+        )
+        for e in entries
+    ]
 
 
 @router.post("/catalog/{catalog_id}/import", response_model=SourceResponse, status_code=201)

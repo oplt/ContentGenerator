@@ -58,7 +58,7 @@ class TrendingReposRepository:
         tenant_id: uuid.UUID,
         period: str,
         snapshot_date: date,
-        repos: list[dict],
+        repos: list[dict[str, object]],
     ) -> list[TrendingRepo]:
         """Delete existing snapshot for this period+date and insert fresh rows."""
         await self.db.execute(

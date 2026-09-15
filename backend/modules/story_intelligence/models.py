@@ -114,15 +114,15 @@ class StoryCluster(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Version
     headline: Mapped[str] = mapped_column(String(500), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     primary_topic: Mapped[str] = mapped_column(String(128), nullable=False)
-    status: Mapped[ClusterStatus] = mapped_column(String(32), nullable=False, default="active")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     representative_article_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("normalized_articles.id", ondelete="SET NULL"), nullable=True
     )
     article_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     trend_direction: Mapped[str] = mapped_column(String(32), nullable=False, default="flat")
     worthy_for_content: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    risk_level: Mapped[RiskLevel] = mapped_column(String(32), nullable=False, default="safe")
-    workflow_state: Mapped[TrendWorkflowState] = mapped_column(
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False, default="safe")
+    workflow_state: Mapped[str] = mapped_column(
         String(32), nullable=False, default=TrendWorkflowState.NEW.value
     )
     # Content vertical — drives risk policy and source confirmation requirements
@@ -230,7 +230,7 @@ class TrendCandidate(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     monetization_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     risk_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     final_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    status: Mapped[TrendCandidateStatus] = mapped_column(
+    status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=TrendCandidateStatus.NEW.value
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

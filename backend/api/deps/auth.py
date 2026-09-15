@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from typing import Callable
 from uuid import UUID
 
@@ -38,7 +39,10 @@ async def get_current_user(
 
     repo = IdentityRepository(db)
     session = await repo.get_session_by_id(session_id)
-    if not session or session.is_revoked or as_utc(session.expires_at) < utc_now():
+    if not session or session.is_revoked:
+        raise HTTPException(status_code=401, detail="Session expired")
+    session_expires_at = as_utc(session.expires_at)
+    if session_expires_at is None or session_expires_at < utc_now():
         raise HTTPException(status_code=401, detail="Session expired")
     user = await repo.get_user_by_id(user_id)
     if not user or session.user_id != user.id or not user.is_active:
@@ -75,7 +79,7 @@ async def get_current_tenant(
     return tenant
 
 
-def require_permission(permission_code: str) -> Callable[..., TenantUser]:
+def require_permission(permission_code: str) -> Callable[..., Awaitable[TenantUser]]:
     async def dependency(membership: TenantUser = Depends(get_current_membership)) -> TenantUser:
         if membership.role and permission_code in membership.role.permission_codes:
             return membership

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class RedisCache:
-    def __init__(self):
+    def __init__(self) -> None:
         self.redis_client = redis.from_url(
             settings.REDIS_URL,
             encoding="utf-8",
@@ -21,7 +21,7 @@ class RedisCache:
             socket_connect_timeout=5,
             socket_timeout=5,
             retry_on_timeout=True,
-        )
+        )  # type: ignore[no-untyped-call]
 
         logger.info(f"Redis client created for URL: {settings.REDIS_URL}")
         # Don't test connection here - it will be tested during startup
@@ -33,7 +33,7 @@ class RedisCache:
             logger.info("Redis connection established successfully")
         except Exception as e:
             logger.error(f"Failed to connect to Redis: {e}")
-            raise HTTPException(status_code=500, detail="Redis connection failed")
+            raise HTTPException(status_code=500, detail="Redis connection failed") from e
 
     async def close(self) -> None:
         """Close Redis connection - call this during app shutdown"""
@@ -82,7 +82,7 @@ class RedisCache:
     async def ping(self) -> bool:
         return bool(await self.redis_client.ping())
 
-    def pipeline(self, *args: Any, **kwargs: Any):
+    def pipeline(self, *args: Any, **kwargs: Any) -> Any:
         return self.redis_client.pipeline(*args, **kwargs)
 
     async def setex(self, key: str, seconds: int, value: Any) -> bool:
@@ -103,7 +103,7 @@ class RedisCache:
         try:
             values = await self.redis_client.mget(keys)
             result = {}
-            for key, value in zip(keys, values):
+            for key, value in zip(keys, values, strict=True):
                 if value is not None:
                     result[key] = json.loads(value)
                 else:
@@ -148,7 +148,7 @@ class RedisCache:
         """Get time to live for a key"""
         try:
             ttl = await self.redis_client.ttl(key)
-            return ttl
+            return int(ttl)
         except Exception as e:
             logger.error(f"Error getting TTL for key {key}: {e}")
             return -1

@@ -7,11 +7,17 @@ import {
   getBriefs,
   rejectBrief,
   regenerateBrief,
+  rewriteBrief,
+  sendBriefToTelegram,
   type BriefStatus,
   type EditorialBrief,
 } from "../api/briefs";
 import { getStoryClusters } from "../api/stories";
 import { queryClient } from "../lib/queryClient";
+import { queryKeys } from "../lib/queryKeys";
+import { useTenantScope } from "../hooks/useTenantScope";
+import { useDocumentVisible } from "../hooks/useDocumentVisible";
+import { briefsNeedPolling, statusAwareRefetchInterval } from "../lib/polling";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -41,12 +47,16 @@ function BriefCard({
   onApprove,
   onReject,
   onRegenerate,
+  onRewrite,
+  onSendTelegram,
   isMutating,
 }: {
   brief: EditorialBrief;
   onApprove: (id: string, note?: string) => void;
   onReject: (id: string, note: string) => void;
   onRegenerate: (id: string) => void;
+  onRewrite: (id: string) => void;
+  onSendTelegram: (id: string) => void;
   isMutating: boolean;
 }) {
   const [showActions, setShowActions] = useState(false);
@@ -68,7 +78,7 @@ function BriefCard({
           <h2 className="font-semibold text-lg leading-tight">{brief.headline}</h2>
           <p className="mt-1 text-sm text-muted-foreground italic">{brief.angle}</p>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2 shrink-0">
           {brief.status === "ready" && (
             <>
               <Button size="sm" disabled={isMutating} onClick={() => onApprove(brief.id)}>
@@ -76,6 +86,12 @@ function BriefCard({
               </Button>
               <Button size="sm" variant="outline" disabled={isMutating} onClick={() => setShowActions(!showActions)}>
                 Reject
+              </Button>
+              <Button size="sm" variant="outline" disabled={isMutating} onClick={() => onRewrite(brief.id)}>
+                Rewrite
+              </Button>
+              <Button size="sm" variant="outline" disabled={isMutating} onClick={() => onSendTelegram(brief.id)}>
+                Send Telegram
               </Button>
             </>
           )}
@@ -149,17 +165,29 @@ type GenerateForm = {
 export default function EditorialBriefsPage() {
   const [activeStatus, setActiveStatus] = useState<BriefStatus | undefined>(undefined);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
+  const { tenantId, enabled } = useTenantScope();
+  const visible = useDocumentVisible();
 
   const briefs = useQuery({
-    queryKey: ["briefs", activeStatus],
-    queryFn: () => getBriefs(activeStatus),
-    refetchInterval: 15_000,
+    queryKey: queryKeys.briefs(tenantId ?? "none", activeStatus),
+    queryFn: ({ signal }) => getBriefs(activeStatus, { signal }),
+    enabled,
+    refetchInterval: visible
+      ? statusAwareRefetchInterval(15_000, briefsNeedPolling)
+      : false,
   });
-  const clusters = useQuery({ queryKey: ["stories"], queryFn: getStoryClusters });
+  const clusters = useQuery({
+    queryKey: queryKeys.stories(tenantId ?? "none"),
+    queryFn: getStoryClusters,
+    enabled,
+  });
 
   const form = useForm<GenerateForm>();
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["briefs"] });
+  const invalidate = () => {
+    if (!tenantId) return Promise.resolve();
+    return queryClient.invalidateQueries({ queryKey: queryKeys.briefs(tenantId) });
+  };
 
   const generateMutation = useMutation({
     mutationFn: (data: GenerateForm) => generateBrief({ story_cluster_id: data.story_cluster_id }),
@@ -180,6 +208,18 @@ export default function EditorialBriefsPage() {
 
   const regenerateMutation = useMutation({
     mutationFn: (id: string) => regenerateBrief(id),
+    onSuccess: async () => { await invalidate(); setMutatingId(null); },
+    onError: () => setMutatingId(null),
+  });
+
+  const rewriteMutation = useMutation({
+    mutationFn: (id: string) => rewriteBrief(id, { mode: "rewrite" }),
+    onSuccess: async () => { await invalidate(); setMutatingId(null); },
+    onError: () => setMutatingId(null),
+  });
+
+  const sendTelegramMutation = useMutation({
+    mutationFn: (id: string) => sendBriefToTelegram(id),
     onSuccess: async () => { await invalidate(); setMutatingId(null); },
     onError: () => setMutatingId(null),
   });
@@ -269,6 +309,14 @@ export default function EditorialBriefsPage() {
               onRegenerate={(id) => {
                 setMutatingId(id);
                 regenerateMutation.mutate(id);
+              }}
+              onRewrite={(id) => {
+                setMutatingId(id);
+                rewriteMutation.mutate(id);
+              }}
+              onSendTelegram={(id) => {
+                setMutatingId(id);
+                sendTelegramMutation.mutate(id);
               }}
             />
           ))}

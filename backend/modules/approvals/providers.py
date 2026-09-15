@@ -4,12 +4,13 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import httpx
 
 from backend.core.config import settings
+from backend.core.http import shared_http_client
 
 
 def sign_telegram_callback(payload: str) -> str:
@@ -110,7 +111,7 @@ class MetaWhatsAppCloudProvider(WhatsAppProvider):
         self.config = config
 
     async def send_message(self, *, to: str, text: str) -> dict[str, str]:
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://graph.facebook.com/v20.0/{self.config.phone_number_id}/messages",
                 headers={"Authorization": f"Bearer {self.config.access_token}"},
@@ -187,7 +188,7 @@ class TelegramProvider:
                     {"text": "✏️ Update",  "callback_data": build_signed_callback_data("revise", approval_request_id)},
                 ]]
             }
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
                 json=payload,
@@ -238,7 +239,7 @@ class TelegramProvider:
                 ]
             },
         }
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
                 json=payload,
@@ -300,7 +301,7 @@ class TelegramProvider:
                 ]
             },
         }
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
                 json=payload,
@@ -356,7 +357,7 @@ class TelegramProvider:
                 ]
             },
         }
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
                 json=payload,
@@ -400,7 +401,7 @@ class TelegramProvider:
             "parse_mode": "HTML",
             "reply_markup": {"inline_keyboard": inline_rows},
         }
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
                 json=payload,
@@ -434,7 +435,7 @@ class TelegramProvider:
                 ]]
             },
         }
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
                 json=payload,
@@ -456,7 +457,7 @@ class TelegramProvider:
         Edit an existing Telegram message in place (removes inline keyboard).
         Used to update approval cards after the operator acts on them.
         """
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/editMessageText",
                 json={
@@ -469,7 +470,7 @@ class TelegramProvider:
             )
 
     async def answer_callback(self, callback_query_id: str, text: str) -> None:
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery",
                 json={"callback_query_id": callback_query_id, "text": text},
@@ -482,37 +483,43 @@ class TelegramProvider:
         }
         if secret_token:
             body["secret_token"] = secret_token
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"https://api.telegram.org/bot{self.bot_token}/setWebhook",
                 json=body,
             )
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
 
 class MockTelegramProvider(TelegramProvider):
-    async def send_message(self, text: str, approval_request_id: str | None = None) -> dict[str, str]:
+    async def send_message(
+        self,
+        text: str,
+        approval_request_id: str | None = None,
+        *,
+        parse_mode: str = "HTML",
+    ) -> dict[str, str]:
         digest = hashlib.sha256(f"{text}:{approval_request_id or ''}".encode()).hexdigest()[:12]
         return {"provider": "telegram-mock", "message_id": digest}
 
-    async def send_topic_card(self, **kwargs) -> dict[str, str]:
+    async def send_topic_card(self, **kwargs: Any) -> dict[str, str]:
         digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]
         return {"provider": "telegram-mock", "message_id": digest}
 
-    async def send_brief_card(self, **kwargs) -> dict[str, str]:
+    async def send_brief_card(self, **kwargs: Any) -> dict[str, str]:
         digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]
         return {"provider": "telegram-mock", "message_id": digest, "short_id": kwargs["short_id"]}
 
-    async def send_twitter_post_card(self, **kwargs) -> dict[str, str]:
+    async def send_twitter_post_card(self, **kwargs: Any) -> dict[str, str]:
         digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]
         return {"provider": "telegram-mock", "message_id": digest}
 
-    async def send_asset_card(self, **kwargs) -> dict[str, str]:
+    async def send_asset_card(self, **kwargs: Any) -> dict[str, str]:
         digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]
         return {"provider": "telegram-mock", "message_id": digest}
 
-    async def send_publish_card(self, **kwargs) -> dict[str, str]:
+    async def send_publish_card(self, **kwargs: Any) -> dict[str, str]:
         digest = hashlib.sha256(json.dumps(kwargs, sort_keys=True).encode()).hexdigest()[:12]
         return {"provider": "telegram-mock", "message_id": digest}
 

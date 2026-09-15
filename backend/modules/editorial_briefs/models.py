@@ -45,7 +45,7 @@ class EditorialBrief(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Versi
         ForeignKey("brand_profiles.id", ondelete="SET NULL"), nullable=True
     )
 
-    status: Mapped[BriefStatus] = mapped_column(String(32), nullable=False, default=BriefStatus.PENDING.value)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=BriefStatus.PENDING.value)
 
     # Core brief fields (populated during GENERATING → READY transition)
     headline: Mapped[str] = mapped_column(String(500), nullable=False, default="")

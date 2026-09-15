@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type PropsWithChildren } from "react";
 import { logout, refresh, signIn, signUp, type AuthResponse, type AuthUser } from "../../api/auth";
+import { clearTenantQueryCache, switchActiveTenant } from "../../lib/tenantCache";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 
 type AuthContextValue = {
@@ -24,8 +25,11 @@ function syncTenantSelection(
     return;
   }
 
+  const currentTenantId = useWorkspaceStore.getState().tenantId;
   const membership =
-    user.memberships.find((item) => item.tenant_id === user.default_tenant_id) ?? user.memberships[0];
+    user.memberships.find((item) => item.tenant_id === currentTenantId) ??
+    user.memberships.find((item) => item.tenant_id === user.default_tenant_id) ??
+    user.memberships[0];
   setTenant(membership?.tenant_id ?? null, membership?.tenant_name ?? null);
 }
 
@@ -95,14 +99,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     },
     signOut: async () => {
       await logout().catch(() => undefined);
+      await clearTenantQueryCache();
       setCurrentUser(null);
       syncTenantSelection(setTenant, null);
     },
     setActiveTenant: (tenantId) => {
-      const membership = currentUser?.memberships.find((item) => item.tenant_id === tenantId);
-      if (membership) {
-        setTenant(membership.tenant_id, membership.tenant_name);
-      }
+      void switchActiveTenant(tenantId, currentUser);
     },
   };
 

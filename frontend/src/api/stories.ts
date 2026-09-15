@@ -92,6 +92,10 @@ export function getTrendCandidates() {
   return apiFetch<TrendCandidate[]>("/stories/candidates");
 }
 
+export function getTrendCandidate(candidateId: string) {
+  return apiFetch<TrendCandidate>(`/stories/candidates/${candidateId}`);
+}
+
 export function actionTrendCandidate(candidateId: string, payload: { action: string; operator_note?: string | null }) {
   return apiFetch<TrendCandidate>(`/stories/candidates/${candidateId}/action`, {
     method: "POST",

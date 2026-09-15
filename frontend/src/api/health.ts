@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, type ApiFetchOptions } from "./client";
 
 export type WorkerTaskSnapshot = {
   task_name: string;
@@ -25,12 +25,14 @@ export type HealthReadiness = {
   worker_status: WorkerQueueStatus[];
 };
 
-export function getHealthReadiness() {
-  return apiFetch<HealthReadiness>("/health/ready");
+export function getHealthReadiness(init?: ApiFetchOptions) {
+  return apiFetch<HealthReadiness>("/health/ready", init);
 }
 
 export type AppConfig = {
   mfa_access: boolean;
+  multi_account_mode: string;
+  multi_account_canary_percent: number;
 };
 
 export function getAppConfig() {

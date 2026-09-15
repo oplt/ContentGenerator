@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +68,16 @@ class OperationsService:
     async def worker_status(self) -> list[dict[str, object]]:
         recent = await self.repo.list_recent(limit=100)
         grouped: dict[str, dict[str, object]] = {}
+
+        def _as_int(value: object) -> int:
+            if isinstance(value, bool):
+                return int(value)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+            return 0
+
         for task in recent:
             bucket = grouped.setdefault(
                 task.queue_name,
@@ -78,13 +89,16 @@ class OperationsService:
                     "recent_tasks": [],
                 },
             )
+            running = _as_int(bucket.get("running", 0))
+            failed = _as_int(bucket.get("failed", 0))
+            completed = _as_int(bucket.get("completed", 0))
             if task.status == "running":
-                bucket["running"] = int(bucket["running"]) + 1
+                bucket["running"] = running + 1
             elif task.status == "failed":
-                bucket["failed"] = int(bucket["failed"]) + 1
+                bucket["failed"] = failed + 1
             elif task.status == "completed":
-                bucket["completed"] = int(bucket["completed"]) + 1
-            recent_tasks = list(bucket["recent_tasks"])
+                bucket["completed"] = completed + 1
+            recent_tasks = cast(list[dict[str, object]], bucket.get("recent_tasks", []))
             if len(recent_tasks) < 5:
                 recent_tasks.append(
                     {

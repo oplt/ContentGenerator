@@ -10,6 +10,7 @@ from backend.modules.shared.schemas import ORMModel
 
 class GenerateContentRequest(BaseModel):
     content_plan_id: UUID
+    social_account_ids: list[UUID] | None = None
 
 
 class RegenerateContentRequest(BaseModel):
@@ -30,6 +31,7 @@ class GeneratedAssetResponse(ORMModel):
     metadata: dict[str, str]
     source_trace: dict[str, str]
     text_content: str | None
+    asset_group_id: UUID | None = None
 
 
 class ContentJobResponse(ORMModel):
@@ -44,6 +46,9 @@ class ContentJobResponse(ORMModel):
     error_message: str | None
     risk_label: str | None = None
     risk_review: dict[str, object] = {}
+    target_social_account_ids: list[str] = []
+    variant_fingerprints: dict[str, list[str]] = {}
+    asset_group_id: UUID | None = None
     started_at: datetime | None
     completed_at: datetime | None
     assets: list[GeneratedAssetResponse] = []

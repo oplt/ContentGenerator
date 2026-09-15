@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from backend.core.config import settings
+from backend.core.http import shared_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ class StableDiffusionProvider(ImageGenerationProvider):
             "sampler_name": "Euler a",
         }
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with shared_http_client() as client:
                 resp = await client.post(f"{self._base}/sdapi/v1/txt2img", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
@@ -129,7 +130,7 @@ class OpenAIImageProvider(ImageGenerationProvider):
             "response_format": "b64_json",
         }
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with shared_http_client() as client:
                 resp = await client.post(
                     "https://api.openai.com/v1/images/generations",
                     headers={"Authorization": f"Bearer {self._api_key}"},

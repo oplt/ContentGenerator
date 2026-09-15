@@ -1,7 +1,7 @@
-import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AuthHomePage from "./AuthHomePage";
+import { renderWithProviders } from "../test/renderWithProviders";
 
 const forgotPassword = vi.fn().mockResolvedValue(undefined);
 const signInWithPassword = vi.fn().mockResolvedValue(undefined);
@@ -9,9 +9,18 @@ const signUpWithPassword = vi.fn().mockResolvedValue({
   requires_email_verification: true,
   message: "If the account can be registered, a verification email will be sent.",
 });
+const getAppConfig = vi.fn().mockResolvedValue({
+  mfa_access: false,
+  multi_account_mode: "on",
+  multi_account_canary_percent: 0,
+});
 
 vi.mock("../api/auth", () => ({
   forgotPassword: (...args: unknown[]) => forgotPassword(...args),
+}));
+
+vi.mock("../api/health", () => ({
+  getAppConfig: (...args: unknown[]) => getAppConfig(...args),
 }));
 
 vi.mock("../features/auth/AuthContext", () => ({
@@ -26,16 +35,13 @@ describe("AuthHomePage", () => {
     forgotPassword.mockClear();
     signInWithPassword.mockClear();
     signUpWithPassword.mockClear();
+    getAppConfig.mockClear();
   });
 
   it("restores password visibility toggle and forgot-password reset request", async () => {
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter>
-        <AuthHomePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<AuthHomePage />);
 
     const passwordInput = screen.getByLabelText("Password");
     expect(passwordInput).toHaveAttribute("type", "password");
@@ -57,11 +63,7 @@ describe("AuthHomePage", () => {
     signInWithPassword.mockRejectedValueOnce(new Error("User not found"));
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter>
-        <AuthHomePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<AuthHomePage />);
 
     await user.type(screen.getByLabelText("Email"), "demo@example.com");
     await user.type(screen.getByLabelText("Password"), "wrong-password");
@@ -75,11 +77,7 @@ describe("AuthHomePage", () => {
   it("shows a generic sign-up verification message", async () => {
     const user = userEvent.setup();
 
-    render(
-      <MemoryRouter>
-        <AuthHomePage />
-      </MemoryRouter>
-    );
+    renderWithProviders(<AuthHomePage />);
 
     await user.click(screen.getByRole("tab", { name: "Sign Up" }));
     await user.type(screen.getByLabelText("Email"), "demo@example.com");

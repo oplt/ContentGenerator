@@ -1,4 +1,5 @@
 from fastapi import APIRouter, WebSocket
+from fastapi.responses import RedirectResponse
 
 from backend.api.v1.health import health_router
 from backend.modules.analytics.router import router as analytics_router
@@ -22,7 +23,8 @@ api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_router.include_router(users_router, prefix="/users", tags=["users"])
 api_router.include_router(source_router, prefix="/sources", tags=["sources"])
 api_router.include_router(story_router, prefix="/stories", tags=["stories"])
-api_router.include_router(story_router, prefix="/trends", tags=["trends"])
+# T5.1: removed duplicate mount at /trends (caused /trends/trends/dashboard aliases).
+# Legacy callers get a 308 to /stories/* via legacy_trends_alias below.
 # Note: both content routers share /content prefix — routes are on distinct sub-paths
 api_router.include_router(content_strategy_router, prefix="/content", tags=["content-strategy"])
 api_router.include_router(content_generation_router, prefix="/content", tags=["content-generation"])
@@ -36,8 +38,26 @@ api_router.include_router(trending_repos_router, prefix="/trending-repos", tags=
 api_router.include_router(health_router)
 
 
+@api_router.api_route(
+    "/trends",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+    name="legacy_trends_root",
+)
+@api_router.api_route(
+    "/trends/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+    name="legacy_trends_path",
+)
+async def legacy_trends_alias(path: str = "") -> RedirectResponse:
+    """Deprecation shim: /api/v1/trends/* → /api/v1/stories/* (T5.1)."""
+    target = f"/api/v1/stories/{path}" if path else "/api/v1/stories/clusters"
+    return RedirectResponse(url=target, status_code=308)
+
+
 @api_router.websocket("/ws/job/{job_id}")
-async def websocket_endpoint(websocket: WebSocket, job_id: str):
+async def websocket_endpoint(websocket: WebSocket, job_id: str) -> None:
     """WebSocket endpoint for real-time job status updates"""
     await websocket_manager.connect(websocket, job_id)
     try:

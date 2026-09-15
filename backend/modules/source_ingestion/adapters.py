@@ -7,19 +7,20 @@ import urllib.robotparser
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree
 
 import email.utils
 
-import feedparser
+import feedparser  # type: ignore[import-untyped]
 import httpx
 import trafilatura
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from backend.core.config import settings
+from backend.core.http import shared_http_client
 from backend.modules.source_ingestion.models import Source, SourceType
 
 
@@ -98,7 +99,7 @@ class BaseSourceAdapter:
         data: dict[str, str] | None = None,
         method: str = "GET",
     ) -> str:
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with shared_http_client() as client:
             response = await client.request(
                 method,
                 url,
@@ -111,7 +112,7 @@ class BaseSourceAdapter:
 
     async def _fetch_json(self, url: str, *, headers: dict[str, str] | None = None) -> dict[str, Any]:
         raw = await self._fetch_text(url, headers=headers)
-        return json.loads(raw)
+        return cast(dict[str, Any], json.loads(raw))
 
     async def _robots_allowed(self, url: str) -> bool:
         if not self.source.robots_respected:
@@ -344,7 +345,6 @@ class SitemapSourceAdapter(BaseSourceAdapter):
     async def fetch(self) -> list[FetchedArticle]:
         limit = int(self.source.config.get("limit", "10"))
         urls = await self._walk_sitemap(self.source.url)
-        parser_adapter = GenericArticleParserAdapter(self.source)
         articles: list[FetchedArticle] = []
         for url in urls[:limit]:
             if not await self._robots_allowed(url):
@@ -420,8 +420,8 @@ class RedditSourceAdapter(BaseSourceAdapter):
             url = f"{settings.REDDIT_API_BASE_URL}/r/{subreddit}/{listing}?limit={limit}"
         else:
             url = self.source.url or f"https://www.reddit.com/r/{subreddit}/{listing}.json?limit={limit}"
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS, follow_redirects=True, headers=headers) as client:
-            response = await client.get(url)
+        async with shared_http_client() as client:
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             payload = response.json()
         articles: list[FetchedArticle] = []

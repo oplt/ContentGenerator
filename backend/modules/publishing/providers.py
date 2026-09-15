@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from hashlib import sha256
 from uuid import uuid4
 
 import httpx
 
 from backend.core.config import settings
+from backend.core.http import shared_http_client
 from backend.modules.content_generation.models import GeneratedAsset
 from backend.modules.publishing.models import SocialAccount
 
@@ -151,12 +153,29 @@ class StubPublishingProvider(PublishingProvider):
         return AuthValidationResult(is_valid=True, account_status="connected", detail="stub_provider")
 
     async def publish(self, *, social_account: SocialAccount, assets: list[GeneratedAsset]) -> PublishResult:
-        external_id = str(uuid4())
+        return await self.publish_now(social_account=social_account, assets=assets)
+
+    async def publish_now(
+        self,
+        *,
+        social_account: SocialAccount,
+        assets: list[GeneratedAsset],
+        publish_attempt_key: str = "",
+    ) -> PublishResult:
+        # Deterministic ID so retries with the same attempt key do not invent a new post.
+        if publish_attempt_key:
+            external_id = sha256(publish_attempt_key.encode("utf-8")).hexdigest()[:32]
+        else:
+            external_id = str(uuid4())
         return PublishResult(
             status="succeeded",
             external_post_id=external_id,
             external_post_url=f"https://example.invalid/{self.platform}/{external_id}",
-            payload={"mode": "stub", "asset_count": str(len(assets))},
+            payload={
+                "mode": "stub",
+                "asset_count": str(len(assets)),
+                "publish_attempt_key": publish_attempt_key,
+            },
         )
 
 
@@ -249,7 +268,7 @@ class XPublishingProvider(PublishingProvider):
         if publish_attempt_key and cache_key in self._upload_cache:
             return self._upload_cache[cache_key]
         try:
-            async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            async with shared_http_client() as client:
                 dl = await client.get(asset.public_url)
                 dl.raise_for_status()
                 resp = await client.post(
@@ -271,18 +290,24 @@ class XPublishingProvider(PublishingProvider):
         text: str,
         reply_to_id: str | None = None,
         media_ids: list[str] | None = None,
+        *,
+        publish_attempt_key: str = "",
     ) -> dict:
         body: dict = {"text": text}
         if reply_to_id:
             body["reply"] = {"in_reply_to_tweet_id": reply_to_id}
         if media_ids:
             body["media"] = {"media_ids": media_ids}
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        if publish_attempt_key:
+            # X API v2 supports Idempotency-Key for POST /2/tweets.
+            headers["Idempotency-Key"] = publish_attempt_key[:128]
         response = await client.post(
             f"{_X_API_BASE}/2/tweets",
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json=body,
         )
         response.raise_for_status()
@@ -299,12 +324,16 @@ class XPublishingProvider(PublishingProvider):
         publish_attempt_key: str = "",
     ) -> PublishResult:
         if self.dry_run:
-            external_id = f"dry-run-{uuid4()}"
+            external_id = (
+                f"dry-run-{sha256(publish_attempt_key.encode('utf-8')).hexdigest()[:24]}"
+                if publish_attempt_key
+                else f"dry-run-{uuid4()}"
+            )
             return PublishResult(
                 status="succeeded_dry_run",
                 external_post_id=external_id,
                 external_post_url=f"https://x.com/i/web/status/{external_id}",
-                payload={"mode": "dry_run"},
+                payload={"mode": "dry_run", "publish_attempt_key": publish_attempt_key},
             )
 
         # Upload media assets (best-effort — failure does not abort the post)
@@ -318,13 +347,19 @@ class XPublishingProvider(PublishingProvider):
                 media_ids.append(media_id)
 
         texts = self._select_text(assets)
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             first_id: str | None = None
             last_id: str | None = None
             for i, text in enumerate(texts):
                 # Attach media only to the first tweet in a thread
                 tweet_media_ids = media_ids if i == 0 and media_ids else None
-                data = await self._post_tweet(client, text, reply_to_id=last_id, media_ids=tweet_media_ids)
+                data = await self._post_tweet(
+                    client,
+                    text,
+                    reply_to_id=last_id,
+                    media_ids=tweet_media_ids,
+                    publish_attempt_key=f"{publish_attempt_key}:{i}" if publish_attempt_key else "",
+                )
                 tweet_id = data.get("data", {}).get("id")
                 if first_id is None:
                     first_id = tweet_id
@@ -481,7 +516,7 @@ class BlueskyPublishingProvider(PublishingProvider):
             "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
 
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with shared_http_client() as client:
             # Upload image blobs and attach as embed (best-effort)
             blob_refs: list[dict] = []
             for asset in self._media_assets(assets):

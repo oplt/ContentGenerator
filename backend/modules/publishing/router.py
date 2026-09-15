@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -23,7 +24,7 @@ from backend.modules.publishing.service import PublishingService
 router = APIRouter()
 
 
-def _job_response(job) -> PublishingJobResponse:
+def _job_response(job: Any) -> PublishingJobResponse:
     payload = dict(job.provider_payload or {})
     recovery_actions = [
         item for item in str(payload.get("recovery_actions", "")).split(",") if item
@@ -48,6 +49,11 @@ def _job_response(job) -> PublishingJobResponse:
         provider_payload=payload,
         recovery_actions=recovery_actions,
         native_scheduling_supported=native_supported,
+        claim_expires_at=getattr(job, "claim_expires_at", None),
+        current_attempt_key=getattr(job, "current_attempt_key", None),
+        attempt_status=payload.get("attempt_status"),
+        error_class=payload.get("error_class"),
+        account_rate_limited=str(payload.get("account_rate_limited", "false")).lower() == "true",
     )
 
 
@@ -65,8 +71,12 @@ async def list_social_accounts(
             handle=account.handle,
             account_external_id=account.account_external_id,
             status=str(account.status),
+            auth_type=getattr(account, "auth_type", "oauth") or "oauth",
             capability_flags=account.capability_flags,
             metadata=account.account_metadata,
+            settings=getattr(account, "settings", None) or {},
+            legacy_connected_account_id=getattr(account, "legacy_connected_account_id", None),
+            quarantine_reason=getattr(account, "quarantine_reason", None),
         )
         for account in await service.list_social_accounts(membership.tenant_id)
     ]
@@ -88,8 +98,12 @@ async def upsert_social_account(
         handle=account.handle,
         account_external_id=account.account_external_id,
         status=str(account.status),
+        auth_type=getattr(account, "auth_type", "oauth") or "oauth",
         capability_flags=account.capability_flags,
         metadata=account.account_metadata,
+        settings=getattr(account, "settings", None) or {},
+        legacy_connected_account_id=getattr(account, "legacy_connected_account_id", None),
+        quarantine_reason=getattr(account, "quarantine_reason", None),
     )
 
 

@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Dict
+from typing import Any
 
 from backend.core.cache import redis_cache
 from backend.api.websocket import websocket_manager
@@ -10,22 +10,25 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketPubSub:
-    def __init__(self):
-        self.pubsub = None
+    def __init__(self) -> None:
+        self.pubsub: Any = None
         self.running = False
 
-    async def start(self):
+    async def start(self) -> None:
         """Start the pub/sub listener"""
         self.pubsub = redis_cache.redis_client.pubsub()
+        pubsub = self.pubsub
+        if pubsub is None:
+            return
         # Subscribe to job status channels
-        await self.pubsub.subscribe("job_status_updates")
+        await pubsub.subscribe("job_status_updates")
         
         self.running = True
         logger.info("WebSocket pub/sub listener started")
         
         try:
             while self.running:
-                message = await self.pubsub.get_message(
+                message = await pubsub.get_message(
                     ignore_subscribe_messages=True, 
                     timeout=1.0
                 )
@@ -34,9 +37,9 @@ class WebSocketPubSub:
         except Exception as e:
             logger.error(f"Pub/sub listener error: {e}")
         finally:
-            await self.pubsub.close()
+            await pubsub.close()
 
-    async def handle_message(self, message: dict):
+    async def handle_message(self, message: dict[str, Any]) -> None:
         """Handle incoming pub/sub messages"""
         try:
             data = json.loads(message["data"])
@@ -50,7 +53,7 @@ class WebSocketPubSub:
         except Exception as e:
             logger.error(f"Error handling pub/sub message: {e}")
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the pub/sub listener"""
         self.running = False
         if self.pubsub:

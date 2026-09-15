@@ -1,34 +1,54 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { actionApprovalRequest, getApprovalRequests, resendApprovalRequest, sendApprovalRequest } from "../api/approvals";
 import { getContentJobs } from "../api/content";
+import { useTenantScope } from "../hooks/useTenantScope";
+import { useDocumentVisible } from "../hooks/useDocumentVisible";
 import { queryClient } from "../lib/queryClient";
+import { queryKeys } from "../lib/queryKeys";
+import { approvalsNeedPolling, statusAwareRefetchInterval } from "../lib/polling";
 import { ApprovalTimeline } from "../components/dashboard/ApprovalTimeline";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { LoadingState } from "../components/ui/LoadingState";
 
 export default function ApprovalsPage() {
-  const approvals = useQuery({ queryKey: ["approvals"], queryFn: getApprovalRequests, refetchInterval: 10_000 });
-  const jobs = useQuery({ queryKey: ["content", "jobs"], queryFn: getContentJobs });
+  const { tenantId, enabled } = useTenantScope();
+  const visible = useDocumentVisible();
+  const approvals = useQuery({
+    queryKey: queryKeys.approvals(tenantId ?? "none"),
+    queryFn: ({ signal }) => getApprovalRequests({ signal }),
+    enabled,
+    refetchInterval: visible
+      ? statusAwareRefetchInterval(10_000, approvalsNeedPolling)
+      : false,
+  });
+  const jobs = useQuery({
+    queryKey: queryKeys.contentJobs(tenantId ?? "none"),
+    queryFn: ({ signal }) => getContentJobs({ signal }),
+    enabled,
+  });
   const sendMutation = useMutation({
     mutationFn: sendApprovalRequest,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      if (!tenantId) return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.approvals(tenantId) });
     },
   });
   const resendMutation = useMutation({
     mutationFn: resendApprovalRequest,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      if (!tenantId) return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.approvals(tenantId) });
     },
   });
   const actionMutation = useMutation({
     mutationFn: ({ requestId, action, feedback }: { requestId: string; action: string; feedback?: string }) =>
       actionApprovalRequest(requestId, { action, feedback }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["approvals"] });
-      await queryClient.invalidateQueries({ queryKey: ["content", "jobs"] });
-      await queryClient.invalidateQueries({ queryKey: ["publishing", "jobs"] });
+      if (!tenantId) return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.approvals(tenantId) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.contentJobs(tenantId) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.publishingJobs(tenantId) });
     },
   });
 

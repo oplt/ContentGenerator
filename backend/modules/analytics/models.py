@@ -18,6 +18,11 @@ class AnalyticsSnapshot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="uq_analytics_snapshots_published_post_id_snapshot_date",
         ),
         Index("ix_analytics_snapshots_tenant_id_snapshot_date", "tenant_id", "snapshot_date"),
+        Index(
+            "ix_analytics_snapshots_tenant_id_social_account_id",
+            "tenant_id",
+            "social_account_id",
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -26,6 +31,8 @@ class AnalyticsSnapshot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     published_post_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("published_posts.id", ondelete="CASCADE"), nullable=False
     )
+    social_account_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    account_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     platform: Mapped[str] = mapped_column(String(32), nullable=False)
     snapshot_date: Mapped[date] = mapped_column(nullable=False)
     topic: Mapped[str | None] = mapped_column(String(128), nullable=True)

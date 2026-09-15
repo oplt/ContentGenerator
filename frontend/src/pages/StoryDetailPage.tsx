@@ -1,44 +1,71 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { createContentPlan } from "../api/content";
-import { actionTrendCandidate, getStoryCluster, getTrendCandidates } from "../api/stories";
+import { actionTrendCandidate, getStoryCluster, getTrendCandidate, getTrendCandidates } from "../api/stories";
 import { queryClient } from "../lib/queryClient";
+import { queryKeys } from "../lib/queryKeys";
+import { useTenantScope } from "../hooks/useTenantScope";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Card } from "../components/ui/card";
+import { ErrorState } from "../components/ui/ErrorState";
+import { HelpDisclosure } from "../components/ui/HelpDisclosure";
 import { LoadingState } from "../components/ui/LoadingState";
 
 export default function StoryDetailPage() {
   const params = useParams();
+  const { tenantId, enabled } = useTenantScope();
   const story = useQuery({
-    queryKey: ["stories", params.id],
+    queryKey: queryKeys.story(tenantId ?? "none", params.id ?? ""),
     queryFn: () => getStoryCluster(params.id ?? ""),
-    enabled: Boolean(params.id),
+    enabled: enabled && Boolean(params.id),
   });
-  const candidates = useQuery({ queryKey: ["trend-candidates"], queryFn: getTrendCandidates });
+  const candidates = useQuery({
+    queryKey: queryKeys.trendCandidates(tenantId ?? "none"),
+    queryFn: getTrendCandidates,
+    enabled,
+  });
+  const listedCandidate = candidates.data?.find((item) => item.story_cluster_id === params.id);
+  const candidateDetail = useQuery({
+    queryKey: [...queryKeys.trendCandidates(tenantId ?? "none"), listedCandidate?.id ?? "none"],
+    queryFn: () => getTrendCandidate(listedCandidate!.id),
+    enabled: enabled && Boolean(listedCandidate?.id),
+  });
+  const candidate = candidateDetail.data ?? listedCandidate;
   const planMutation = useMutation({
     mutationFn: createContentPlan,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["content", "plans"] });
+      if (!tenantId) return;
+      await queryClient.invalidateQueries({ queryKey: queryKeys.contentPlans(tenantId) });
     },
   });
   const candidateAction = useMutation({
     mutationFn: ({ candidateId, action }: { candidateId: string; action: string }) =>
       actionTrendCandidate(candidateId, { action }),
     onSuccess: async () => {
+      if (!tenantId || !params.id) return;
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["trend-candidates"] }),
-        queryClient.invalidateQueries({ queryKey: ["stories", params.id] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.trendCandidates(tenantId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.story(tenantId, params.id) }),
       ]);
     },
   });
 
-  if (story.isLoading || !story.data) {
+  if (story.isPending && !story.data) {
     return <LoadingState label="Loading trend candidate" />;
+  }
+  if (story.isError || !story.data) {
+    return (
+      <ErrorState
+        message="This story cluster could not be loaded."
+        onRetry={() => {
+          void story.refetch();
+        }}
+      />
+    );
   }
 
   const d = story.data;
-  const candidate = candidates.data?.find((item) => item.story_cluster_id === d.id);
   const scoreExplanation = candidate?.score_explanation ?? {};
   const sourceMix = scoreExplanation.source_mix_breakdown as Record<string, number> | undefined;
   const reviewReasons = (scoreExplanation.review_reasons as string[] | undefined) ?? [];
@@ -46,6 +73,10 @@ export default function StoryDetailPage() {
 
   return (
     <div className="space-y-6">
+      <HelpDisclosure summary="How to read this candidate">
+        Scores combine velocity, cross-source confirmation, and risk gates. Approve or hold the linked trend candidate
+        before creating an asset plan when the cluster is content-worthy.
+      </HelpDisclosure>
       <Card className="p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>

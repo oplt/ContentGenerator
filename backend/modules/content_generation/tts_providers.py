@@ -24,6 +24,7 @@ from pathlib import Path
 import httpx
 
 from backend.core.config import settings
+from backend.core.http import shared_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class KokoroTTSProvider(TTSProvider):
             "response_format": "wav",
         }
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with shared_http_client() as client:
                 resp = await client.post(f"{self._base}/v1/audio/speech", json=payload)
                 resp.raise_for_status()
                 return TTSResult(
@@ -196,7 +197,7 @@ class OpenAITTSProvider(TTSProvider):
             "response_format": "mp3",
         }
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with shared_http_client() as client:
                 resp = await client.post(
                     "https://api.openai.com/v1/audio/speech",
                     headers={"Authorization": f"Bearer {self._api_key}"},
@@ -242,7 +243,7 @@ class ElevenLabsTTSProvider(TTSProvider):
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with shared_http_client() as client:
                 resp = await client.post(
                     f"{self._BASE}/v1/text-to-speech/{self._voice_id}",
                     headers={

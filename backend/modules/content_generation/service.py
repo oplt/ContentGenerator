@@ -6,12 +6,11 @@ import re
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-
-logger = logging.getLogger(__name__)
 
 from backend.modules.audit.service import AuditService
 from backend.modules.editorial_briefs.models import BriefStatus
@@ -29,15 +28,24 @@ from backend.modules.content_generation.models import (
     VideoStage,
 )
 from backend.modules.content_generation.repository import ContentGenerationRepository
+from backend.modules.content_generation.asset_specs import build_platform_asset_specs
 from backend.modules.content_generation.schemas import ContentJobResponse, GeneratedAssetResponse
 from backend.modules.content_strategy.models import ContentFormat
 from backend.modules.content_strategy.repository import ContentStrategyRepository
 from backend.modules.fact_review.service import FactRiskReviewService
+from backend.modules.publishing.account_selection import (
+    group_by_fingerprint,
+    resolve_social_accounts,
+    unique_platforms,
+)
+from backend.modules.publishing.repository import PublishingRepository
 from backend.modules.story_intelligence.models import NormalizedArticle, StoryCluster, TrendWorkflowState
 from backend.modules.inference.providers import get_llm_provider
 from backend.modules.story_intelligence.repository import StoryIntelligenceRepository
 from backend.modules.video_pipeline.service import VideoPipelineService
 from backend.modules.video_pipeline.schemas import BrandingConfig, MediaSequenceItem, RenderPreset, RendererInput, VisualSegment
+
+logger = logging.getLogger(__name__)
 
 
 PLATFORM_LIMITS = {
@@ -55,6 +63,7 @@ class ContentGenerationService:
         self.db = db
         self.repo = ContentGenerationRepository(db)
         self.plan_repo = ContentStrategyRepository(db)
+        self.publishing_repo = PublishingRepository(db)
         self.story_repo = StoryIntelligenceRepository(db)
         self.audit = AuditService(db)
         self.video_pipeline = VideoPipelineService(db)
@@ -200,7 +209,7 @@ class ContentGenerationService:
         tenant_id: UUID,
         asset_group_id: UUID | None,
         content_job_id: UUID,
-        asset_type: GeneratedAssetType,
+        asset_type: str,
         platform: str | None,
         variant_label: str | None,
         text_content: str,
@@ -212,7 +221,7 @@ class ContentGenerationService:
             tenant_id=tenant_id,
             asset_group_id=asset_group_id,
             content_job_id=content_job_id,
-            asset_type=asset_type.value,
+            asset_type=asset_type,
             platform=platform,
             variant_label=variant_label,
             mime_type=mime_type,
@@ -262,7 +271,7 @@ class ContentGenerationService:
     def _build_attribution_list(
         self,
         *,
-        brief,
+        brief: Any,
         source_articles: list[NormalizedArticle],
     ) -> dict[str, object]:
         links = []
@@ -284,8 +293,8 @@ class ContentGenerationService:
         self,
         *,
         cluster: StoryCluster,
-        brief,
-        orch_result,
+        brief: Any,
+        orch_result: Any,
         fact_checklist: dict[str, object],
         source_articles: list[NormalizedArticle],
         effective_platforms: list[str],
@@ -309,18 +318,19 @@ class ContentGenerationService:
             reviewer_issues=list(orch_result.reviewer.issues or []),
         )
         # Preserve the externally passed fact_checklist as the persisted reference.
-        review["policy_flags"]["fact_checklist_topic"] = fact_checklist.get("topic")
-        return review["policy_flags"]
+        policy_flags = cast(dict[str, object], review.get("policy_flags", {}))
+        policy_flags["fact_checklist_topic"] = fact_checklist.get("topic")
+        return policy_flags
 
     def _build_brand_voice_report(
         self,
         *,
-        plan,
-        brief,
-        profile,
+        plan: Any,
+        brief: Any,
+        profile: Any,
         effective_tone: str,
         platforms: list[str],
-        asset_manifest: list[dict[str, object]],
+        asset_manifest: list[dict[str, Any]],
     ) -> dict[str, object]:
         profile_platforms = getattr(profile, "preferred_platforms", []) if profile is not None else []
         if not isinstance(profile_platforms, list):
@@ -367,7 +377,7 @@ class ContentGenerationService:
     def _measure_originality(
         self,
         *,
-        asset_manifest: list[dict[str, object]],
+        asset_manifest: list[dict[str, Any]],
         source_articles: list[NormalizedArticle],
     ) -> dict[str, object]:
         candidate_texts = [str(asset.get("content", "")).strip() for asset in asset_manifest if str(asset.get("content", "")).strip()]
@@ -419,7 +429,7 @@ class ContentGenerationService:
         script: str,
         cta: str,
         talking_points: list[str],
-        profile=None,
+        profile: Any = None,
     ) -> dict[str, object]:
         subtitle_lines = self._sentence_split(script)[:8]
         visual_segments = [
@@ -500,450 +510,35 @@ class ContentGenerationService:
         self,
         *,
         cluster: StoryCluster,
-        brief,
-        plan,
-        profile,
-        orch_result,
+        brief: Any,
+        plan: Any,
+        profile: Any,
+        orch_result: Any,
         effective_platforms: list[str],
         primary_platform: str,
         source_articles: list[NormalizedArticle],
-    ) -> list[dict[str, object]]:
-        hashtags = orch_result.writer.hashtags or self._build_hashtags(cluster.primary_topic, plan.hashtags_strategy).split()
-        safer_variant = orch_result.reviewer.revised_draft or f"{cluster.headline}. {cluster.summary}".strip()
-        thread_text = self._build_thread(
-            cluster.headline,
-            cluster.summary or "",
-            list(getattr(brief, "talking_points", []) or orch_result.planner.structure or []),
-            plan.recommended_cta or "",
-        )
-        evidence_lines = [
-            f"- {article.source_name}: {article.title} ({article.canonical_url})"
-            for article in source_articles[:5]
-        ] or [f"- {url}" for url in getattr(brief, "evidence_links", [])[:5]]
-        fact_checklist = self._build_fact_checklist(
-            cluster=cluster,
-            source_articles=source_articles,
-            claims=list(orch_result.extractor.claims or []),
-            evidence_links=list(getattr(brief, "evidence_links", []) or []),
-        )
-        attribution_list = self._build_attribution_list(brief=brief, source_articles=source_articles)
-        policy_flags = self._build_policy_flags(
+    ) -> list[dict[str, Any]]:
+        return build_platform_asset_specs(
+            self,
             cluster=cluster,
             brief=brief,
+            plan=plan,
+            profile=profile,
             orch_result=orch_result,
-            fact_checklist=fact_checklist,
-            source_articles=source_articles,
             effective_platforms=effective_platforms,
+            primary_platform=primary_platform,
+            source_articles=source_articles,
         )
 
-        manifest: list[dict[str, object]] = [
-            {
-                "asset_type": GeneratedAssetType.PLANNER_STAGE,
-                "platform": None,
-                "variant_label": "planner",
-                "content": self._serialize_payload(orch_result.planner.model_dump()),
-                "mime_type": "application/json",
-                "asset_metadata": {"stage": "planner"},
-            },
-            {
-                "asset_type": GeneratedAssetType.WRITER_STAGE,
-                "platform": None,
-                "variant_label": "writer",
-                "content": self._serialize_payload(orch_result.writer.model_dump()),
-                "mime_type": "application/json",
-                "asset_metadata": {"stage": "writer"},
-            },
-            {
-                "asset_type": GeneratedAssetType.REVIEWER_STAGE,
-                "platform": None,
-                "variant_label": "reviewer",
-                "content": self._serialize_payload(orch_result.reviewer.model_dump()),
-                "mime_type": "application/json",
-                "asset_metadata": {"stage": "reviewer"},
-            },
-            {
-                "asset_type": GeneratedAssetType.RESEARCH_DIGEST,
-                "platform": None,
-                "variant_label": "evidence",
-                "content": "\n".join(evidence_lines),
-                "mime_type": "text/markdown",
-                "asset_metadata": {"source_count": str(len(source_articles))},
-            },
-            {
-                "asset_type": GeneratedAssetType.FACT_CHECKLIST,
-                "platform": None,
-                "variant_label": "facts",
-                "content": self._serialize_payload(fact_checklist),
-                "mime_type": "application/json",
-                "asset_metadata": {"report": "fact_checklist"},
-            },
-            {
-                "asset_type": GeneratedAssetType.ATTRIBUTION_LIST,
-                "platform": None,
-                "variant_label": "attribution",
-                "content": self._serialize_payload(attribution_list),
-                "mime_type": "application/json",
-                "asset_metadata": {"report": "attribution"},
-            },
-            {
-                "asset_type": GeneratedAssetType.POLICY_FLAGS,
-                "platform": None,
-                "variant_label": "policy",
-                "content": self._serialize_payload(policy_flags),
-                "mime_type": "application/json",
-                "asset_metadata": {"report": "policy_flags"},
-            },
-        ]
-
-        for platform in effective_platforms:
-            draft_text = orch_result.writer.drafts.get(platform) or orch_result.final_draft or cluster.headline
-            manifest.append(
-                {
-                    "asset_type": GeneratedAssetType.TEXT_VARIANT,
-                    "platform": platform,
-                    "variant_label": "A",
-                    "content": draft_text,
-                    "mime_type": "text/markdown",
-                    "asset_metadata": {"role": "writer_primary"},
-                }
-            )
-
-        for index, variant_text in enumerate(orch_result.optimizer.variants[1:], start=1):
-            manifest.append(
-                {
-                    "asset_type": GeneratedAssetType.TEXT_VARIANT,
-                    "platform": primary_platform,
-                    "variant_label": chr(ord("A") + index),
-                    "content": variant_text,
-                    "mime_type": "text/markdown",
-                    "asset_metadata": {"role": "optimizer_variant", "variant_index": str(index)},
-                }
-            )
-
-        platform_set = set(effective_platforms)
-        if "x" in platform_set:
-            manifest.extend(
-                [
-                    {
-                        "asset_type": GeneratedAssetType.HOOK,
-                        "platform": "x",
-                        "variant_label": "hook_variants",
-                        "content": self._serialize_payload(orch_result.optimizer.variants[:3] or [orch_result.planner.hook]),
-                        "mime_type": "application/json",
-                        "asset_metadata": {"platform_package": "x"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.THREAD,
-                        "platform": "x",
-                        "variant_label": "thread",
-                        "content": thread_text,
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "x"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.TEXT_VARIANT,
-                        "platform": "x",
-                        "variant_label": "safe",
-                        "content": safer_variant,
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "x", "risk_profile": "safer"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.HASHTAG_PACK,
-                        "platform": "x",
-                        "variant_label": "keywords",
-                        "content": " ".join(hashtags[:8]),
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": "x"},
-                    },
-                ]
-            )
-        if "threads" in platform_set:
-            base = orch_result.writer.drafts.get("threads") or orch_result.final_draft or cluster.summary or cluster.headline
-            manifest.extend(
-                [
-                    {
-                        "asset_type": GeneratedAssetType.TEXT_VARIANT,
-                        "platform": "threads",
-                        "variant_label": "conversational",
-                        "content": f"{base}\n\nWhat stands out most to you here?",
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "threads"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.TEXT_VARIANT,
-                        "platform": "threads",
-                        "variant_label": "reply_bait",
-                        "content": f"{base}\n\nDrop your take below.",
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "threads"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.CAPTION,
-                        "platform": "threads",
-                        "variant_label": "media_caption",
-                        "content": f"{cluster.headline}\n{cluster.summary or ''}".strip(),
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "threads"},
-                    },
-                ]
-            )
-        if "bluesky" in platform_set:
-            concise = self._trim(orch_result.writer.drafts.get("bluesky") or orch_result.final_draft or cluster.headline, PLATFORM_LIMITS["bluesky"])
-            manifest.extend(
-                [
-                    {
-                        "asset_type": GeneratedAssetType.TEXT_VARIANT,
-                        "platform": "bluesky",
-                        "variant_label": "concise",
-                        "content": concise,
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "bluesky"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.THREAD,
-                        "platform": "bluesky",
-                        "variant_label": "starter",
-                        "content": self._trim(thread_text, PLATFORM_LIMITS["bluesky"]),
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "bluesky"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.IMAGE_CAPTION,
-                        "platform": "bluesky",
-                        "variant_label": "image_caption",
-                        "content": cluster.summary or cluster.headline,
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": "bluesky"},
-                    },
-                ]
-            )
-        if "instagram" in platform_set:
-            carousel_slides = [
-                orch_result.planner.hook or cluster.headline,
-                *(list(getattr(brief, "talking_points", []) or [])[:3] or self._sentence_split(cluster.summary or cluster.headline)[:3]),
-                plan.recommended_cta or getattr(brief, "cta_strategy", "") or "Follow for more",
-            ]
-            manifest.extend(
-                [
-                    {
-                        "asset_type": GeneratedAssetType.CAPTION,
-                        "platform": "instagram",
-                        "variant_label": "reel_caption",
-                        "content": f"{cluster.headline}\n\n{cluster.summary or ''}\n\n{plan.recommended_cta or ''}".strip(),
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "instagram"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.CAROUSEL_SLIDES,
-                        "platform": "instagram",
-                        "variant_label": "slides",
-                        "content": self._serialize_payload(carousel_slides),
-                        "mime_type": "application/json",
-                        "asset_metadata": {"platform_package": "instagram"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.CAPTION,
-                        "platform": "instagram",
-                        "variant_label": "post_caption",
-                        "content": orch_result.writer.drafts.get("instagram") or orch_result.final_draft or cluster.summary or cluster.headline,
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "instagram"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.HASHTAG_PACK,
-                        "platform": "instagram",
-                        "variant_label": "hashtags",
-                        "content": " ".join(hashtags[:12]),
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": "instagram"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.COVER_COPY,
-                        "platform": "instagram",
-                        "variant_label": "cover",
-                        "content": orch_result.planner.hook or cluster.headline,
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": "instagram"},
-                    },
-                ]
-            )
-        if "tiktok" in platform_set:
-            script = self._build_thread(cluster.headline, cluster.summary or "", list(getattr(brief, "talking_points", []) or []), plan.recommended_cta or "")
-            subtitle_plan = self._sentence_split(script)
-            manifest.extend(
-                [
-                    {
-                        "asset_type": GeneratedAssetType.HOOK,
-                        "platform": "tiktok",
-                        "variant_label": "hook",
-                        "content": orch_result.planner.hook or cluster.headline,
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": "tiktok"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.SCRIPT,
-                        "platform": "tiktok",
-                        "variant_label": "short_script",
-                        "content": script,
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "tiktok"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.CAPTION,
-                        "platform": "tiktok",
-                        "variant_label": "caption",
-                        "content": orch_result.writer.drafts.get("tiktok") or orch_result.final_draft or cluster.summary or cluster.headline,
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": "tiktok"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.ONSCREEN_TEXT,
-                        "platform": "tiktok",
-                        "variant_label": "onscreen_plan",
-                        "content": self._serialize_payload(subtitle_plan[:6]),
-                        "mime_type": "application/json",
-                        "asset_metadata": {"platform_package": "tiktok"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.SHOT_LIST,
-                        "platform": "tiktok",
-                        "variant_label": "shot_list",
-                        "content": self._serialize_payload((getattr(brief, "talking_points", []) or subtitle_plan)[:6]),
-                        "mime_type": "application/json",
-                        "asset_metadata": {"platform_package": "tiktok"},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.SUBTITLE,
-                        "platform": "tiktok",
-                        "variant_label": "subtitles",
-                        "content": "\n".join(subtitle_plan),
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": "tiktok"},
-                    },
-                ]
-            )
-        if "youtube" in platform_set or "youtube_shorts" in platform_set:
-            youtube_platform = "youtube_shorts" if "youtube_shorts" in platform_set else "youtube"
-            script = self._build_thread(cluster.headline, cluster.summary or "", list(getattr(brief, "talking_points", []) or []), plan.recommended_cta or "")
-            title_variants = [
-                self._trim(orch_result.planner.hook or cluster.headline, PLATFORM_LIMITS["youtube_title"]),
-                self._trim(f"{cluster.primary_topic.title()}: {cluster.headline}", PLATFORM_LIMITS["youtube_title"]),
-                self._trim(f"What changed: {cluster.headline}", PLATFORM_LIMITS["youtube_title"]),
-            ]
-            manifest.extend(
-                [
-                    {
-                        "asset_type": GeneratedAssetType.HOOK,
-                        "platform": youtube_platform,
-                        "variant_label": "hook",
-                        "content": orch_result.planner.hook or cluster.headline,
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": youtube_platform},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.SCRIPT,
-                        "platform": youtube_platform,
-                        "variant_label": "short_script",
-                        "content": script,
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": youtube_platform},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.TITLE_VARIANTS,
-                        "platform": youtube_platform,
-                        "variant_label": "titles",
-                        "content": self._serialize_payload(title_variants),
-                        "mime_type": "application/json",
-                        "asset_metadata": {"platform_package": youtube_platform},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.DESCRIPTION,
-                        "platform": youtube_platform,
-                        "variant_label": "description",
-                        "content": self._trim(
-                            f"{cluster.summary or cluster.headline}\n\n{plan.recommended_cta or ''}\n\nSources:\n" + "\n".join(evidence_lines[:3]),
-                            PLATFORM_LIMITS["youtube_description"],
-                        ),
-                        "mime_type": "text/markdown",
-                        "asset_metadata": {"platform_package": youtube_platform},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.TAGS,
-                        "platform": youtube_platform,
-                        "variant_label": "tags",
-                        "content": ", ".join([tag.lstrip("#") for tag in hashtags[:12]]),
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": youtube_platform},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.BEAT_SHEET,
-                        "platform": youtube_platform,
-                        "variant_label": "beats",
-                        "content": self._serialize_payload(self._sentence_split(script)[:6]),
-                        "mime_type": "application/json",
-                        "asset_metadata": {"platform_package": youtube_platform},
-                    },
-                    {
-                        "asset_type": GeneratedAssetType.COVER_COPY,
-                        "platform": youtube_platform,
-                        "variant_label": "thumbnail_text",
-                        "content": title_variants[0],
-                        "mime_type": "text/plain",
-                        "asset_metadata": {"platform_package": youtube_platform},
-                    },
-                ]
-            )
-
-        formatter_manifest = [
-            {
-                "asset_type": str(item["asset_type"].value),
-                "platform": item["platform"],
-                "variant_label": item["variant_label"],
-                "mime_type": item["mime_type"],
-            }
-            for item in manifest
-        ]
-        manifest.append(
-            {
-                "asset_type": GeneratedAssetType.FORMATTER_STAGE,
-                "platform": None,
-                "variant_label": "formatter",
-                "content": self._serialize_payload(formatter_manifest),
-                "mime_type": "application/json",
-                "asset_metadata": {"stage": "formatter"},
-            }
-        )
-
-        for platform in sorted(platform_set.intersection({"instagram", "tiktok", "youtube", "youtube_shorts"})):
-            renderer_payload = self._build_renderer_input_payload(
-                platform=platform,
-                headline=cluster.headline,
-                summary=cluster.summary or "",
-                script=self._build_thread(
-                    cluster.headline,
-                    cluster.summary or "",
-                    list(getattr(brief, "talking_points", []) or []),
-                    plan.recommended_cta or "",
-                ),
-                cta=plan.recommended_cta or "",
-                talking_points=list(getattr(brief, "talking_points", []) or []),
-                profile=profile,
-            )
-            manifest.append(
-                {
-                    "asset_type": GeneratedAssetType.RENDERER_INPUT,
-                    "platform": platform,
-                    "variant_label": "renderer_input",
-                    "content": self._serialize_payload(renderer_payload),
-                    "mime_type": "application/json",
-                    "asset_metadata": {"stage": "renderer_input"},
-                }
-            )
-
-        return manifest
-
-    async def generate(self, *, tenant_id: UUID, plan_id: UUID, feedback: str | None = None, revision_of_job_id: UUID | None = None) -> ContentJob:
+    async def generate(
+        self,
+        *,
+        tenant_id: UUID,
+        plan_id: UUID,
+        feedback: str | None = None,
+        revision_of_job_id: UUID | None = None,
+        social_account_ids: list[UUID] | None = None,
+    ) -> ContentJob:
         plan = await self.plan_repo.get_content_plan(tenant_id, plan_id)
         if not plan:
             raise HTTPException(status_code=404, detail="Content plan not found")
@@ -965,6 +560,24 @@ class ContentGenerationService:
                 ),
             )
 
+        selected_accounts = await resolve_social_accounts(
+            repo=self.publishing_repo,
+            tenant_id=tenant_id,
+            social_account_ids=social_account_ids,
+            stored_account_ids=getattr(plan, "target_social_account_ids", None) or [],
+        )
+        account_id_strs = [str(account.id) for account in selected_accounts]
+        if social_account_ids:
+            plan.target_social_account_ids = account_id_strs
+        fingerprint_groups = group_by_fingerprint(selected_accounts)
+        variant_fingerprints = {
+            fingerprint: [str(account.id) for account in accounts]
+            for fingerprint, accounts in fingerprint_groups.items()
+        }
+        # One LLM variant per unique platform fingerprint key (platform prefix).
+        account_platforms = unique_platforms(selected_accounts)
+        preferred_platforms = account_platforms or list(plan.target_platforms or [])
+
         job = await self.repo.create_job(
             ContentJob(
                 tenant_id=tenant_id,
@@ -979,7 +592,10 @@ class ContentGenerationService:
                     "headline": cluster.headline,
                     "summary": cluster.summary,
                     "topic": cluster.primary_topic,
+                    "variant_fingerprints": variant_fingerprints,
+                    "target_social_account_ids": account_id_strs,
                 },
+                target_social_account_ids=account_id_strs,
                 started_at=datetime.now(timezone.utc),
             )
         )
@@ -989,9 +605,16 @@ class ContentGenerationService:
                 content_job_id=job.id,
                 content_plan_id=plan.id,
                 status=GeneratedAssetGroupStatus.CREATED.value,
-                platform_targets=plan.target_platforms,
+                platform_targets=preferred_platforms,
+                target_social_account_ids=account_id_strs,
                 asset_types=[],
-                generation_trace={"brief_id": str(brief.id), "revision_of_job_id": str(revision_of_job_id) if revision_of_job_id else None},
+                generation_trace={
+                    "brief_id": str(brief.id),
+                    "revision_of_job_id": str(revision_of_job_id) if revision_of_job_id else None,
+                    "variant_fingerprints": variant_fingerprints,
+                    "llm_platform_count": len(preferred_platforms),
+                    "selected_account_count": len(selected_accounts),
+                },
                 quality_report={},
             )
         )
@@ -1004,7 +627,7 @@ class ContentGenerationService:
         )
 
         # ── Optimization-informed tone selection ─────────────────────────────
-        primary_platform = plan.target_platforms[0] if plan.target_platforms else "x"
+        primary_platform = preferred_platforms[0] if preferred_platforms else "x"
         effective_tone = plan.tone
         try:
             from backend.modules.analytics.optimization import OptimizationService
@@ -1018,7 +641,9 @@ class ContentGenerationService:
         profile = None
         if getattr(plan, "brand_profile_id", None):
             try:
-                profile = await self.plan_repo.get_brand_profile_by_id(tenant_id, plan.brand_profile_id)
+                brand_profile_id = plan.brand_profile_id
+                if brand_profile_id is not None:
+                    profile = await self.plan_repo.get_brand_profile_by_id(tenant_id, brand_profile_id)
             except Exception:
                 profile = None
         if not profile:
@@ -1039,7 +664,7 @@ class ContentGenerationService:
             risk_level=getattr(cluster, "risk_level", None) or "safe",
             tone=effective_tone,
             audience="Social media audience",
-            preferred_platforms=plan.target_platforms,
+            preferred_platforms=preferred_platforms,
             hashtags_strategy=plan.hashtags_strategy or "balanced",
             cta=plan.recommended_cta or "",
             worthiness_threshold=0.35,
@@ -1071,7 +696,14 @@ class ContentGenerationService:
             "orchestrator_extractor_vertical": orch_result.extractor.content_vertical,
         }
 
-        effective_platforms = list(orch_result.planner.target_platforms or plan.target_platforms)
+        # Account selection wins; planner may narrow but never invent platforms beyond selection.
+        planner_platforms = list(orch_result.planner.target_platforms or [])
+        if preferred_platforms:
+            effective_platforms = [p for p in preferred_platforms if p in set(planner_platforms)] or list(
+                preferred_platforms
+            )
+        else:
+            effective_platforms = planner_platforms or list(plan.target_platforms or [])
         primary_platform = effective_platforms[0] if effective_platforms else "x"
         asset_manifest = self._build_platform_asset_specs(
             cluster=cluster,
@@ -1116,17 +748,23 @@ class ContentGenerationService:
             ]
         )
         for asset_spec in asset_manifest:
+            asset_type_value = asset_spec["asset_type"]
+            asset_type = (
+                asset_type_value.value
+                if isinstance(asset_type_value, GeneratedAssetType)
+                else str(asset_type_value)
+            )
             await self._create_asset(
                 tenant_id=tenant_id,
                 asset_group_id=asset_group.id,
                 content_job_id=job.id,
-                asset_type=asset_spec["asset_type"],
-                platform=asset_spec["platform"],
-                variant_label=asset_spec["variant_label"],
-                text_content=asset_spec["content"],
+                asset_type=asset_type,
+                platform=cast(str | None, asset_spec["platform"]),
+                variant_label=cast(str | None, asset_spec["variant_label"]),
+                text_content=str(asset_spec["content"]),
                 source_trace=source_trace,
-                mime_type=asset_spec["mime_type"],
-                asset_metadata=asset_spec.get("asset_metadata"),
+                mime_type=str(asset_spec["mime_type"]),
+                asset_metadata=cast(dict[str, str] | None, asset_spec.get("asset_metadata")),
             )
 
         # Persist inference trace in the job for explainability
@@ -1134,7 +772,7 @@ class ContentGenerationService:
             **job.grounding_bundle,
             "risk_review": json.loads(
                 next(
-                    item["content"]
+                    str(item["content"])
                     for item in asset_manifest
                     if item["asset_type"] == GeneratedAssetType.POLICY_FLAGS
                 )
@@ -1142,7 +780,7 @@ class ContentGenerationService:
             "risk_label": str(
                 json.loads(
                     next(
-                        item["content"]
+                        str(item["content"])
                         for item in asset_manifest
                         if item["asset_type"] == GeneratedAssetType.POLICY_FLAGS
                     )
@@ -1192,14 +830,14 @@ class ContentGenerationService:
             "optimizer_variant_count": len(orch_result.optimizer.variants),
             "policy_flags": json.loads(
                 next(
-                    item["content"]
+                    str(item["content"])
                     for item in asset_manifest
                     if item["asset_type"] == GeneratedAssetType.POLICY_FLAGS
                 )
             ),
             "risk_label": json.loads(
                 next(
-                    item["content"]
+                    str(item["content"])
                     for item in asset_manifest
                     if item["asset_type"] == GeneratedAssetType.POLICY_FLAGS
                 )
@@ -1207,7 +845,7 @@ class ContentGenerationService:
             "brand_voice": brand_voice_report,
             "originality": originality_report,
         }
-        policy_payload = asset_group.quality_report["policy_flags"]
+        policy_payload = cast(dict[str, object], asset_group.quality_report.get("policy_flags", {}))
 
         # ── Cover image generation ────────────────────────────────────────────
         try:
@@ -1299,6 +937,12 @@ class ContentGenerationService:
             plan_id=original_job.content_plan_id,
             feedback=feedback,
             revision_of_job_id=original_job.id,
+            social_account_ids=[
+                UUID(item)
+                for item in (getattr(original_job, "target_social_account_ids", None) or [])
+                if item
+            ]
+            or None,
         )
 
     async def regenerate_asset_group(
@@ -1352,34 +996,46 @@ class ContentGenerationService:
         if not job:
             raise HTTPException(status_code=404, detail="Content job not found")
         assets = await self.repo.list_assets(job.id)
+        asset_group_id = next(
+            (asset.asset_group_id for asset in assets if getattr(asset, "asset_group_id", None)),
+            None,
+        )
+        if asset_group_id is None:
+            group = await self.repo.get_asset_group_for_job(job.id)
+            asset_group_id = group.id if group else None
         return ContentJobResponse(
-            **{
-                "id": job.id,
-                "content_plan_id": job.content_plan_id,
-                "revision_of_job_id": job.revision_of_job_id,
-                "job_type": str(job.job_type),
-                "status": str(job.status),
-                "stage": str(job.stage),
-                "progress": job.progress,
-                "feedback": job.feedback,
-                "error_message": job.error_message,
-                "risk_label": job.grounding_bundle.get("risk_label"),
-                "risk_review": job.grounding_bundle.get("risk_review", {}),
-                "started_at": job.started_at,
-                "completed_at": job.completed_at,
-                "assets": [
-                    GeneratedAssetResponse(
-                        id=asset.id,
-                        asset_type=str(asset.asset_type),
-                        platform=asset.platform,
-                        variant_label=asset.variant_label,
-                        public_url=asset.public_url,
-                        mime_type=asset.mime_type,
-                        metadata=asset.asset_metadata,
-                        source_trace=asset.source_trace,
-                        text_content=asset.text_content,
-                    )
-                    for asset in assets
-                ],
-            }
+            id=job.id,
+            content_plan_id=job.content_plan_id,
+            revision_of_job_id=job.revision_of_job_id,
+            job_type=str(job.job_type),
+            status=str(job.status),
+            stage=str(job.stage),
+            progress=job.progress,
+            feedback=job.feedback,
+            error_message=job.error_message,
+            risk_label=cast(str | None, job.grounding_bundle.get("risk_label")),
+            risk_review=cast(dict[str, object], job.grounding_bundle.get("risk_review", {})),
+            target_social_account_ids=list(getattr(job, "target_social_account_ids", None) or []),
+            variant_fingerprints=cast(
+                dict[str, list[str]],
+                job.grounding_bundle.get("variant_fingerprints", {}) or {},
+            ),
+            asset_group_id=asset_group_id,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            assets=[
+                GeneratedAssetResponse(
+                    id=asset.id,
+                    asset_type=str(asset.asset_type),
+                    platform=asset.platform,
+                    variant_label=asset.variant_label,
+                    public_url=asset.public_url,
+                    mime_type=asset.mime_type,
+                    metadata=asset.asset_metadata,
+                    source_trace=asset.source_trace,
+                    text_content=asset.text_content,
+                    asset_group_id=asset.asset_group_id,
+                )
+                for asset in assets
+            ],
         )

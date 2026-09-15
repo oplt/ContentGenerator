@@ -106,14 +106,92 @@ services:
     ports:
       - "8000:8000"
 
-  worker:
+  # Specialized Celery workers (T3.1) — isolate I/O, LLM, media, publishing.
+  worker-io:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email --concurrency=4
+    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-io@%h --queues=ingestion,enrichment,analytics,email,approvals --concurrency=4 --prefetch-multiplier=1
     env_file:
       - backend/.env.example
     environment:
+      - DB_POOL_PROCESS_ROLE=worker
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDINGS_PROVIDER=ollama
+      - EMBEDDINGS_MODEL=nomic-embed-text
+    volumes:
+      - ./backend:/app/backend
+      - ./docs:/app/docs
+    depends_on:
+      - api
+      - redis
+      - ollama
+
+  worker-llm:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-llm@%h --queues=generation --concurrency=2 --prefetch-multiplier=1
+    env_file:
+      - backend/.env.example
+    environment:
+      - DB_POOL_PROCESS_ROLE=worker
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDINGS_PROVIDER=ollama
+      - EMBEDDINGS_MODEL=nomic-embed-text
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.2:3b
+    volumes:
+      - ./backend:/app/backend
+      - ./docs:/app/docs
+    depends_on:
+      - api
+      - redis
+      - ollama
+
+  worker-media:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-media@%h --queues=video --concurrency=1 --prefetch-multiplier=1
+    env_file:
+      - backend/.env.example
+    environment:
+      - DB_POOL_PROCESS_ROLE=worker
+    volumes:
+      - ./backend:/app/backend
+      - ./docs:/app/docs
+    depends_on:
+      - api
+      - redis
+
+  worker-publishing:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --hostname=worker-publishing@%h --queues=publishing --concurrency=2 --prefetch-multiplier=1
+    env_file:
+      - backend/.env.example
+    environment:
+      - DB_POOL_PROCESS_ROLE=worker
+    volumes:
+      - ./backend:/app/backend
+      - ./docs:/app/docs
+    depends_on:
+      - api
+      - redis
+
+  # Optional all-in-one worker for local debugging (profile: monolith-worker).
+  worker:
+    profiles: ["monolith-worker"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO --queues=ingestion,enrichment,generation,video,approvals,publishing,analytics,email --concurrency=4 --prefetch-multiplier=1
+    env_file:
+      - backend/.env.example
+    environment:
+      - DB_POOL_PROCESS_ROLE=worker
       - OLLAMA_BASE_URL=http://ollama:11434
       - EMBEDDINGS_PROVIDER=ollama
       - EMBEDDINGS_MODEL=nomic-embed-text

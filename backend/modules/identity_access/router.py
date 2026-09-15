@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal, cast
+
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +36,7 @@ router = APIRouter()
 
 _REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * settings.REFRESH_TOKEN_EXPIRE_DAYS
 _ACCESS_COOKIE_MAX_AGE = 60 * settings.ACCESS_TOKEN_EXPIRE_MINUTES
+_COOKIE_SAMESITE = cast(Literal["lax", "strict", "none"], settings.cookie_samesite)
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str, csrf_token: str) -> None:
@@ -42,7 +45,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         value=access_token,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.cookie_samesite,
+        samesite=_COOKIE_SAMESITE,
         max_age=_ACCESS_COOKIE_MAX_AGE,
         path="/",
     )
@@ -51,7 +54,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         value=refresh_token,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.cookie_samesite,
+        samesite=_COOKIE_SAMESITE,
         max_age=_REFRESH_COOKIE_MAX_AGE,
         path="/api/v1/auth",
     )
@@ -60,7 +63,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         value=csrf_token,
         httponly=False,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.cookie_samesite,
+        samesite=_COOKIE_SAMESITE,
         max_age=_REFRESH_COOKIE_MAX_AGE,
         path="/",
     )
@@ -126,7 +129,7 @@ async def sign_in(
         generate_csrf_token(),
     )
     return AuthSessionResponse(
-        user=await service.build_auth_user(result["user"]),
+        user=await service.build_auth_user(cast(User, result["user"])),
     )
 
 
@@ -150,7 +153,7 @@ async def refresh(
         generate_csrf_token(),
     )
     return AuthSessionResponse(
-        user=await service.build_auth_user(result["user"]),
+        user=await service.build_auth_user(cast(User, result["user"])),
     )
 
 

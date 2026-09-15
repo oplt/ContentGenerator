@@ -44,7 +44,7 @@ class ApprovalRequest(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     content_job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("content_jobs.id", ondelete="CASCADE"), nullable=True
     )
-    status: Mapped[ApprovalStatus] = mapped_column(String(32), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     channel: Mapped[str] = mapped_column(String(32), nullable=False, default="telegram")
     recipient: Mapped[str] = mapped_column(String(64), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="stub")
@@ -81,7 +81,7 @@ class ApprovalMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     message_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    parsed_intent: Mapped[ApprovalIntent] = mapped_column(String(32), nullable=False, default="unknown")
+    parsed_intent: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     intent_confidence: Mapped[float] = mapped_column(nullable=False, default=0.0)
     user_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)

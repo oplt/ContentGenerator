@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from backend.core.cache import redis_cache
-from backend.core.time_utils import as_utc, utc_now, utc_now_naive
+from backend.core.tenant_cache import (
+    OWNER_IDENTITY,
+    CachePolicy,
+    build_cache_key,
+    hydrate_orm,
+    orm_column_dict,
+    tenant_cache,
+)
+from backend.core.time_utils import utc_now_naive
 from backend.modules.identity_access.models import (
     MembershipStatus,
     Permission,
@@ -21,43 +27,23 @@ from backend.modules.identity_access.models import (
     User,
 )
 
+_TENANT_POLICY = CachePolicy(owner=OWNER_IDENTITY, ttl_seconds=3600, negative_ttl_seconds=30)
+_PERM_POLICY = CachePolicy(owner=OWNER_IDENTITY, ttl_seconds=3600, negative_ttl_seconds=0)
+_ROLE_POLICY = CachePolicy(owner=OWNER_IDENTITY, ttl_seconds=3600, negative_ttl_seconds=30)
+
+
 class IdentityRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def get_user_by_email(self, email: str) -> User | None:
-        # Try to get from cache first
-        cache_key = f"user_by_email:{email.lower()}"
-        cached_user = await redis_cache.get(cache_key)
-        if cached_user is not None:
-            return User(**cached_user)
-
-        # If not in cache, get from database
+        # Never cache User rows — contain password_hash / MFA secrets (T3.3).
         result = await self.db.execute(select(User).where(User.email == email.lower()))
-        user = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if user:
-            await redis_cache.set(cache_key, user.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return user
+        return result.scalar_one_or_none()
 
     async def get_user_by_id(self, user_id: uuid.UUID | str) -> User | None:
-        # Try to get from cache first
-        cache_key = f"user_by_id:{user_id}"
-        cached_user = await redis_cache.get(cache_key)
-        if cached_user is not None:
-            return User(**cached_user)
-
-        # If not in cache, get from database
         result = await self.db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if user:
-            await redis_cache.set(cache_key, user.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return user
+        return result.scalar_one_or_none()
 
     async def create_user(
         self,
@@ -77,75 +63,84 @@ class IdentityRepository:
         )
         self.db.add(user)
         await self.db.flush()
-        
-        # Invalidate cache for this user
-        cache_key_email = f"user_by_email:{email.lower()}"
-        cache_key_id = f"user_by_id:{user.id}"
-        await redis_cache.delete(cache_key_email)
-        await redis_cache.delete(cache_key_id)
-        
+        # Drop any legacy credential-bearing keys from pre-T3.3 caches.
+        await tenant_cache.delete(
+            f"user_by_email:{email.lower()}",
+            f"user_by_id:{user.id}",
+        )
         return user
 
     async def create_tenant(self, *, name: str, slug: str) -> Tenant:
         tenant = Tenant(name=name, slug=slug, status=TenantStatus.TRIAL.value)
         self.db.add(tenant)
         await self.db.flush()
-        
-        # Invalidate cache for tenant by slug
-        cache_key_slug = f"tenant_by_slug:{slug}"
-        cache_key_id = f"tenant_by_id:{tenant.id}"
-        await redis_cache.delete(cache_key_slug)
-        await redis_cache.delete(cache_key_id)
-        
+        await tenant_cache.delete(
+            build_cache_key(
+                owner=OWNER_IDENTITY,
+                tenant_id=tenant.id,
+                identity="tenant:self",
+            ),
+            build_cache_key(
+                owner=OWNER_IDENTITY,
+                global_scope=True,
+                identity=f"tenant_by_slug:{slug}",
+            ),
+            build_cache_key(
+                owner=OWNER_IDENTITY,
+                global_scope=True,
+                identity="active_tenants",
+            ),
+            f"tenant_by_slug:{slug}",
+            f"tenant_by_id:{tenant.id}",
+            "active_tenants",
+        )
         return tenant
 
     async def get_tenant_by_id(self, tenant_id: uuid.UUID | str) -> Tenant | None:
-        # Try to get from cache first
-        cache_key = f"tenant_by_id:{tenant_id}"
-        cached_tenant = await redis_cache.get(cache_key)
-        if cached_tenant is not None:
-            return Tenant(**cached_tenant)
+        key = build_cache_key(
+            owner=OWNER_IDENTITY,
+            tenant_id=tenant_id,
+            identity="tenant:self",
+        )
 
-        # If not in cache, get from database
-        result = await self.db.execute(select(Tenant).where(Tenant.id == tenant_id))
-        tenant = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if tenant:
-            await redis_cache.set(cache_key, tenant.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return tenant
+        async def _load() -> dict | None:
+            result = await self.db.execute(select(Tenant).where(Tenant.id == tenant_id))
+            tenant = result.scalar_one_or_none()
+            return orm_column_dict(tenant) if tenant else None
+
+        payload = await tenant_cache.get_or_set(
+            key,
+            policy=_TENANT_POLICY,
+            factory=_load,
+            legacy_keys=[f"tenant_by_id:{tenant_id}"],
+        )
+        return hydrate_orm(Tenant, payload) if payload else None
 
     async def get_tenant_by_slug(self, slug: str) -> Tenant | None:
-        # Try to get from cache first
-        cache_key = f"tenant_by_slug:{slug}"
-        cached_tenant = await redis_cache.get(cache_key)
-        if cached_tenant is not None:
-            return Tenant(**cached_tenant)
+        key = build_cache_key(
+            owner=OWNER_IDENTITY,
+            global_scope=True,
+            identity=f"tenant_by_slug:{slug}",
+        )
 
-        # If not in cache, get from database
-        result = await self.db.execute(select(Tenant).where(Tenant.slug == slug))
-        tenant = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if tenant:
-            await redis_cache.set(cache_key, tenant.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return tenant
+        async def _load() -> dict | None:
+            result = await self.db.execute(select(Tenant).where(Tenant.slug == slug))
+            tenant = result.scalar_one_or_none()
+            return orm_column_dict(tenant) if tenant else None
 
-    from sqlalchemy.orm import selectinload
+        payload = await tenant_cache.get_or_set(
+            key,
+            policy=_TENANT_POLICY,
+            factory=_load,
+            legacy_keys=[f"tenant_by_slug:{slug}"],
+        )
+        return hydrate_orm(Tenant, payload) if payload else None
 
     async def list_user_memberships(self, user_id: uuid.UUID | str) -> list[TenantUser]:
-        # Try to get from cache first
-        cache_key = f"user_memberships:{user_id}"
-        cached_memberships = await redis_cache.get(cache_key)
-        if cached_memberships is not None:
-            return [TenantUser(**membership) for membership in cached_memberships]
-
-        # If not in cache, get from database
+        # Needs eager role; skip cache to avoid stale detached graphs.
         result = await self.db.execute(
             select(TenantUser)
-            .options(selectinload(TenantUser.role)) # Eagerly load the role
+            .options(selectinload(TenantUser.role))
             .where(
                 TenantUser.user_id == user_id,
                 TenantUser.membership_status == MembershipStatus.ACTIVE.value,
@@ -153,24 +148,11 @@ class IdentityRepository:
             )
             .order_by(TenantUser.created_at.asc())
         )
-        memberships = list(result.scalars().all())
-        
-        # Cache the result
-        if memberships:
-            await redis_cache.set(cache_key, [membership.model_dump() for membership in memberships], expire=1800)  # Cache for 30 minutes
-        
-        return memberships
+        return list(result.scalars().all())
 
     async def get_membership(
         self, *, user_id: uuid.UUID | str, tenant_id: uuid.UUID | str
     ) -> TenantUser | None:
-        # Try to get from cache first
-        cache_key = f"membership:{user_id}:{tenant_id}"
-        cached_membership = await redis_cache.get(cache_key)
-        if cached_membership is not None:
-            return TenantUser(**cached_membership)
-
-        # If not in cache, get from database
         result = await self.db.execute(
             select(TenantUser)
             .options(selectinload(TenantUser.role))
@@ -180,13 +162,7 @@ class IdentityRepository:
                 TenantUser.deleted_at.is_(None),
             )
         )
-        membership = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if membership:
-            await redis_cache.set(cache_key, membership.model_dump(), expire=1800)  # Cache for 30 minutes
-        
-        return membership
+        return result.scalar_one_or_none()
 
     async def create_membership(
         self,
@@ -205,84 +181,96 @@ class IdentityRepository:
         )
         self.db.add(membership)
         await self.db.flush()
-        
-        # Invalidate cache for user's memberships
-        cache_key_memberships = f"user_memberships:{user_id}"
-        await redis_cache.delete(cache_key_memberships)
-        
-        # Invalidate cache for this specific membership
-        cache_key_membership = f"membership:{user_id}:{tenant_id}"
-        await redis_cache.delete(cache_key_membership)
-        
+        await tenant_cache.delete(
+            f"user_memberships:{user_id}",
+            f"membership:{user_id}:{tenant_id}",
+        )
         return membership
 
     async def list_permissions(self) -> list[Permission]:
-        # Try to get from cache first
-        cache_key = "all_permissions"
-        cached_permissions = await redis_cache.get(cache_key)
-        if cached_permissions is not None:
-            return [Permission(**permission) for permission in cached_permissions]
+        key = build_cache_key(
+            owner=OWNER_IDENTITY,
+            global_scope=True,
+            identity="permissions:all",
+        )
 
-        # If not in cache, get from database
-        result = await self.db.execute(select(Permission).order_by(Permission.code.asc()))
-        permissions = list(result.scalars().all())
-        
-        # Cache the result
-        if permissions:
-            await redis_cache.set(cache_key, [permission.model_dump() for permission in permissions], expire=3600)  # Cache for 1 hour
-        
-        return permissions
+        async def _load() -> list[dict] | None:
+            result = await self.db.execute(select(Permission).order_by(Permission.code.asc()))
+            permissions = list(result.scalars().all())
+            return [orm_column_dict(p) for p in permissions]
+
+        payload = await tenant_cache.get_or_set(
+            key,
+            policy=_PERM_POLICY,
+            factory=_load,
+            legacy_keys=["all_permissions"],
+        )
+        if not payload:
+            return []
+        return [hydrate_orm(Permission, item) for item in payload]
 
     async def get_permission_by_code(self, code: str) -> Permission | None:
-        # Try to get from cache first
-        cache_key = f"permission_by_code:{code}"
-        cached_permission = await redis_cache.get(cache_key)
-        if cached_permission is not None:
-            return Permission(**cached_permission)
+        key = build_cache_key(
+            owner=OWNER_IDENTITY,
+            global_scope=True,
+            identity=f"permission:{code}",
+        )
 
-        # If not in cache, get from database
-        result = await self.db.execute(select(Permission).where(Permission.code == code))
-        permission = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if permission:
-            await redis_cache.set(cache_key, permission.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return permission
+        async def _load() -> dict | None:
+            result = await self.db.execute(select(Permission).where(Permission.code == code))
+            permission = result.scalar_one_or_none()
+            return orm_column_dict(permission) if permission else None
+
+        payload = await tenant_cache.get_or_set(
+            key,
+            policy=_PERM_POLICY,
+            factory=_load,
+            legacy_keys=[f"permission_by_code:{code}"],
+        )
+        return hydrate_orm(Permission, payload) if payload else None
 
     async def create_permission(self, *, code: str, description: str, category: str) -> Permission:
         permission = Permission(code=code, description=description, category=category)
         self.db.add(permission)
         await self.db.flush()
-        
-        # Invalidate cache for all permissions
-        cache_key_all = "all_permissions"
-        await redis_cache.delete(cache_key_all)
-        
-        # Invalidate cache for this specific permission
-        cache_key_code = f"permission_by_code:{code}"
-        await redis_cache.delete(cache_key_code)
-        
+        await tenant_cache.delete(
+            build_cache_key(owner=OWNER_IDENTITY, global_scope=True, identity="permissions:all"),
+            build_cache_key(owner=OWNER_IDENTITY, global_scope=True, identity=f"permission:{code}"),
+            "all_permissions",
+            f"permission_by_code:{code}",
+        )
         return permission
 
     async def get_role(self, *, tenant_id: uuid.UUID | None, slug: str) -> Role | None:
-        # Try to get from cache first
-        cache_key = f"role:{tenant_id}:{slug}"
-        cached_role = await redis_cache.get(cache_key)
-        if cached_role is not None:
-            return Role(**cached_role)
+        if tenant_id is None:
+            key = build_cache_key(
+                owner=OWNER_IDENTITY,
+                global_scope=True,
+                identity=f"role:{slug}",
+            )
+            legacy = [f"role:None:{slug}", f"role:{tenant_id}:{slug}"]
+        else:
+            key = build_cache_key(
+                owner=OWNER_IDENTITY,
+                tenant_id=tenant_id,
+                identity=f"role:{slug}",
+            )
+            legacy = [f"role:{tenant_id}:{slug}"]
 
-        # If not in cache, get from database
-        result = await self.db.execute(
-            select(Role).where(Role.tenant_id == tenant_id, Role.slug == slug)
+        async def _load() -> dict | None:
+            result = await self.db.execute(
+                select(Role).where(Role.tenant_id == tenant_id, Role.slug == slug)
+            )
+            role = result.scalar_one_or_none()
+            return orm_column_dict(role) if role else None
+
+        payload = await tenant_cache.get_or_set(
+            key,
+            policy=_ROLE_POLICY,
+            factory=_load,
+            legacy_keys=legacy,
         )
-        role = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if role:
-            await redis_cache.set(cache_key, role.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return role
+        return hydrate_orm(Role, payload) if payload else None
 
     async def create_role(
         self,
@@ -304,16 +292,29 @@ class IdentityRepository:
         )
         self.db.add(role)
         await self.db.flush()
-        
-        # Invalidate cache for this role
-        cache_key = f"role:{tenant_id}:{slug}"
-        await redis_cache.delete(cache_key)
-        
-        # Invalidate cache for all permissions if system role
+        keys = [
+            f"role:{tenant_id}:{slug}",
+        ]
+        if tenant_id is None:
+            keys.append(
+                build_cache_key(owner=OWNER_IDENTITY, global_scope=True, identity=f"role:{slug}")
+            )
+        else:
+            keys.append(
+                build_cache_key(
+                    owner=OWNER_IDENTITY, tenant_id=tenant_id, identity=f"role:{slug}"
+                )
+            )
         if is_system:
-            cache_key_permissions = "all_permissions"
-            await redis_cache.delete(cache_key_permissions)
-        
+            keys.extend(
+                [
+                    build_cache_key(
+                        owner=OWNER_IDENTITY, global_scope=True, identity="permissions:all"
+                    ),
+                    "all_permissions",
+                ]
+            )
+        await tenant_cache.delete(*keys)
         return role
 
     async def create_refresh_session(
@@ -326,73 +327,33 @@ class IdentityRepository:
         )
         self.db.add(session)
         await self.db.flush()
-        
-        # Invalidate user's active sessions cache
-        cache_key_sessions = f"active_sessions:{user_id}"
-        await redis_cache.delete(cache_key_sessions)
-        
+        await tenant_cache.delete(
+            f"active_sessions:{user_id}",
+            f"refresh_session_by_hash:{token_hash}",
+        )
         return session
 
     async def get_refresh_session_by_hash(self, token_hash: str) -> RefreshSession | None:
-        # Try to get from cache first
-        cache_key = f"refresh_session_by_hash:{token_hash}"
-        cached_session = await redis_cache.get(cache_key)
-        if cached_session is not None:
-            return RefreshSession(**cached_session)
-
-        # If not in cache, get from database
+        # Never cache refresh sessions — auth material (T3.3).
         result = await self.db.execute(
             select(RefreshSession).where(RefreshSession.token_hash == token_hash)
         )
-        session = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if session:
-            await redis_cache.set(cache_key, session.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return session
+        return result.scalar_one_or_none()
 
     async def get_session_by_id(self, session_id: uuid.UUID | str) -> RefreshSession | None:
-        # Try to get from cache first
-        cache_key = f"refresh_session_by_id:{session_id}"
-        cached_session = await redis_cache.get(cache_key)
-        if cached_session is not None:
-            return RefreshSession(**cached_session)
-
-        # If not in cache, get from database
-        result = await self.db.execute(
-            select(RefreshSession).where(RefreshSession.id == session_id)
-        )
-        session = result.scalar_one_or_none()
-        
-        # Cache the result if found
-        if session:
-            await redis_cache.set(cache_key, session.model_dump(), expire=3600)  # Cache for 1 hour
-        
-        return session
+        result = await self.db.execute(select(RefreshSession).where(RefreshSession.id == session_id))
+        return result.scalar_one_or_none()
 
     async def revoke_refresh_session(self, session: RefreshSession) -> None:
         session.is_revoked = True
         await self.db.flush()
-        
-        # Invalidate cache for this session
-        cache_key_hash = f"refresh_session_by_hash:{session.token_hash}"
-        cache_key_id = f"refresh_session_by_id:{session.id}"
-        await redis_cache.delete(cache_key_hash)
-        await redis_cache.delete(cache_key_id)
-        
-        # Invalidate user's active sessions cache
-        cache_key_sessions = f"active_sessions:{session.user_id}"
-        await redis_cache.delete(cache_key_sessions)
+        await tenant_cache.delete(
+            f"refresh_session_by_hash:{session.token_hash}",
+            f"refresh_session_by_id:{session.id}",
+            f"active_sessions:{session.user_id}",
+        )
 
     async def list_active_sessions(self, user_id: uuid.UUID) -> list[RefreshSession]:
-        # Try to get from cache first
-        cache_key = f"active_sessions:{user_id}"
-        cached_sessions = await redis_cache.get(cache_key)
-        if cached_sessions is not None:
-            return [RefreshSession(**session) for session in cached_sessions]
-
-        # If not in cache, get from database
         result = await self.db.execute(
             select(RefreshSession).where(
                 RefreshSession.user_id == user_id,
@@ -400,175 +361,39 @@ class IdentityRepository:
                 RefreshSession.expires_at > utc_now_naive(),
             )
         )
-        sessions = list(result.scalars().all())
-        
-        # Cache the result
-        if sessions:
-            await redis_cache.set(cache_key, [session.model_dump() for session in sessions], expire=300)  # Cache for 5 minutes
-        
-        return sessions
+        return list(result.scalars().all())
+
 
 class TenantRepository:
     """Thin wrapper for tenant-level queries used by workers."""
 
-    def __init__(self, db: "AsyncSession") -> None:
-        from sqlalchemy.ext.asyncio import AsyncSession as _AS # noqa: F401
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def list_active_tenants(self) -> list["Tenant"]:
+    async def list_active_tenants(self) -> list[Tenant]:
         """Return all non-suspended tenants for beat-scheduled fan-out tasks."""
-        from sqlalchemy import select
-        from backend.modules.identity_access.models import Tenant, TenantStatus
-        
-        # Try to get from cache first
-        cache_key = "active_tenants"
-        cached_tenants = await redis_cache.get(cache_key)
-        if cached_tenants is not None:
-            return [Tenant(**tenant) for tenant in cached_tenants]
-
-        result = await self.db.execute(
-            select(Tenant).where(
-                Tenant.status != TenantStatus.SUSPENDED.value,
-                Tenant.deleted_at.is_(None),
-            )
+        key = build_cache_key(
+            owner=OWNER_IDENTITY,
+            global_scope=True,
+            identity="active_tenants",
         )
-        tenants = list(result.scalars().all())
-        
-        # Cache the result
-        if tenants:
-            await redis_cache.set(cache_key, [tenant.model_dump() for tenant in tenants], expire=600)  # Cache for 10 minutes
-        
-        return tenants
 
-    async def get_membership(
-        self, *, user_id: uuid.UUID | str, tenant_id: uuid.UUID | str
-    ) -> TenantUser | None:
-        result = await self.db.execute(
-            select(TenantUser)
-            .options(selectinload(TenantUser.role))
-            .where(
-                TenantUser.user_id == user_id,
-                TenantUser.tenant_id == tenant_id,
-                TenantUser.deleted_at.is_(None),
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def create_membership(
-        self,
-        *,
-        tenant_id: uuid.UUID,
-        user_id: uuid.UUID,
-        role: Role | None,
-        title: str | None = None,
-    ) -> TenantUser:
-        membership = TenantUser(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            role_id=role.id if role else None,
-            title=title,
-            membership_status=MembershipStatus.ACTIVE.value,
-        )
-        self.db.add(membership)
-        await self.db.flush()
-        return membership
-
-    async def list_permissions(self) -> list[Permission]:
-        result = await self.db.execute(select(Permission).order_by(Permission.code.asc()))
-        return list(result.scalars().all())
-
-    async def get_permission_by_code(self, code: str) -> Permission | None:
-        result = await self.db.execute(select(Permission).where(Permission.code == code))
-        return result.scalar_one_or_none()
-
-    async def create_permission(self, *, code: str, description: str, category: str) -> Permission:
-        permission = Permission(code=code, description=description, category=category)
-        self.db.add(permission)
-        await self.db.flush()
-        return permission
-
-    async def get_role(self, *, tenant_id: uuid.UUID | None, slug: str) -> Role | None:
-        result = await self.db.execute(
-            select(Role).where(Role.tenant_id == tenant_id, Role.slug == slug)
-        )
-        return result.scalar_one_or_none()
-
-    async def create_role(
-        self,
-        *,
-        tenant_id: uuid.UUID | None,
-        name: str,
-        slug: str,
-        description: str,
-        is_system: bool,
-        permission_codes: list[str],
-    ) -> Role:
-        role = Role(
-            tenant_id=tenant_id,
-            name=name,
-            slug=slug,
-            description=description,
-            is_system=is_system,
-            permission_codes=permission_codes,
-        )
-        self.db.add(role)
-        await self.db.flush()
-        return role
-
-    async def create_refresh_session(
-            self, *, user_id: uuid.UUID, token_hash: str, expires_at: datetime
-    ) -> RefreshSession:
-        session = RefreshSession(
-            user_id=user_id,
-            token_hash=token_hash,
-            expires_at=expires_at,
-        )
-        self.db.add(session)
-        await self.db.flush()
-        return session
-
-    async def get_refresh_session_by_hash(self, token_hash: str) -> RefreshSession | None:
-        result = await self.db.execute(
-            select(RefreshSession).where(RefreshSession.token_hash == token_hash)
-        )
-        return result.scalar_one_or_none()
-
-    async def get_session_by_id(self, session_id: uuid.UUID | str) -> RefreshSession | None:
-        result = await self.db.execute(
-            select(RefreshSession).where(RefreshSession.id == session_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def revoke_refresh_session(self, session: RefreshSession) -> None:
-        session.is_revoked = True
-        await self.db.flush()
-
-    async def list_active_sessions(self, user_id: uuid.UUID) -> list[RefreshSession]:
-        result = await self.db.execute(
-            select(RefreshSession).where(
-                RefreshSession.user_id == user_id,
-                RefreshSession.is_revoked.is_(False),
-                RefreshSession.expires_at > utc_now_naive(),
+        async def _load() -> list[dict] | None:
+            result = await self.db.execute(
+                select(Tenant).where(
+                    Tenant.status != TenantStatus.SUSPENDED.value,
+                    Tenant.deleted_at.is_(None),
                 )
-        )
-        return list(result.scalars().all())
-
-
-class TenantRepository:
-    """Thin wrapper for tenant-level queries used by workers."""
-
-    def __init__(self, db: "AsyncSession") -> None:
-        from sqlalchemy.ext.asyncio import AsyncSession as _AS  # noqa: F401
-        self.db = db
-
-    async def list_active_tenants(self) -> list["Tenant"]:
-        """Return all non-suspended tenants for beat-scheduled fan-out tasks."""
-        from sqlalchemy import select
-        from backend.modules.identity_access.models import Tenant, TenantStatus
-        result = await self.db.execute(
-            select(Tenant).where(
-                Tenant.status != TenantStatus.SUSPENDED.value,
-                Tenant.deleted_at.is_(None),
             )
+            tenants = list(result.scalars().all())
+            return [orm_column_dict(t) for t in tenants]
+
+        payload = await tenant_cache.get_or_set(
+            key,
+            policy=CachePolicy(owner=OWNER_IDENTITY, ttl_seconds=600),
+            factory=_load,
+            legacy_keys=["active_tenants"],
         )
-        return list(result.scalars().all())
+        if not payload:
+            return []
+        return [hydrate_orm(Tenant, item) for item in payload]

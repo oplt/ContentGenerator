@@ -52,6 +52,7 @@ class ContentPlanResponse(ORMModel):
     decision: str
     content_format: str
     target_platforms: list[str]
+    target_social_account_ids: list[str] = []
     tone: str
     urgency: str
     risk_flags: list[str]

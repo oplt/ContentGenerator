@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, type ApiFetchOptions } from "./client";
 
 export type ApprovalMessage = {
   id: string;
@@ -39,8 +39,8 @@ export type ApprovalRequest = {
   messages: ApprovalMessage[];
 };
 
-export function getApprovalRequests() {
-  return apiFetch<ApprovalRequest[]>("/approvals");
+export function getApprovalRequests(init?: ApiFetchOptions) {
+  return apiFetch<ApprovalRequest[]>("/approvals", init);
 }
 
 export function sendApprovalRequest(payload: { content_job_id: string; recipient?: string | null }) {

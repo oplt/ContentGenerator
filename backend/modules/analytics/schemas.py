@@ -20,6 +20,7 @@ class AnalyticsOverviewResponse(BaseModel):
     summary: list[dict[str, str | float | int]]
     posts_over_time: list[ChartPoint]
     engagement_by_platform: list[ChartPoint]
+    engagement_by_account: list[ChartPoint] = []
     format_performance: list[ChartPoint]
     topic_performance: list[ChartPoint]
     publishing_funnel: list[ChartPoint]
@@ -30,3 +31,4 @@ class AnalyticsOverviewResponse(BaseModel):
     topic_to_follower_conversion: list[ChartPoint]
     platform_comparison: list[ChartPoint]
     learning_log: list[LearningLogEntry]
+    filtered_social_account_id: str | None = None

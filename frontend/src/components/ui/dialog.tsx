@@ -14,6 +14,14 @@ export function DialogClose(props: DialogPrimitive.DialogCloseProps) {
   return <DialogPrimitive.Close {...props} />;
 }
 
+export function DialogTitle({ className, ...props }: DialogPrimitive.DialogTitleProps) {
+  return <DialogPrimitive.Title className={cn(className)} {...props} />;
+}
+
+export function DialogDescription({ className, ...props }: DialogPrimitive.DialogDescriptionProps) {
+  return <DialogPrimitive.Description className={cn(className)} {...props} />;
+}
+
 export function DialogContent({
   className,
   children,
@@ -34,10 +42,11 @@ export function DialogContent({
       >
         {children}
         <DialogPrimitive.Close
-          className="absolute right-4 top-4 border border-border p-2 text-muted-foreground transition hover:bg-muted"
+          className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center border border-border p-2 text-muted-foreground transition hover:bg-muted"
           style={{ borderRadius: "var(--radius-sm)" }}
+          aria-label="Close dialog"
         >
-          <X className="size-4" />
+          <X className="size-4" aria-hidden />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>

@@ -2,10 +2,31 @@ import {
   canAccessAdminRoutes,
   canAccessAuditLogs,
   canAccessTenantSettings,
+  getActiveMembership,
   requiresAdminMfa,
   requiresEmailVerification,
 } from "./access";
 import type { AuthUser } from "../../api/auth";
+
+function makeMembership(
+  tenantId: string,
+  permissionCodes: string[],
+  overrides: Partial<AuthUser["memberships"][number]> = {}
+): AuthUser["memberships"][number] {
+  return {
+    tenant_id: tenantId,
+    tenant_name: `Tenant ${tenantId}`,
+    tenant_slug: tenantId,
+    status: "active",
+    role: {
+      id: `role-${tenantId}`,
+      name: "Role",
+      slug: "role",
+      permission_codes: permissionCodes,
+    },
+    ...overrides,
+  };
+}
 
 function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
@@ -17,20 +38,7 @@ function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
     mfa_enabled: false,
     default_tenant_id: null,
     rbac_mode: "tenant",
-    memberships: [
-      {
-        tenant_id: "tenant-1",
-        tenant_name: "Tenant",
-        tenant_slug: "tenant",
-        status: "active",
-        role: {
-          id: "role-1",
-          name: "Owner",
-          slug: "owner",
-          permission_codes: [],
-        },
-      },
-    ],
+    memberships: [makeMembership("tenant-1", [])],
     ...overrides,
   };
 }
@@ -53,51 +61,38 @@ describe("auth access helpers", () => {
     expect(canAccessAdminRoutes(makeUser({ is_admin: false, mfa_enabled: true }))).toBe(false);
   });
 
-  it("allows settings for users with settings:write permission", () => {
-    expect(
-      canAccessTenantSettings(
-        makeUser({
-          memberships: [
-            {
-              tenant_id: "tenant-1",
-              tenant_name: "Tenant",
-              tenant_slug: "tenant",
-              status: "active",
-              role: {
-                id: "role-1",
-                name: "Owner",
-                slug: "owner",
-                permission_codes: ["settings:write"],
-              },
-            },
-          ],
-        })
-      )
-    ).toBe(true);
-    expect(canAccessTenantSettings(makeUser())).toBe(false);
+  it("scopes settings permission to the active tenant only", () => {
+    const user = makeUser({
+      memberships: [
+        makeMembership("tenant-a", ["settings:write"]),
+        makeMembership("tenant-b", ["audit:read"]),
+      ],
+    });
+
+    expect(canAccessTenantSettings(user, "tenant-a")).toBe(true);
+    expect(canAccessTenantSettings(user, "tenant-b")).toBe(false);
+    expect(canAccessTenantSettings(user, null)).toBe(false);
   });
 
-  it("allows audit for users with audit:read permission", () => {
-    expect(
-      canAccessAuditLogs(
-        makeUser({
-          memberships: [
-            {
-              tenant_id: "tenant-1",
-              tenant_name: "Tenant",
-              tenant_slug: "tenant",
-              status: "active",
-              role: {
-                id: "role-1",
-                name: "Owner",
-                slug: "owner",
-                permission_codes: ["audit:read"],
-              },
-            },
-          ],
-        })
-      )
-    ).toBe(true);
-    expect(canAccessAuditLogs(makeUser())).toBe(false);
+  it("scopes audit permission to the active tenant only", () => {
+    const user = makeUser({
+      memberships: [
+        makeMembership("tenant-a", ["settings:write"]),
+        makeMembership("tenant-b", ["audit:read"]),
+      ],
+    });
+
+    expect(canAccessAuditLogs(user, "tenant-b")).toBe(true);
+    expect(canAccessAuditLogs(user, "tenant-a")).toBe(false);
+    expect(canAccessAuditLogs(makeUser(), "tenant-1")).toBe(false);
+  });
+
+  it("returns the membership for the active tenant", () => {
+    const user = makeUser({
+      memberships: [makeMembership("tenant-a", []), makeMembership("tenant-b", ["audit:read"])],
+    });
+
+    expect(getActiveMembership(user, "tenant-b")?.tenant_id).toBe("tenant-b");
+    expect(getActiveMembership(user, "missing")).toBeNull();
   });
 });

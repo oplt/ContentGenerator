@@ -106,16 +106,17 @@ class ContentJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     revision_of_job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("content_jobs.id", ondelete="SET NULL"), nullable=True
     )
-    job_type: Mapped[ContentJobType] = mapped_column(String(32), nullable=False, default="text")
-    status: Mapped[ContentJobStatus] = mapped_column(String(32), nullable=False, default="queued")
-    stage: Mapped[VideoStage] = mapped_column(String(32), nullable=False, default="queued")
+    job_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    stage: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
-    grounding_bundle: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
-    provider_metadata: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
+    grounding_bundle: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    provider_metadata: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    target_social_account_ids: Mapped[list[str]] = mapped_column(default=list, nullable=False)
 
 
 class ContentRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -163,10 +164,11 @@ class GeneratedAssetGroup(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Bas
     content_plan_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("content_plans.id", ondelete="SET NULL"), nullable=True
     )
-    status: Mapped[GeneratedAssetGroupStatus] = mapped_column(
+    status: Mapped[str] = mapped_column(
         String(32), nullable=False, default=GeneratedAssetGroupStatus.CREATED.value
     )
     platform_targets: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    target_social_account_ids: Mapped[list[str]] = mapped_column(default=list, nullable=False)
     asset_types: Mapped[list[str]] = mapped_column(default=list, nullable=False)
     generation_trace: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
     quality_report: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
@@ -193,7 +195,7 @@ class GeneratedAsset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base)
     content_job_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("content_jobs.id", ondelete="CASCADE"), nullable=False
     )
-    asset_type: Mapped[GeneratedAssetType] = mapped_column(String(64), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
     platform: Mapped[str | None] = mapped_column(String(32), nullable=True)
     variant_label: Mapped[str | None] = mapped_column(String(16), nullable=True)
     storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)

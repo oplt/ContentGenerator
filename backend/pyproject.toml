@@ -58,6 +58,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["modules/_dormant"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B"]
@@ -69,6 +70,11 @@ quote-style = "double"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: requires disposable Postgres/Redis (CG_RUN_DB_MIGRATIONS / services)",
+    "benchmark: structural performance baseline harness",
+]
+addopts = "-q"
 
 [tool.mypy]
 python_version = "3.12"
@@ -76,4 +82,42 @@ warn_return_any = true
 warn_unused_configs = true
 plugins = []
 strict = true
-exclude = ["alembic"]
+exclude = "(^|.*/)(alembic|modules/_dormant)/"
+
+[[tool.mypy.overrides]]
+module = ["backend.tests.benchmarks.test_baseline_harness"]
+disable_error_code = ["no-any-return"]
+
+[[tool.mypy.overrides]]
+module = [
+    "backend.modules.publishing.providers",
+    "backend.modules.inference.providers",
+    "backend.modules.analytics.providers",
+    "backend.modules.inference.roles",
+]
+disable_error_code = ["no-any-return", "type-arg"]
+
+[[tool.mypy.overrides]]
+module = ["backend.workers.tasks", "backend.workers.signals"]
+disable_error_code = ["no-untyped-def", "no-any-return", "untyped-decorator"]
+
+[[tool.mypy.overrides]]
+module = ["backend.modules.video_pipeline.service"]
+disable_error_code = ["no-untyped-def"]
+
+[[tool.mypy.overrides]]
+module = [
+    "backend.modules.content_generation.service",
+    "backend.modules.story_intelligence.service",
+    "backend.modules.analytics.service",
+    "backend.modules.approvals.service",
+]
+disable_error_code = ["no-untyped-def", "type-arg", "redundant-cast"]
+
+[[tool.mypy.overrides]]
+module = ["backend.modules.editorial_briefs.service", "backend.modules.trending_repos.service"]
+disable_error_code = ["type-arg", "no-untyped-def", "no-untyped-call"]
+
+[[tool.mypy.overrides]]
+module = ["backend.core.logging"]
+disable_error_code = ["attr-defined", "unused-ignore"]

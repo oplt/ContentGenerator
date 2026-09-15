@@ -16,9 +16,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-import httpx
-
 from backend.core.config import settings
+from backend.core.http import request
 
 
 @dataclass
@@ -48,14 +47,15 @@ class XMetricsProvider:
         self.access_token = access_token
 
     async def fetch(self, tweet_id: str) -> MetricsResult:
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
-            response = await client.get(
-                f"{self.BASE_URL}/2/tweets/{tweet_id}",
-                headers={"Authorization": f"Bearer {self.access_token}"},
-                params={"tweet.fields": "public_metrics"},
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await request(
+            "GET",
+            f"{self.BASE_URL}/2/tweets/{tweet_id}",
+            provider="analytics",
+            headers={"Authorization": f"Bearer {self.access_token}"},
+            params={"tweet.fields": "public_metrics"},
+        )
+        response.raise_for_status()
+        data = response.json()
 
         metrics = data.get("data", {}).get("public_metrics", {})
         impressions = metrics.get("impression_count", 0)
@@ -80,16 +80,17 @@ class InstagramMetricsProvider:
         self.access_token = access_token
 
     async def fetch(self, post_id: str) -> MetricsResult:
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
-            response = await client.get(
-                f"{self.BASE_URL}/v20.0/{post_id}/insights",
-                params={
-                    "metric": "impressions,reach,likes_count,comments_count,shares",
-                    "access_token": self.access_token,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await request(
+            "GET",
+            f"{self.BASE_URL}/v20.0/{post_id}/insights",
+            provider="analytics",
+            params={
+                "metric": "impressions,reach,likes_count,comments_count,shares",
+                "access_token": self.access_token,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
 
         raw: dict[str, int] = {}
         for item in data.get("data", []):
@@ -119,17 +120,18 @@ class YouTubeMetricsProvider:
         self.api_key = api_key
 
     async def fetch(self, video_id: str) -> MetricsResult:
-        async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
-            response = await client.get(
-                f"{self.BASE_URL}/youtube/v3/videos",
-                params={
-                    "part": "statistics",
-                    "id": video_id,
-                    "key": self.api_key,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await request(
+            "GET",
+            f"{self.BASE_URL}/youtube/v3/videos",
+            provider="analytics",
+            params={
+                "part": "statistics",
+                "id": video_id,
+                "key": self.api_key,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
 
         stats = data.get("items", [{}])[0].get("statistics", {})
         views = int(stats.get("viewCount", 0))

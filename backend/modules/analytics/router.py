@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.auth import get_current_membership, require_permission
@@ -27,6 +29,10 @@ async def sync_analytics(
 async def get_analytics_overview(
     membership: TenantUser = Depends(get_current_membership),
     db: AsyncSession = Depends(get_db),
+    social_account_id: UUID | None = Query(default=None),
 ) -> AnalyticsOverviewResponse:
     service = AnalyticsService(db)
-    return await service.overview(membership.tenant_id)
+    return await service.overview(
+        membership.tenant_id,
+        social_account_id=social_account_id,
+    )

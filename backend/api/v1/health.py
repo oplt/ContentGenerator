@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import cast
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from backend.core.cache import redis_client
 from backend.core.config import settings
-from backend.db.session import engine
+from backend.core.domain_metrics import domain_metrics, get_domain_metrics_snapshot
+from backend.core.http import get_http_stats
+from backend.core.tenant_cache import get_cache_stats
+from backend.db.session import engine, get_pool_stats
 from backend.modules.inference.providers import collect_inference_readiness, get_inference_metrics_snapshot
 from backend.modules.operations.service import OperationsService
 
@@ -52,6 +56,17 @@ class MetricsResponse(BaseModel):
     queues: list[WorkerQueueStatus]
     inference_metrics: dict[str, object]
     runtime: dict[str, object]
+    domain: dict[str, object]
+    cache: dict[str, int]
+    http: dict[str, int]
+    db_pool: dict[str, int]
+
+
+class WebVitalSample(BaseModel):
+    name: str = Field(min_length=1, max_length=32)
+    value: float = Field(ge=0, le=600_000)
+    rating: str = Field(default="unknown", max_length=32)
+    navigation_type: str = Field(default="unknown", max_length=32)
 
 
 @health_router.get("/live")
@@ -101,8 +116,8 @@ async def ready() -> ReadinessResponse:
         status="ok" if all_ok else "degraded",
         checked_at=datetime.now(timezone.utc).isoformat(),
         checks=checks,
-        inference_providers=inference_checks,
-        inference_metrics=get_inference_metrics_snapshot(),
+        inference_providers=cast(dict[str, object], inference_checks),
+        inference_metrics=cast(dict[str, object], get_inference_metrics_snapshot()),
         worker_status=[WorkerQueueStatus.model_validate(item) for item in worker_status],
     )
 
@@ -116,23 +131,51 @@ async def metrics() -> MetricsResponse:
     return MetricsResponse(
         checked_at=datetime.now(timezone.utc).isoformat(),
         queues=[WorkerQueueStatus.model_validate(item) for item in worker_status],
-        inference_metrics=get_inference_metrics_snapshot(),
+        inference_metrics=cast(dict[str, object], get_inference_metrics_snapshot()),
         runtime={
             "broker_url_configured": bool(settings.celery_broker_url),
             "analytics_synthetic_mode": settings.ANALYTICS_SYNTHETIC_MODE,
             "social_dry_run_by_default": settings.SOCIAL_DRY_RUN_BY_DEFAULT,
+            "multi_account_mode": settings.MULTI_ACCOUNT_ROLLOUT_MODE,
+            "multi_account_canary_percent": settings.MULTI_ACCOUNT_CANARY_PERCENT,
         },
+        domain=cast(dict[str, object], get_domain_metrics_snapshot()),
+        cache=get_cache_stats(),
+        http=get_http_stats(),
+        db_pool=get_pool_stats(),
     )
+
+
+@health_router.post("/web-vitals")
+async def ingest_web_vitals(sample: WebVitalSample) -> dict[str, str]:
+    """Browser beacon for LCP/CLS/INP (and friends). No auth; low-cardinality only."""
+    allowed = {"lcp", "cls", "inp", "fcp", "ttfb", "fid"}
+    name = sample.name.strip().lower()
+    if name not in allowed:
+        return {"status": "ignored"}
+    domain_metrics.record_web_vital(
+        name=name,
+        value=sample.value,
+        rating=sample.rating,
+        navigation_type=sample.navigation_type,
+    )
+    return {"status": "ok"}
 
 
 class AppConfigResponse(BaseModel):
     mfa_access: bool
+    multi_account_mode: str
+    multi_account_canary_percent: int
 
 
 @health_router.get("/config", response_model=AppConfigResponse)
 async def app_config() -> AppConfigResponse:
     """Public endpoint — returns feature flags that the frontend needs before auth."""
-    return AppConfigResponse(mfa_access=settings.MFA_ACCESS)
+    return AppConfigResponse(
+        mfa_access=settings.MFA_ACCESS,
+        multi_account_mode=settings.MULTI_ACCOUNT_ROLLOUT_MODE,
+        multi_account_canary_percent=settings.MULTI_ACCOUNT_CANARY_PERCENT,
+    )
 
 
 @health_router.get("/version", response_model=VersionResponse)

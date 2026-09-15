@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.cache import redis_client
 from backend.core.config import settings
+from backend.core.tenant_cache import OWNER_AUTH_TOKEN, build_cache_key
 from backend.core.time_utils import as_utc, utc_now
 from backend.core.security import (
     create_access_token,
@@ -311,7 +312,8 @@ class IdentityService:
         session = await self.repo.get_refresh_session_by_hash(refresh_hash)
         if not session or session.is_revoked:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
-        if as_utc(session.expires_at) < utc_now():
+        session_expires_at = as_utc(session.expires_at)
+        if session_expires_at is None or session_expires_at < utc_now():
             raise HTTPException(status_code=401, detail="Refresh token expired")
 
         user = await self.repo.get_user_by_id(session.user_id)
@@ -342,12 +344,20 @@ class IdentityService:
 
     async def _store_verification_token(self, user_id: UUID) -> str:
         token = secrets.token_urlsafe(32)
-        key = f"verify:{_hash_token(token)}"
+        key = build_cache_key(
+            owner=OWNER_AUTH_TOKEN,
+            global_scope=True,
+            identity=f"verify:{_hash_token(token)}",
+        )
         await redis_client.setex(key, settings.VERIFICATION_TOKEN_TTL, str(user_id))
         return token
 
     async def verify_email(self, token: str) -> None:
-        key = f"verify:{_hash_token(token)}"
+        key = build_cache_key(
+            owner=OWNER_AUTH_TOKEN,
+            global_scope=True,
+            identity=f"verify:{_hash_token(token)}",
+        )
         user_id = await redis_client.get(key)
         if not user_id:
             raise HTTPException(status_code=400, detail="Invalid or expired verification token")
@@ -380,7 +390,11 @@ class IdentityService:
         if not user:
             return
         token = secrets.token_urlsafe(32)
-        key = f"pwd_reset:{_hash_token(token)}"
+        key = build_cache_key(
+            owner=OWNER_AUTH_TOKEN,
+            global_scope=True,
+            identity=f"pwd_reset:{_hash_token(token)}",
+        )
         await redis_client.setex(key, settings.PASSWORD_RESET_TOKEN_TTL, str(user.id))
         reset_link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
         queue_email(
@@ -391,7 +405,11 @@ class IdentityService:
         )
 
     async def reset_password(self, token: str, new_password: str) -> None:
-        key = f"pwd_reset:{_hash_token(token)}"
+        key = build_cache_key(
+            owner=OWNER_AUTH_TOKEN,
+            global_scope=True,
+            identity=f"pwd_reset:{_hash_token(token)}",
+        )
         user_id = await redis_client.get(key)
         if not user_id:
             raise HTTPException(status_code=400, detail="Invalid or expired reset token")
@@ -409,7 +427,12 @@ class IdentityService:
         import pyotp
 
         secret = pyotp.random_base32()
-        key = f"mfa_pending:{user.id}"
+        # Enrollment handshake only (600s). Not a general credential cache.
+        key = build_cache_key(
+            owner=OWNER_AUTH_TOKEN,
+            global_scope=True,
+            identity=f"mfa_pending:{user.id}",
+        )
         await redis_client.setex(key, 600, secret)
         totp = pyotp.TOTP(secret)
         uri = totp.provisioning_uri(name=user.email, issuer_name=settings.APP_NAME)
@@ -418,7 +441,11 @@ class IdentityService:
     async def mfa_verify_enable(self, user: User, code: str) -> None:
         import pyotp
 
-        key = f"mfa_pending:{user.id}"
+        key = build_cache_key(
+            owner=OWNER_AUTH_TOKEN,
+            global_scope=True,
+            identity=f"mfa_pending:{user.id}",
+        )
         secret = await redis_client.get(key)
         if not secret:
             raise HTTPException(status_code=400, detail="MFA setup session expired")

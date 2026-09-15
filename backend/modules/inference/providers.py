@@ -11,6 +11,7 @@ import httpx
 import structlog
 
 from backend.core.config import settings
+from backend.core.http import shared_http_client
 
 logger = structlog.get_logger(__name__)
 
@@ -68,12 +69,30 @@ class InferenceMetrics:
 
     def record_parse_failure(self, provider_name: str, task: str) -> None:
         self.structured_parse_failures[(provider_name, task)] += 1
+        try:
+            from backend.core.domain_metrics import domain_metrics
+
+            domain_metrics.record_inference_event(provider=provider_name, event="parse_failure")
+        except Exception:
+            pass
 
     def record_recovery(self, provider_name: str, task: str) -> None:
         self.structured_recoveries[(provider_name, task)] += 1
+        try:
+            from backend.core.domain_metrics import domain_metrics
+
+            domain_metrics.record_inference_event(provider=provider_name, event="recovery")
+        except Exception:
+            pass
 
     def record_provider_failure(self, provider_name: str, task: str) -> None:
         self.provider_failures[(provider_name, task)] += 1
+        try:
+            from backend.core.domain_metrics import domain_metrics
+
+            domain_metrics.record_inference_event(provider=provider_name, event="provider_failure")
+        except Exception:
+            pass
 
     def snapshot(self) -> dict[str, dict[str, int]]:
         def _flatten(counter: Counter[tuple[str, str]]) -> dict[str, int]:
@@ -375,8 +394,13 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         }
         if response_format:
             body["response_format"] = response_format
-        async with httpx.AsyncClient(timeout=_timeout_for_task(task)) as client:
-            response = await client.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
+        async with shared_http_client() as client:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=body,
+                timeout=_timeout_for_task(task),
+            )
             response.raise_for_status()
             return str(response.json()["choices"][0]["message"]["content"]).strip()
 
@@ -427,8 +451,11 @@ class OpenAICompatibleLLMProvider(LLMProvider):
         if not self.base_url:
             return ProviderHealth(provider_name=self.provider_name, status="disabled", detail="base URL not configured")
         try:
-            async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
-                response = await client.get(f"{self.base_url}/models")
+            async with shared_http_client() as client:
+                response = await client.get(
+                    f"{self.base_url}/models",
+                    timeout=settings.LLM_TIMEOUT_SECONDS,
+                )
                 response.raise_for_status()
                 payload = response.json()
         except Exception as exc:
@@ -476,11 +503,12 @@ class OllamaCompatibleLLMProvider(LLMProvider):
         # since Ollama streams tokens incrementally and the total generation can be slow.
         timeout = httpx.Timeout(connect=15.0, read=task_timeout, write=15.0, pool=15.0)
         chunks: list[str] = []
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with shared_http_client() as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/api/generate",
                 json=payload,
+                timeout=timeout,
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
@@ -525,8 +553,11 @@ class OllamaCompatibleLLMProvider(LLMProvider):
         if not self.base_url:
             return ProviderHealth(provider_name=self.provider_name, status="disabled", detail="base URL not configured")
         try:
-            async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
+            async with shared_http_client() as client:
+                response = await client.get(
+                    f"{self.base_url}/api/tags",
+                    timeout=settings.LLM_TIMEOUT_SECONDS,
+                )
                 response.raise_for_status()
                 payload = response.json()
         except Exception as exc:
@@ -554,7 +585,7 @@ class OllamaEmbeddingsProvider(EmbeddingsProvider):
 
     async def embed(self, text: str) -> list[float]:
         truncated = text[:16_000]
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"{self.base_url}/api/embeddings",
                 json={"model": self.model, "prompt": truncated},
@@ -578,7 +609,7 @@ class OpenAICompatibleEmbeddingsProvider(EmbeddingsProvider):
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with shared_http_client() as client:
             response = await client.post(
                 f"{self.base_url}/embeddings",
                 headers=headers,

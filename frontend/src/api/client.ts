@@ -4,18 +4,88 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api/v1"
 
 let refreshPromise: Promise<boolean> | null = null;
 
+/** Monotonic counter so callers can detect superseded in-flight responses. */
+let requestGeneration = 0;
+
+export type ApiErrorCode = "timeout" | "aborted" | "http" | "network";
+
+export class ApiRequestError extends Error {
+  readonly code: ApiErrorCode;
+  readonly retryable: boolean;
+  readonly status?: number;
+
+  constructor(
+    message: string,
+    code: ApiErrorCode,
+    options?: { retryable?: boolean; status?: number; cause?: unknown }
+  ) {
+    super(message, options?.cause ? { cause: options.cause } : undefined);
+    this.name = "ApiRequestError";
+    this.code = code;
+    this.retryable = options?.retryable ?? (code === "timeout" || code === "network");
+    this.status = options?.status;
+  }
+}
+
+export type ApiFetchOptions = RequestInit & {
+  /** Soft deadline for the HTTP round-trip. Defaults to 30s. Set 0 to disable. */
+  timeoutMs?: number;
+};
+
 function getCookie(name: string): string | null {
+  if (typeof document === "undefined" || typeof document.cookie !== "string") {
+    return null;
+  }
   const match = document.cookie
     .split("; ")
     .find((item) => item.startsWith(`${name}=`));
   return match ? decodeURIComponent(match.split("=")[1] ?? "") : null;
 }
 
-async function refreshAccessToken(): Promise<boolean> {
+function composeAbortSignal(signals: AbortSignal[]): AbortSignal {
+  if (signals.length === 1) {
+    return signals[0];
+  }
+  const AbortSignalAny = (AbortSignal as typeof AbortSignal & {
+    any?: (input: AbortSignal[]) => AbortSignal;
+  }).any;
+  if (typeof AbortSignalAny === "function") {
+    return AbortSignalAny(signals);
+  }
+  const controller = new AbortController();
+  const onAbort = () => {
+    controller.abort();
+    for (const signal of signals) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort();
+      break;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+  return controller.signal;
+}
+
+function createTimeoutSignal(timeoutMs: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    clear: () => window.clearTimeout(timer),
+  };
+}
+
+async function refreshAccessToken(signal?: AbortSignal): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       credentials: "include",
+      signal,
       headers: getCookie("csrf_token") ? { "X-CSRF-Token": getCookie("csrf_token") as string } : undefined,
     });
     return response.ok;
@@ -24,10 +94,50 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
-  const headers = new Headers(options.headers ?? {});
-  const isFormData = options.body instanceof FormData;
-  if (!isFormData && options.body !== undefined && !headers.has("Content-Type")) {
+function toApiError(error: unknown, timedOut: boolean): ApiRequestError {
+  if (error instanceof ApiRequestError) {
+    return error;
+  }
+  if (timedOut) {
+    return new ApiRequestError("Request timed out. Retry when ready.", "timeout", {
+      retryable: true,
+      cause: error,
+    });
+  }
+  if (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  ) {
+    return new ApiRequestError("Request was cancelled.", "aborted", {
+      retryable: false,
+      cause: error,
+    });
+  }
+  return new ApiRequestError(
+    error instanceof Error ? error.message : "Network request failed.",
+    "network",
+    { retryable: true, cause: error }
+  );
+}
+
+export function nextRequestGeneration(): number {
+  requestGeneration += 1;
+  return requestGeneration;
+}
+
+export function isCurrentGeneration(generation: number): boolean {
+  return generation === requestGeneration;
+}
+
+export async function apiFetch<T>(
+  path: string,
+  options: ApiFetchOptions = {},
+  retry = true
+): Promise<T> {
+  const { timeoutMs = 30_000, signal: userSignal, ...requestInit } = options;
+  const headers = new Headers(requestInit.headers ?? {});
+  const isFormData = requestInit.body instanceof FormData;
+  if (!isFormData && requestInit.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const tenantId = useWorkspaceStore.getState().tenantId;
@@ -39,52 +149,82 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, retry
     headers.set("X-CSRF-Token", csrfToken);
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  const signals: AbortSignal[] = [];
+  if (userSignal) {
+    signals.push(userSignal);
+  }
+  const timeout = timeoutMs > 0 ? createTimeoutSignal(timeoutMs) : null;
+  if (timeout) {
+    signals.push(timeout.signal);
+  }
+  const signal = signals.length > 0 ? composeAbortSignal(signals) : undefined;
+  let timedOut = false;
+  if (timeout) {
+    const markTimeout = () => {
+      timedOut = true;
+    };
+    timeout.signal.addEventListener("abort", markTimeout, { once: true });
+  }
 
-  const canRetryWithRefresh =
-    retry &&
-    response.status === 401 &&
-    ![
-      "/auth/sign-in",
-      "/auth/sign-up",
-      "/auth/forgot-password",
-      "/auth/reset-password",
-      "/auth/verify-email",
-      "/auth/refresh",
-    ].includes(path);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...requestInit,
+      headers,
+      credentials: "include",
+      signal,
+    });
 
-  if (canRetryWithRefresh) {
-    if (!refreshPromise) {
-      refreshPromise = refreshAccessToken().finally(() => {
-        refreshPromise = null;
+    const canRetryWithRefresh =
+      retry &&
+      response.status === 401 &&
+      ![
+        "/auth/sign-in",
+        "/auth/sign-up",
+        "/auth/forgot-password",
+        "/auth/reset-password",
+        "/auth/verify-email",
+        "/auth/refresh",
+      ].includes(path);
+
+    if (canRetryWithRefresh) {
+      if (!refreshPromise) {
+        refreshPromise = refreshAccessToken(signal).finally(() => {
+          refreshPromise = null;
+        });
+      }
+      const refreshed = await refreshPromise;
+      if (!refreshed) {
+        throw new ApiRequestError("Session expired. Please sign in again.", "http", {
+          retryable: false,
+          status: 401,
+        });
+      }
+      return apiFetch<T>(path, options, false);
+    }
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ error: { message: "Request failed" } }));
+      const message =
+        error.error?.message ??
+        error.detail ??
+        error.message ??
+        "Request failed";
+      throw new ApiRequestError(String(message), "http", {
+        retryable: response.status >= 500,
+        status: response.status,
       });
     }
-    const refreshed = await refreshPromise;
-    if (!refreshed) {
-      throw new Error("Session expired. Please sign in again.");
+
+    if (response.status === 204) {
+      return undefined as T;
     }
-    return apiFetch<T>(path, options, false);
-  }
 
-  if (!response.ok) {
-    const error = await response
-      .json()
-      .catch(() => ({ error: { message: "Request failed" } }));
-    const message =
-      error.error?.message ??
-      error.detail ??
-      error.message ??
-      "Request failed";
-    throw new Error(message);
+    return response.json() as Promise<T>;
+  } catch (error) {
+    throw toApiError(error, timedOut || Boolean(timeout?.signal.aborted && !userSignal?.aborted));
+  } finally {
+    timeout?.clear();
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
 }

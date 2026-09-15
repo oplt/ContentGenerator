@@ -12,6 +12,10 @@ import { Card } from "../components/ui/card";
 import { LoadingState } from "../components/ui/LoadingState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { StoryClusterCard } from "../components/dashboard/StoryClusterCard";
+import { useTenantScope } from "../hooks/useTenantScope";
+import { useDocumentVisible } from "../hooks/useDocumentVisible";
+import { queryKeys } from "../lib/queryKeys";
+import { statusAwareRefetchInterval } from "../lib/polling";
 import { formatRelativeNumber } from "../lib/utils";
 
 type PipelineStage = {
@@ -47,21 +51,69 @@ function PipelineStrip({ stages }: { stages: PipelineStage[] }) {
 }
 
 export default function DashboardPage() {
-  const trends = useQuery({ queryKey: ["dashboard", "trends"], queryFn: getTrendDashboard });
-  const analytics = useQuery({ queryKey: ["dashboard", "analytics"], queryFn: getAnalyticsOverview });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: getSources });
-  const stories = useQuery({ queryKey: ["stories"], queryFn: getStoryClusters });
-  const plans = useQuery({ queryKey: ["content", "plans"], queryFn: getContentPlans });
-  const jobs = useQuery({ queryKey: ["content", "jobs"], queryFn: getContentJobs });
-  const approvals = useQuery({ queryKey: ["approvals"], queryFn: getApprovalRequests });
-  const posts = useQuery({ queryKey: ["publishing", "posts"], queryFn: getPublishedPosts });
-  const health = useQuery({ queryKey: ["health", "ready"], queryFn: getHealthReadiness, refetchInterval: 15_000 });
+  const { tenantId, enabled } = useTenantScope();
+  const visible = useDocumentVisible();
+  const trends = useQuery({
+    queryKey: queryKeys.dashboardTrends(tenantId ?? "none"),
+    queryFn: getTrendDashboard,
+    enabled,
+  });
+  const analytics = useQuery({
+    queryKey: queryKeys.dashboardAnalytics(tenantId ?? "none"),
+    queryFn: () => getAnalyticsOverview(),
+    enabled,
+  });
+  const sources = useQuery({
+    queryKey: queryKeys.sources(tenantId ?? "none"),
+    queryFn: getSources,
+    enabled,
+  });
+  const stories = useQuery({
+    queryKey: queryKeys.stories(tenantId ?? "none"),
+    queryFn: getStoryClusters,
+    enabled,
+  });
+  const plans = useQuery({
+    queryKey: queryKeys.contentPlans(tenantId ?? "none"),
+    queryFn: getContentPlans,
+    enabled,
+  });
+  const jobs = useQuery({
+    queryKey: queryKeys.contentJobs(tenantId ?? "none"),
+    queryFn: getContentJobs,
+    enabled,
+  });
+  const approvals = useQuery({
+    queryKey: queryKeys.approvals(tenantId ?? "none"),
+    queryFn: getApprovalRequests,
+    enabled,
+  });
+  const posts = useQuery({
+    queryKey: queryKeys.publishingPosts(tenantId ?? "none"),
+    queryFn: getPublishedPosts,
+    enabled,
+  });
+  const health = useQuery({
+    queryKey: queryKeys.healthReady,
+    queryFn: ({ signal }) => getHealthReadiness({ signal }),
+    refetchInterval: visible
+      ? statusAwareRefetchInterval(15_000, () => true)
+      : false,
+  });
 
-  if (trends.isLoading || analytics.isLoading) {
+  if (trends.isPending || analytics.isPending) {
     return <LoadingState label="Loading dashboard" />;
   }
-  if (trends.error || analytics.error || !trends.data || !analytics.data) {
-    return <ErrorState message="Dashboard data could not be loaded." />;
+  if (trends.isError || analytics.isError || !trends.data || !analytics.data) {
+    return (
+      <ErrorState
+        message="Dashboard data could not be loaded."
+        onRetry={() => {
+          void trends.refetch();
+          void analytics.refetch();
+        }}
+      />
+    );
   }
 
   const pendingApprovals = approvals.data?.filter((a) => a.status === "pending").length;

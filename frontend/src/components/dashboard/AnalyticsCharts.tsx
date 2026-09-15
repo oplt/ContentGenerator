@@ -30,6 +30,22 @@ export function AnalyticsCharts({ data }: { data: AnalyticsOverview }) {
           </ResponsiveContainer>
         </div>
       </Card>
+      {(data.engagement_by_account?.length ?? 0) > 0 ? (
+        <Card className="p-5">
+          <h3 className="text-lg font-semibold">Views By Account</h3>
+          <div className="mt-4 h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.engagement_by_account}>
+                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={70} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Bar dataKey="value" fill="var(--color-chart-4, #3b82f6)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      ) : null}
       <Card className="p-5 xl:col-span-2">
         <h3 className="text-lg font-semibold">Publishing Funnel</h3>
         <div className="mt-4 h-72">

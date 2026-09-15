@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps.auth import get_current_membership, get_db
+from backend.api.deps.auth import get_current_membership
+from backend.api.deps.db import get_db
 from backend.modules.identity_access.models import TenantUser
 from backend.modules.trending_repos.schemas import (
     GenerateTwitterPostResponse,
@@ -83,7 +85,7 @@ async def post_to_twitter(
     body: PostToTwitterRequest,
     db: AsyncSession = Depends(get_db),
     membership: TenantUser = Depends(get_current_membership),
-) -> dict:
+) -> dict[str, object]:
     """Post the accepted text variant directly to the tenant's X (Twitter) account."""
     svc = TrendingReposService(db)
     try:
@@ -92,7 +94,7 @@ async def post_to_twitter(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Twitter API error: {exc}") from exc
-    return result
+    return cast(dict[str, object], result)
 
 
 @router.post("/{repo_id}/generate-ideas", response_model=TrendingRepoResponse)

@@ -1,14 +1,15 @@
 import React from "react";
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
 import { useAuth } from "../features/auth/AuthContext";
-import { 
-  canAccessAuditLogs, 
-  canAccessTenantSettings, 
-  requiresAdminMfa, 
-  requiresEmailVerification, 
+import {
+  canAccessAuditLogs,
+  canAccessTenantSettings,
+  requiresAdminMfa,
+  requiresEmailVerification,
 } from "../features/auth/access";
 import { LoadingState } from "../components/ui/LoadingState";
 import { AppShell } from "../components/layout/AppShell";
+import { useWorkspaceStore } from "../store/workspaceStore";
 
 // Lazy load heavy components
 const AuthHomePage = React.lazy(() => import("../pages/AuthHomePage"));
@@ -27,6 +28,8 @@ const AuditPage = React.lazy(() => import("../pages/AuditPage"));
 const EditorialBriefsPage = React.lazy(() => import("../pages/EditorialBriefsPage"));
 const PublishingQueuePage = React.lazy(() => import("../pages/PublishingQueuePage"));
 const VerifyEmailPage = React.lazy(() => import("../pages/VerifyEmailPage"));
+const MfaSetupPage = React.lazy(() => import("../pages/MfaSetupPage"));
+const AccountSecurityPage = React.lazy(() => import("../pages/AccountSecurityPage"));
 const ResetPasswordPage = React.lazy(() => import("../pages/ResetPasswordPage"));
 const TrendingReposPage = React.lazy(() => import("../pages/TrendingReposPage"));
 
@@ -42,7 +45,7 @@ function ProtectedApp() {
     return <Navigate to="/verify-email" replace />;
   }
   if (requiresAdminMfa(currentUser)) {
-    return <Navigate to="/verify-email?required=mfa" replace />;
+    return <Navigate to="/mfa-setup" replace />;
   }
   return (
     <AppShell>
@@ -53,6 +56,7 @@ function ProtectedApp() {
 
 function SettingsRoute() {
   const { isReady, isAuthenticated, currentUser } = useAuth();
+  const tenantId = useWorkspaceStore((state) => state.tenantId);
   if (!isReady) {
     return <LoadingState label="Checking access" />;
   }
@@ -62,7 +66,7 @@ function SettingsRoute() {
   if (requiresEmailVerification(currentUser)) {
     return <Navigate to="/verify-email" replace />;
   }
-  if (!canAccessTenantSettings(currentUser)) {
+  if (!canAccessTenantSettings(currentUser, tenantId)) {
     return <Navigate to="/dashboard" replace />;
   }
   return <Outlet />;
@@ -70,6 +74,7 @@ function SettingsRoute() {
 
 function AuditRoute() {
   const { isReady, isAuthenticated, currentUser } = useAuth();
+  const tenantId = useWorkspaceStore((state) => state.tenantId);
   if (!isReady) {
     return <LoadingState label="Checking access" />;
   }
@@ -79,10 +84,15 @@ function AuditRoute() {
   if (requiresEmailVerification(currentUser)) {
     return <Navigate to="/verify-email" replace />;
   }
-  if (!canAccessAuditLogs(currentUser)) {
+  if (!canAccessAuditLogs(currentUser, tenantId)) {
     return <Navigate to="/dashboard" replace />;
   }
   return <Outlet />;
+}
+
+function LegacyTrendsRedirect() {
+  const { id } = useParams();
+  return <Navigate to={id ? `/dashboard/stories/${id}` : "/dashboard/stories"} replace />;
 }
 
 export function AppRouter() {
@@ -97,6 +107,11 @@ export function AppRouter() {
         <Route path="/verify-email" element={
           <React.Suspense fallback={<LoadingState label="Loading page..." />}>  
             <VerifyEmailPage />
+          </React.Suspense>
+        } />
+        <Route path="/mfa-setup" element={
+          <React.Suspense fallback={<LoadingState label="Loading MFA setup..." />}>
+            <MfaSetupPage />
           </React.Suspense>
         } />
         <Route path="/reset-password" element={
@@ -115,16 +130,8 @@ export function AppRouter() {
               <SourcesPage />
             </React.Suspense>
           } />
-          <Route path="trends" element={
-            <React.Suspense fallback={<LoadingState label="Loading trends..." />}>  
-              <StoriesPage />
-            </React.Suspense>
-          } />
-          <Route path="trends/:id" element={
-            <React.Suspense fallback={<LoadingState label="Loading story..." />}>  
-              <StoryDetailPage />
-            </React.Suspense>
-          } />
+          <Route path="trends" element={<Navigate to="/dashboard/stories" replace />} />
+          <Route path="trends/:id" element={<LegacyTrendsRedirect />} />
           <Route path="stories" element={
             <React.Suspense fallback={<LoadingState label="Loading stories..." />}>  
               <StoriesPage />
@@ -168,6 +175,11 @@ export function AppRouter() {
           <Route path="accounts" element={
             <React.Suspense fallback={<LoadingState label="Loading accounts..." />}>  
               <ConnectedAccountsPage />
+            </React.Suspense>
+          } />
+          <Route path="account" element={
+            <React.Suspense fallback={<LoadingState label="Loading account..." />}>
+              <AccountSecurityPage />
             </React.Suspense>
           } />
           <Route path="brand-profile" element={

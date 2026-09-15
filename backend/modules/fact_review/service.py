@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 
 FAIL_CLOSED_CATEGORIES = {"politics", "conflicts", "elections", "markets", "health"}
@@ -238,7 +238,8 @@ class FactRiskReviewService:
             source_articles=source_articles,
             evidence_links=evidence_links,
         )
-        unsupported_claims = [item for item in fact_checklist["checks"] if not item["supported"]]
+        checklist_items = cast(list[dict[str, object]], fact_checklist.get("checks", []))
+        unsupported_claims = [item for item in checklist_items if not bool(item.get("supported"))]
         contradictions = self.detect_claim_contradictions(
             extracted_claims=claims,
             generated_texts=generated_texts,
@@ -246,7 +247,7 @@ class FactRiskReviewService:
         harmful_framing = self.detect_harmful_framing(generated_texts)
         platform_policy = self.review_platform_policies(
             generated_texts=generated_texts,
-            topic_categories=list(topic_review["topic_categories"]),
+            topic_categories=cast(list[str], topic_review.get("topic_categories", [])),
         )
 
         warnings = list(reviewer_issues)
@@ -258,7 +259,7 @@ class FactRiskReviewService:
             for review in platform_policy
             if review["issues"]
         )
-        warnings.extend(topic_review["reasons"])
+        warnings.extend(cast(list[str], topic_review.get("reasons", [])))
 
         blocked = bool(
             topic_review["fail_closed"]
@@ -280,8 +281,8 @@ class FactRiskReviewService:
             "blocked": blocked,
             "warnings": warnings,
             "risk_level": topic_risk_level,
-            "topic_categories": topic_review["topic_categories"],
-            "fail_closed": topic_review["fail_closed"],
+            "topic_categories": cast(list[str], topic_review.get("topic_categories", [])),
+            "fail_closed": bool(topic_review.get("fail_closed")),
             "unsupported_claims": len(unsupported_claims),
             "contradictions": contradictions,
             "harmful_framing": harmful_framing,
@@ -292,5 +293,5 @@ class FactRiskReviewService:
             "policy_flags": policy_flags,
             "risk_label": label,
             "blocked": blocked,
-            "topic_categories": topic_review["topic_categories"],
+            "topic_categories": cast(list[str], topic_review.get("topic_categories", [])),
         }

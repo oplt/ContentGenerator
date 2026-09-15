@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import structlog
@@ -18,7 +18,7 @@ def _error_payload(
     *,
     code: str,
     message: str,
-    details: Mapping[str, Any] | list[Any] | None = None,
+    details: Mapping[str, Any] | Sequence[Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "error": {

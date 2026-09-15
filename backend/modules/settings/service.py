@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
 from backend.core.security import decrypt_secret, encrypt_secret, resolve_secret_reference
+from backend.modules.identity_access.models import Tenant
 from backend.modules.approvals.providers import WhatsAppRuntimeConfig
 from backend.modules.settings.repository import SettingsRepository
 from backend.modules.settings.schemas import (
@@ -39,13 +40,15 @@ class SettingsService:
         self.db = db
         self.repo = SettingsRepository(db)
 
-    async def get_tenant_settings(self, tenant_id: UUID):
+    async def get_tenant_settings(self, tenant_id: UUID) -> Tenant:
         tenant = await self.repo.get_tenant(tenant_id)
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
         return tenant
 
-    async def update_tenant_settings(self, tenant_id: UUID, payload: TenantSettingsRequest):
+    async def update_tenant_settings(
+        self, tenant_id: UUID, payload: TenantSettingsRequest
+    ) -> Tenant:
         tenant = await self.get_tenant_settings(tenant_id)
         if payload.name is not None:
             tenant.name = payload.name

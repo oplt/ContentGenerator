@@ -78,6 +78,7 @@ class SourceResponse(ORMModel):
     success_count: int
     circuit_state: str
     last_polled_at: datetime | None
+    next_poll_at: datetime | None = None
     last_success_at: datetime | None
     disabled_reason: str | None
     last_error: str | None

@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,7 @@ setup_logging()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup
     setup_telemetry(app)
 
@@ -37,6 +38,9 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    from backend.core.http import close_http_client
+
+    await close_http_client()
     await redis_cache.close()
     await engine.dispose()
 

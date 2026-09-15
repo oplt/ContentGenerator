@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -135,7 +136,7 @@ async def send_brief_to_telegram(
     brief_id: UUID,
     membership: TenantUser = Depends(require_permission("briefs:write")),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Send the editorial brief to Telegram for gate-1 topic approval."""
     svc = EditorialBriefService(db)
     result = await svc.send_to_telegram(membership.tenant_id, brief_id)

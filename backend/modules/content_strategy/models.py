@@ -121,6 +121,7 @@ class ContentPlan(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionM
     decision: Mapped[str] = mapped_column(String(32), nullable=False, default="generate")
     content_format: Mapped[ContentFormat] = mapped_column(String(32), nullable=False, default="text")
     target_platforms: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    target_social_account_ids: Mapped[list[str]] = mapped_column(default=list, nullable=False)
     tone: Mapped[str] = mapped_column(String(128), nullable=False, default="authoritative")
     urgency: Mapped[str] = mapped_column(String(32), nullable=False, default="normal")
     risk_flags: Mapped[list[str]] = mapped_column(default=list, nullable=False)

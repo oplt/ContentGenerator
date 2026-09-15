@@ -86,3 +86,28 @@ export function resetPassword(payload: { token: string; new_password: string }) 
     body: JSON.stringify(payload),
   });
 }
+
+export type MfaEnableResponse = {
+  secret: string;
+  provisioning_uri: string;
+};
+
+export function enableMfa() {
+  return apiFetch<MfaEnableResponse>("/auth/mfa/enable", {
+    method: "POST",
+  });
+}
+
+export function verifyMfa(payload: { code: string }) {
+  return apiFetch<void>("/auth/mfa/verify", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function disableMfa(payload: { code: string }) {
+  return apiFetch<void>("/auth/mfa/disable", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

@@ -28,8 +28,12 @@ class SocialAccountResponse(ORMModel):
     handle: str | None
     account_external_id: str | None
     status: str
+    auth_type: str = "oauth"
     capability_flags: dict[str, str]
     metadata: dict[str, str]
+    settings: dict[str, object] = {}
+    legacy_connected_account_id: UUID | None = None
+    quarantine_reason: str | None = None
 
 
 class ConnectedAccountResponse(ORMModel):
@@ -61,6 +65,7 @@ class PublishingJobActionResponse(BaseModel):
 class PublishNowRequest(BaseModel):
     content_job_id: UUID
     platforms: list[str] | None = None
+    social_account_ids: list[UUID] | None = None
     scheduled_for: datetime | None = None
     dry_run: bool = True
     idempotency_key: str | None = Field(default=None, min_length=8)
@@ -85,6 +90,11 @@ class PublishingJobResponse(ORMModel):
     provider_payload: dict[str, str]
     recovery_actions: list[str] = []
     native_scheduling_supported: bool = False
+    claim_expires_at: datetime | None = None
+    current_attempt_key: str | None = None
+    attempt_status: str | None = None
+    error_class: str | None = None
+    account_rate_limited: bool = False
 
 
 class PublishedPostResponse(ORMModel):

@@ -1,3 +1,10 @@
+"""Admin/owner dependency helpers used only by quarantined dormant routers.
+
+Live product authorization uses ``backend.api.deps.auth`` and module-local
+permission checks. Do not wire these helpers into newly activated routes without
+completing the dormant capability checklist in ``docs/dormant-modules.md``.
+"""
+
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException

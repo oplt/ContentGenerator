@@ -1,4 +1,5 @@
 from time import perf_counter
+from collections.abc import Awaitable, Callable
 
 from backend.core.logging import get_logger
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -9,7 +10,11 @@ logger = get_logger("backend.request")
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         started_at = perf_counter()
         try:
             response = await call_next(request)
