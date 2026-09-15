@@ -17,6 +17,13 @@ export type ChessRenderPreset =
   | "square"
   | "horizontal";
 
+export type ChessBoardTheme =
+  | "classic_wood"
+  | "tournament_green"
+  | "midnight_blue"
+  | "slate"
+  | "high_contrast";
+
 export type ChessInputFormat = "pgn" | "san" | "uci" | "auto";
 
 export type ChessVideoCreateRequest = {
@@ -24,6 +31,7 @@ export type ChessVideoCreateRequest = {
   input_format?: ChessInputFormat;
   orientation?: "white" | "black";
   render_preset?: ChessRenderPreset;
+  board_theme?: ChessBoardTheme;
   seconds_per_move?: number;
   include_coordinates?: boolean;
   include_move_text?: boolean;
@@ -64,6 +72,7 @@ export type ChessVideoJob = {
   move_count: number;
   orientation: string;
   render_preset: string;
+  board_theme?: string;
   seconds_per_move: number;
   include_coordinates: boolean;
   include_move_text: boolean;

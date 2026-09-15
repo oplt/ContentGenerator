@@ -14,6 +14,9 @@ _PRESET_PATTERN = (
     "^(economy_vertical|social_vertical|square|horizontal)$"
 )
 _FORMAT_PATTERN = "^(pgn|san|uci|auto)$"
+_BOARD_THEME_PATTERN = (
+    "^(classic_wood|tournament_green|midnight_blue|slate|high_contrast)$"
+)
 
 
 class ChessVideoJobResponse(BaseModel):
@@ -41,6 +44,7 @@ class ChessVideoJobResponse(BaseModel):
 
     orientation: str
     render_preset: str
+    board_theme: str = "classic_wood"
     seconds_per_move: float
     include_coordinates: bool
     include_move_text: bool
@@ -72,6 +76,7 @@ class ChessVideoCreateRequest(BaseModel):
     input_format: str = Field(default="auto", pattern=_FORMAT_PATTERN)
     orientation: str = Field(default="white", pattern="^(white|black)$")
     render_preset: str = Field(default="economy_vertical", pattern=_PRESET_PATTERN)
+    board_theme: str = Field(default="classic_wood", pattern=_BOARD_THEME_PATTERN)
     seconds_per_move: float = Field(default=1.0, ge=0.2, le=10.0)
     include_coordinates: bool = True
     include_move_text: bool = True
@@ -83,7 +88,7 @@ class ChessVideoCreateRequest(BaseModel):
     def _strip_source(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
 
-    @field_validator("input_format", "orientation", "render_preset", mode="before")
+    @field_validator("input_format", "orientation", "render_preset", "board_theme", mode="before")
     @classmethod
     def _normalize_enums(cls, value: object) -> object:
         return value.strip().lower() if isinstance(value, str) else value

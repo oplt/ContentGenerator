@@ -7,8 +7,9 @@ import json
 from typing import Any
 
 from backend.modules.chess_video.renderer import RENDERER_VERSION
+from backend.modules.chess_video.themes import DEFAULT_BOARD_THEME
 
-BOARD_THEME = "classic_wood"
+BOARD_THEME = DEFAULT_BOARD_THEME
 PIECE_THEME = "noto_unicode_v1"
 
 

@@ -60,6 +60,7 @@ function job(overrides: Partial<ChessVideoJob> = {}): ChessVideoJob {
     move_count: 2,
     orientation: "white",
     render_preset: "economy_vertical",
+    board_theme: "classic_wood",
     seconds_per_move: 1,
     include_coordinates: true,
     include_move_text: true,
@@ -135,8 +136,33 @@ describe("ChessVideoPage", () => {
       errors: [],
     });
     await user.click(screen.getByRole("button", { name: /validate game/i }));
-    await waitFor(() => expect(screen.getByText(/White: Kasparov/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Kasparov")).toBeInTheDocument());
+    expect(screen.getByText("Karpov")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /generate video/i })).toBeEnabled();
+  });
+
+  it("lets the user pick a board theme before generate", async () => {
+    const user = userEvent.setup();
+    validateChessGame.mockResolvedValue({
+      valid: true,
+      input_format: "san",
+      move_count: 2,
+      errors: [],
+    });
+    createChessVideo.mockResolvedValue(job({ status: "queued", board_theme: "midnight_blue" }));
+    getChessVideoJob.mockResolvedValue(job({ status: "queued", board_theme: "midnight_blue" }));
+
+    renderChessPage();
+    await user.type(screen.getByPlaceholderText(/paste pgn/i), "1. e4 e5");
+    await user.click(screen.getByRole("button", { name: /validate game/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /generate video/i })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: /midnight blue/i }));
+    await user.click(screen.getByRole("button", { name: /generate video/i }));
+    await waitFor(() =>
+      expect(createChessVideo).toHaveBeenCalledWith(
+        expect.objectContaining({ board_theme: "midnight_blue" }),
+      ),
+    );
   });
 
   it("shows invalid validation errors", async () => {
@@ -184,7 +210,7 @@ describe("ChessVideoPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /generate video/i })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: /generate video/i }));
 
-    expect(await screen.findByText(/Finished|Rendering Chess Video/)).toBeInTheDocument();
+    expect(await screen.findByText(/Preview & Export/)).toBeInTheDocument();
     await waitFor(() => {
       const el = document.querySelector("video");
       expect(el).toBeTruthy();
@@ -217,8 +243,9 @@ describe("ChessVideoPage", () => {
       job({ status: "rendering", stage: "rendering", progress: 0.72 }),
     );
     renderChessPage();
+    await userEvent.click(await screen.findByRole("tab", { name: /history/i }));
     await userEvent.click(await screen.findByRole("button", { name: /kasparov vs karpov/i }));
-    expect(await screen.findByText("Rendering Chess Video")).toBeInTheDocument();
+    expect(await screen.findByText("Generating video")).toBeInTheDocument();
     expect(screen.getByText("72%")).toBeInTheDocument();
   });
 
@@ -241,6 +268,7 @@ describe("ChessVideoPage", () => {
       }),
     );
     renderChessPage();
+    await userEvent.click(await screen.findByRole("tab", { name: /history/i }));
     await userEvent.click(await screen.findByRole("button", { name: /kasparov vs karpov/i }));
     expect(await screen.findByText(/FFmpeg encoding failed/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry/i })).toBeEnabled();
@@ -250,6 +278,7 @@ describe("ChessVideoPage", () => {
     const user = userEvent.setup();
     getChessVideoJobs.mockResolvedValue([job()]);
     renderChessPage();
+    await user.click(await screen.findByRole("tab", { name: /history/i }));
     await screen.findByRole("button", { name: /kasparov vs karpov/i });
     await user.click(screen.getByRole("button", { name: /delete chess video job/i }));
     await waitFor(() => expect(deleteChessVideoJob).toHaveBeenCalledWith("job-1"));

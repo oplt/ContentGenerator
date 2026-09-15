@@ -29,6 +29,7 @@ def render_chess_video(
     include_coordinates: bool,
     include_move_text: bool,
     title: str | None,
+    board_theme: str | None = None,
     work_dir: Path | None = None,
 ) -> PipelineArtifacts:
     """Generate frames and encode MP4 under a temp directory (caller deletes work_dir)."""
@@ -37,7 +38,7 @@ def render_chess_video(
     frames_dir = root / "frames"
     output_path = root / "output.mp4"
 
-    renderer = ChessVideoRenderer(preset)
+    renderer = ChessVideoRenderer(preset, board_theme=board_theme)
     frames = generate_position_frames(
         game,
         frames_dir,

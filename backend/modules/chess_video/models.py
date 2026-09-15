@@ -95,6 +95,7 @@ class ChessVideoJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     render_preset: Mapped[str] = mapped_column(
         String(32), nullable=False, default=ChessVideoRenderPreset.ECONOMY_VERTICAL.value
     )
+    board_theme: Mapped[str] = mapped_column(String(32), nullable=False, default="classic_wood")
     seconds_per_move: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     include_coordinates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     include_move_text: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

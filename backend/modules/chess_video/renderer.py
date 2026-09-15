@@ -14,18 +14,19 @@ from backend.modules.chess_video.presets import (
     RenderPresetName,
     get_preset,
 )
+from backend.modules.chess_video.themes import (
+    DEFAULT_BOARD_THEME,
+    BoardTheme,
+    BoardThemeName,
+    get_board_theme,
+)
 
 RENDERER_VERSION = "1"
 
 _ASSETS_DIR = Path(__file__).resolve().parent / "assets" / "pieces"
-_LIGHT = (240, 217, 181)
-_DARK = (181, 136, 99)
-_HIGHLIGHT_FROM = (246, 246, 105, 140)
-_HIGHLIGHT_TO = (186, 202, 68, 160)
 _BG = (18, 22, 28)
 _FG = (236, 240, 244)
 _MUTED = (160, 170, 180)
-_BOARD_EDGE = (40, 48, 58)
 
 _PIECE_FILES = {
     chess.Piece(chess.PAWN, chess.WHITE): "wP.png",
@@ -60,11 +61,20 @@ class FrameMeta:
 class ChessVideoRenderer:
     """Render one chess position to a RGB PNG frame (Pillow, no browser)."""
 
-    def __init__(self, preset: RenderPreset | RenderPresetName | None = None) -> None:
+    def __init__(
+        self,
+        preset: RenderPreset | RenderPresetName | None = None,
+        *,
+        board_theme: BoardTheme | BoardThemeName | None = None,
+    ) -> None:
         if isinstance(preset, RenderPreset):
             self.preset = preset
         else:
             self.preset = get_preset(preset or DEFAULT_PRESET)
+        if isinstance(board_theme, BoardTheme):
+            self.board_theme = board_theme
+        else:
+            self.board_theme = get_board_theme(board_theme or DEFAULT_BOARD_THEME)
         self._piece_cache: dict[tuple[chess.Piece, int], Image.Image] = {}
         self._base_pieces = self._load_base_pieces()
         self._font_lg = self._load_font(max(28, self.preset.width // 22))
@@ -192,7 +202,7 @@ class ChessVideoRenderer:
                 origin_x + board_px + edge,
                 origin_y + board_px + edge,
             ],
-            fill=_BOARD_EDGE,
+            fill=self.board_theme.edge,
         )
         highlight = Image.new("RGBA", (board_px, board_px), (0, 0, 0, 0))
         hdraw = ImageDraw.Draw(highlight)
@@ -200,13 +210,17 @@ class ChessVideoRenderer:
             for file in range(8):
                 sq = chess.square(file, 7 - rank)
                 x0, y0 = file * square, rank * square
-                color = _LIGHT if (file + rank) % 2 == 0 else _DARK
+                color = self.board_theme.light if (file + rank) % 2 == 0 else self.board_theme.dark
                 draw.rectangle(
                     [origin_x + x0, origin_y + y0, origin_x + x0 + square, origin_y + y0 + square],
                     fill=color,
                 )
                 if last_move is not None and sq in (last_move.from_square, last_move.to_square):
-                    tint = _HIGHLIGHT_FROM if sq == last_move.from_square else _HIGHLIGHT_TO
+                    tint = (
+                        self.board_theme.highlight_from
+                        if sq == last_move.from_square
+                        else self.board_theme.highlight_to
+                    )
                     hdraw.rectangle([x0, y0, x0 + square, y0 + square], fill=tint)
         img.paste(highlight, (origin_x, origin_y), highlight)
         highlight.close()

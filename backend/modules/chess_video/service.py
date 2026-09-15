@@ -24,6 +24,7 @@ from backend.modules.chess_video.schemas import (
     ChessVideoValidateRequest,
     ChessVideoValidateResponse,
 )
+from backend.modules.chess_video.themes import get_board_theme
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,9 @@ class ChessVideoService:
     ) -> ChessVideoJob:
         try:
             game = parse_chess_input(payload.source_text, payload.input_format)  # type: ignore[arg-type]
-            # Validate preset early.
+            # Validate preset / theme early.
             get_preset(payload.render_preset)
+            get_board_theme(payload.board_theme)
         except ChessParseError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except ValueError as exc:
@@ -86,6 +88,7 @@ class ChessVideoService:
             include_coordinates=payload.include_coordinates,
             include_move_text=payload.include_move_text,
             title=payload.title,
+            board_theme=payload.board_theme,
         )
         source_hash = hashlib.sha256(payload.source_text.encode("utf-8")).hexdigest()
 
@@ -111,6 +114,7 @@ class ChessVideoService:
             move_count=game.move_count,
             orientation=payload.orientation,
             render_preset=payload.render_preset,
+            board_theme=payload.board_theme,
             seconds_per_move=payload.seconds_per_move,
             include_coordinates=payload.include_coordinates,
             include_move_text=payload.include_move_text,
@@ -230,6 +234,7 @@ class ChessVideoService:
                 include_coordinates=job.include_coordinates,
                 include_move_text=job.include_move_text,
                 title=job.title,
+                board_theme=job.board_theme,
             )
 
             await self._set_progress(job, ChessVideoJobStatus.ENCODING, 0.85)
