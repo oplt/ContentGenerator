@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.auth import require_permission
 from backend.api.deps.db import get_db
+from backend.modules.chess_intelligence.provenance_schemas import ChessVideoProvenanceResponse
+from backend.modules.chess_intelligence.provenance_service import ChessProvenanceService
 from backend.modules.chess_video.models import ChessVideoJobStatus
 from backend.modules.chess_video.schemas import (
     ChessVideoCreateRequest,
@@ -59,6 +61,18 @@ async def list_chess_videos(
 ) -> list[ChessVideoJobResponse]:
     jobs = await ChessVideoService(db).list(tenant_id=membership.tenant_id, limit=limit)
     return [ChessVideoJobResponse.model_validate(job) for job in jobs]
+
+
+@router.get("/{job_id}/provenance", response_model=ChessVideoProvenanceResponse)
+async def get_chess_video_provenance(
+    job_id: UUID,
+    membership: TenantUser = Depends(require_permission("content:write")),
+    db: AsyncSession = Depends(get_db),
+) -> ChessVideoProvenanceResponse:
+    """Trace: video → catalog game (if linked) → provider sources → PGN."""
+    return await ChessProvenanceService(db).for_video(
+        tenant_id=membership.tenant_id, job_id=job_id
+    )
 
 
 @router.get("/{job_id}", response_model=ChessVideoJobResponse)

@@ -13,6 +13,7 @@ OWNER_ENRICHMENT = "enrichment"
 OWNER_AUTH_TOKEN = "auth_token"
 OWNER_ROBOTS = "robots"
 OWNER_OAUTH = "oauth"
+OWNER_CHESS = "chess_intelligence"
 
 
 def cache_env() -> str:

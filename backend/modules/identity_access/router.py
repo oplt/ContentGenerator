@@ -36,6 +36,13 @@ from backend.modules.identity_access.service import IdentityService
 
 router = APIRouter()
 
+
+def _session_user(result: dict[str, object]) -> User:
+    user = result.get("user")
+    if not isinstance(user, User):
+        raise HTTPException(status_code=500, detail="Invalid authentication session")
+    return user
+
 @router.post("/sign-up", response_model=AuthSessionResponse, status_code=202)
 async def sign_up(
     payload: SignUpRequest,
@@ -90,7 +97,7 @@ async def sign_in(
         remember_me=payload.remember_me,
     )
     return AuthSessionResponse(
-        user=await service.build_auth_user(cast(User, result["user"])),
+        user=await service.build_auth_user(_session_user(result)),
         csrf_token=csrf,
     )
 
@@ -119,7 +126,7 @@ async def refresh(
         remember_me=sf_persist != "0",
     )
     return AuthSessionResponse(
-        user=await service.build_auth_user(cast(User, result["user"])),
+        user=await service.build_auth_user(_session_user(result)),
         csrf_token=csrf,
     )
 

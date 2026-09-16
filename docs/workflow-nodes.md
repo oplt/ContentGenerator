@@ -54,7 +54,13 @@ Rules:
 | `generate_image` | media | `ImageGenerationService` |
 | `generate_tts` | media | `TTSService` |
 | `generate_video` | media | `video_pipeline` |
-| `generate_chess_video` | media | `ChessVideoService` |
+| `generate_chess_video` | media | `ChessVideoService` (PGN text **or** `chess_game_id`) |
+| `retrieve_chess_game` | chess | `ChessCatalogService.get_game` |
+| `retrieve_chess_puzzle` | chess | `ChessCatalogService` (id or daily) |
+| `analyze_chess_game` | chess | `ChessAnalysisService` (enqueue / sync) |
+| `select_critical_moment` | chess | Filter analysis critical moments |
+| `score_chess_content` | chess | Content-opportunity score |
+| `generate_chess_narrative` | chess | Deterministic editorial scaffold (not LLM) |
 | `approval` | human | `ApprovalService` → WAITING |
 | `condition` / `fan_out` / `merge` / `delay` / `wait` | control | Engine control-flow |
 | `platform_transform` | distribution | Canonical → per-platform variants |

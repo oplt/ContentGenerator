@@ -1,0 +1,151 @@
+# SignalForge editorial famous-game catalog.
+# Concise factual metadata only — no third-party annotations.
+# Matching uses year + normalized players + optional uci_prefix / game_fingerprint.
+
+games:
+  - id: immortal_game
+    title: The Immortal Game
+    aliases:
+      - Immortal Game
+    white: Adolf Anderssen
+    black: Lionel Kieseritzky
+    white_aliases:
+      - Anderssen
+    black_aliases:
+      - Kieseritzky
+      - Kieseritzki
+    year: 1851
+    event: London
+    event_aliases:
+      - London 1851
+    tags:
+      - famous
+      - romantic-era
+      - sacrifice
+      - king-attack
+    historical_significance: >
+      Anderssen's celebrated sacrificial attack against Kieseritzky in London, 1851.
+    uci_prefix: e2e4 e7e5 f2f4 e5f4 f1c4
+
+  - id: evergreen_game
+    title: The Evergreen Game
+    aliases:
+      - Evergreen Game
+    white: Adolf Anderssen
+    black: Jean Dufresne
+    white_aliases:
+      - Anderssen
+    black_aliases:
+      - Dufresne
+    year: 1852
+    event: Berlin
+    event_aliases:
+      - Berlin 1852
+    tags:
+      - famous
+      - romantic-era
+      - sacrifice
+    historical_significance: >
+      Anderssen vs Dufresne in Berlin, 1852 — another classic romantic brilliancy.
+    uci_prefix: e2e4 e7e5 g1f3 b8c6 f1c4 f8c5
+
+  - id: opera_game
+    title: The Opera Game
+    aliases:
+      - Opera Game
+    white: Paul Morphy
+    black: Duke of Brunswick / Count Isouard
+    white_aliases:
+      - Morphy
+    black_aliases:
+      - Duke of Brunswick
+      - Count Isouard
+      - Isouard
+      - Brunswick
+    year: 1858
+    event: Paris
+    event_aliases:
+      - Paris Opera
+      - Opera
+    tags:
+      - famous
+      - romantic-era
+      - development
+      - sacrifice
+    historical_significance: >
+      Morphy's rapid development masterpiece at the Paris Opera, 1858.
+    uci_prefix: e2e4 e7e5 g1f3 d7d6 d2d4
+
+  - id: steinitz_bardeleben_1895
+    title: Steinitz vs von Bardeleben, Hastings 1895
+    aliases:
+      - Steinitz–Bardeleben 1895
+    white: Wilhelm Steinitz
+    black: Curt von Bardeleben
+    white_aliases:
+      - Steinitz
+    black_aliases:
+      - Bardeleben
+      - von Bardeleben
+    year: 1895
+    event: Hastings
+    event_aliases:
+      - Hastings 1895
+    tags:
+      - famous
+      - classical
+      - combination
+    historical_significance: >
+      Steinitz's celebrated attacking finish against von Bardeleben at Hastings, 1895.
+    uci_prefix: e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 c2c3
+
+  - id: rotlewi_rubinstein_1907
+    title: Rotlewi vs Rubinstein, Lodz 1907
+    aliases:
+      - Rubinstein Immortal
+    white: Georg Rotlewi
+    black: Akiba Rubinstein
+    white_aliases:
+      - Rotlewi
+    black_aliases:
+      - Rubinstein
+    year: 1907
+    event: Lodz
+    event_aliases:
+      - Łódź
+      - Lodz 1907
+    tags:
+      - famous
+      - sacrifice
+      - classical
+    historical_significance: >
+      Rubinstein's famous sacrificial attack against Rotlewi in Lodz, 1907.
+    uci_prefix: d2d4 d7d5 e2e3 g8f6 c2c4 e7e6
+
+  - id: game_of_the_century
+    title: Game of the Century
+    aliases:
+      - Byrne–Fischer 1956
+      - Game of the Century
+    white: Donald Byrne
+    black: Robert James Fischer
+    white_aliases:
+      - Byrne
+      - Donald Byrne
+    black_aliases:
+      - Fischer
+      - Bobby Fischer
+      - R. Fischer
+    year: 1956
+    event: New York
+    event_aliases:
+      - Rosenwald
+      - New York 1956
+    tags:
+      - famous
+      - sacrifice
+      - modern
+      - prodigy
+    historical_significance: >
+      Teenage Fischer's brilliant queen sacrifice against Donald Byrne in New York, 1956.
+    uci_prefix: g1f3 g8f6 c2c4 g7g6 b1c3 f8g7

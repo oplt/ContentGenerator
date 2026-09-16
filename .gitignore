@@ -135,3 +135,18 @@ Thumbs.db
 # commands.txt
 # tasks.txt
 # TODO.txt
+# ---------------------------------------------------------------------------
+# Chess intelligence — never commit bulk provider dumps (Phase 20)
+# ---------------------------------------------------------------------------
+
+# Lichess official puzzle database (download from database.lichess.org)
+**/lichess_db_puzzle*.csv
+**/lichess_db_puzzle*.csv.gz
+**/lichess_db_puzzle*.csv.zst
+data/lichess_puzzles/
+backend/data/lichess_puzzles/
+
+# Operator PGN archives used as local import inputs
+data/pgn_archives/
+backend/data/pgn_archives/
+*.pgn.zst

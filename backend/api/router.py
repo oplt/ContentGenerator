@@ -7,6 +7,9 @@ from backend.modules.analytics.router import router as analytics_router
 from backend.modules.approvals.router import router as approvals_router
 from backend.modules.audit.router import router as audit_router
 from backend.modules.chess_video.router import router as chess_video_router
+from backend.modules.chess_intelligence.router import router as chess_intelligence_router
+from backend.modules.chess_intelligence.provenance_router import router as chess_provenance_router
+from backend.modules.chess_intelligence.catalog_job_router import router as chess_catalog_job_router
 from backend.modules.trending_repos.router import router as trending_repos_router
 from backend.modules.content_generation.router import router as content_generation_router
 from backend.modules.content_strategy.router import router as content_strategy_router
@@ -42,6 +45,9 @@ api_router.include_router(settings_router, prefix="/settings", tags=["settings"]
 api_router.include_router(audit_router, prefix="/audit", tags=["audit"])
 api_router.include_router(trending_repos_router, prefix="/trending-repos", tags=["trending-repos"])
 api_router.include_router(chess_video_router, prefix="/chess-videos", tags=["chess-videos"])
+api_router.include_router(chess_intelligence_router, prefix="/chess", tags=["chess"])
+api_router.include_router(chess_provenance_router, prefix="/chess", tags=["chess"])
+api_router.include_router(chess_catalog_job_router, prefix="/chess", tags=["chess"])
 api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
 api_router.include_router(
     workflow_operator_router, prefix="/workflows", tags=["workflows"]

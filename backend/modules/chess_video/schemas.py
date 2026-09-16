@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.modules.chess_video.parser import MAX_INPUT_BYTES
 
@@ -32,6 +32,7 @@ class ChessVideoJobResponse(BaseModel):
 
     input_format: str
     source_hash: str | None = None
+    chess_game_id: UUID | None = None
 
     white_player: str | None = None
     black_player: str | None = None
@@ -72,7 +73,10 @@ class ChessVideoJobResponse(BaseModel):
 
 
 class ChessVideoCreateRequest(BaseModel):
-    source_text: str = Field(min_length=1, max_length=_MAX_SOURCE_CHARS)
+    """Create a render job from raw moves **or** a catalog ``chess_game_id``."""
+
+    source_text: str | None = Field(default=None, max_length=_MAX_SOURCE_CHARS)
+    chess_game_id: UUID | None = None
     input_format: str = Field(default="auto", pattern=_FORMAT_PATTERN)
     orientation: str = Field(default="white", pattern="^(white|black)$")
     render_preset: str = Field(default="economy_vertical", pattern=_PRESET_PATTERN)
@@ -86,12 +90,21 @@ class ChessVideoCreateRequest(BaseModel):
     @field_validator("source_text", mode="before")
     @classmethod
     def _strip_source(cls, value: object) -> object:
-        return value.strip() if isinstance(value, str) else value
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
 
     @field_validator("input_format", "orientation", "render_preset", "board_theme", mode="before")
     @classmethod
     def _normalize_enums(cls, value: object) -> object:
         return value.strip().lower() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _require_source_or_catalog_game(self) -> ChessVideoCreateRequest:
+        if self.chess_game_id is None and not self.source_text:
+            raise ValueError("Provide source_text or chess_game_id")
+        return self
 
 
 class ChessVideoValidateRequest(BaseModel):

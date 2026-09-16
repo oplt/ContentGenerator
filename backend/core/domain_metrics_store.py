@@ -56,6 +56,7 @@ METRIC_INGESTION_STAGE = "cg.ingestion.stage.duration_ms"
 METRIC_LLM_CALL = "cg.llm.call.duration_ms"
 METRIC_PUBLISH_CLAIM = "cg.publish.claim.total"
 METRIC_GENERATION_STAGE = "cg.content.stage.duration_ms"
+METRIC_CHESS_IMPORT = "cg.chess.import.total"
 
 ALLOWED_ATTR_KEYS = frozenset(
     {

@@ -48,6 +48,10 @@ celery_app.conf.update(
         "backend.workers.tasks.generate_image_asset_task": {"queue": settings.CELERY_QUEUE_VIDEO},
         "backend.workers.tasks.generate_tts_asset_task": {"queue": settings.CELERY_QUEUE_VIDEO},
         "backend.workers.tasks.generate_chess_video_task": {"queue": settings.CELERY_QUEUE_VIDEO},
+        "backend.workers.tasks.analyze_chess_game_task": {"queue": settings.CELERY_QUEUE_VIDEO},
+        "backend.workers.tasks.run_chess_catalog_job_task": {
+            "queue": settings.CELERY_QUEUE_INGESTION
+        },
         "backend.workers.tasks.send_approval_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
         "backend.workers.tasks.process_webhook_inbox_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
         "backend.workers.tasks.expire_stale_approvals_task": {"queue": settings.CELERY_QUEUE_APPROVALS},

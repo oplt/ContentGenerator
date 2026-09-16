@@ -138,6 +138,8 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     HTTP_PROVIDER_PUBLISHING_CONCURRENCY: int = 4
     HTTP_PROVIDER_IMAGE_CONCURRENCY: int = 2
     HTTP_PROVIDER_TTS_CONCURRENCY: int = 2
+    HTTP_PROVIDER_LICHESS_CONCURRENCY: int = 2
+    HTTP_PROVIDER_CHESSCOM_CONCURRENCY: int = 2
     HTTP_RETRY_AFTER_MAX_SECONDS: float = 60.0
     HTTP_INGESTION_HEALTH_CONCURRENCY: int = 8
     HTTP_INGESTION_ENRICH_CONCURRENCY: int = 6
@@ -248,6 +250,37 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     EXTERNAL_SECRET_REFERENCES_JSON: str = "{}"
 
     GITHUB_TOKEN: str = ""
+
+    # Lichess opening explorer (masters / puzzles). Token optional but may be required
+    # for /masters search depending on upstream policy; never expose to frontend.
+    LICHESS_API_TOKEN: str = ""
+    LICHESS_API_BASE_URL: str = "https://lichess.org"
+    LICHESS_EXPLORER_BASE_URL: str = "https://explorer.lichess.org"
+    LICHESS_HTTP_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
+    LICHESS_RATE_LIMIT_RPH: int = Field(default=60, ge=1, le=3600)
+    LICHESS_HTTP_MAX_RETRIES: int = Field(default=2, ge=0, le=5)
+
+    # Chess provider response cache (TenantCache / Redis) — Phase 22
+    CHESS_CACHE_MASTERS_SEARCH_TTL_SECONDS: int = Field(default=1800, ge=60, le=86_400)
+    CHESS_CACHE_GAME_PGN_TTL_SECONDS: int = Field(default=604_800, ge=300, le=30 * 24 * 3600)
+    CHESS_CACHE_PUZZLE_TTL_SECONDS: int = Field(default=604_800, ge=300, le=30 * 24 * 3600)
+    CHESS_CACHE_PROVIDER_META_TTL_SECONDS: int = Field(default=3600, ge=60, le=86_400)
+    # Daily puzzle: soft ceiling; runtime also clamps to next UTC midnight.
+    CHESS_CACHE_DAILY_PUZZLE_TTL_SECONDS: int = Field(default=21_600, ge=300, le=86_400)
+
+    # Chess.com PubAPI (no auth). Identify via User-Agent; fair-use rate limit.
+    CHESSCOM_API_BASE_URL: str = "https://api.chess.com"
+    CHESSCOM_USER_AGENT: str = "SignalForgeChessIntelligence/1.0 (contact: ops@localhost)"
+    CHESSCOM_HTTP_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
+    CHESSCOM_RATE_LIMIT_RPH: int = Field(default=60, ge=1, le=3600)
+    CHESSCOM_HTTP_MAX_RETRIES: int = Field(default=2, ge=0, le=5)
+
+    # Stockfish binary (external executable). Empty → analysis endpoints return 503.
+    STOCKFISH_PATH: str = ""
+    CHESS_ENGINE_DEPTH: int | None = Field(default=12, ge=1, le=40)
+    CHESS_ENGINE_TIME_LIMIT: float | None = Field(default=None, gt=0, le=60)
+    CHESS_ENGINE_HASH_MB: int = Field(default=64, ge=1, le=4096)
+    CHESS_ENGINE_THREADS: int = Field(default=1, ge=1, le=32)
 
     WHATSAPP_PROVIDER: str = "stub"
     WHATSAPP_ACCESS_TOKEN: str = ""

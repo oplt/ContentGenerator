@@ -30,6 +30,7 @@ from backend.core.cache_support import (
 )
 from backend.core.cache_keys import (
     OWNER_AUTH_TOKEN as OWNER_AUTH_TOKEN,
+    OWNER_CHESS as OWNER_CHESS,
     OWNER_CONTENT_STRATEGY as OWNER_CONTENT_STRATEGY,
     OWNER_IDENTITY as OWNER_IDENTITY,
     OWNER_INGESTION as OWNER_INGESTION,

@@ -91,6 +91,27 @@ export const queryKeyFactories = {
     job: (tenantId: string, jobId: string) =>
       tenantQueryKey(tenantId, "chess-videos", "job", jobId),
   },
+  chessCatalog: {
+    games: (tenantId: string, filterKey: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "games", filterKey),
+    famous: (tenantId: string, cursor?: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "famous", cursor ?? ""),
+    game: (tenantId: string, gameId: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "game", gameId),
+    moves: (tenantId: string, gameId: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "moves", gameId),
+    puzzles: (tenantId: string, filterKey: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "puzzles", filterKey),
+    daily: (tenantId: string) => tenantQueryKey(tenantId, "chess-catalog", "daily"),
+    analysis: (tenantId: string, gameId: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "analysis", gameId),
+    analysisJob: (tenantId: string, jobId: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "analysis-job", jobId),
+    contentScore: (tenantId: string, gameId: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "content-score", gameId),
+    provenance: (tenantId: string, gameId: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "provenance", gameId),
+  },
   workflows: {
     definitions: (tenantId: string) => tenantQueryKey(tenantId, "workflows", "definitions"),
     definition: (tenantId: string, definitionId: string) =>
@@ -144,6 +165,16 @@ export const queryKeys = {
   trendingRepos: queryKeyFactories.trending.repos,
   chessVideos: queryKeyFactories.chessVideos.all,
   chessVideoJob: queryKeyFactories.chessVideos.job,
+  chessGames: queryKeyFactories.chessCatalog.games,
+  chessFamousGames: queryKeyFactories.chessCatalog.famous,
+  chessGame: queryKeyFactories.chessCatalog.game,
+  chessGameMoves: queryKeyFactories.chessCatalog.moves,
+  chessPuzzles: queryKeyFactories.chessCatalog.puzzles,
+  chessDailyPuzzle: queryKeyFactories.chessCatalog.daily,
+  chessGameAnalysis: queryKeyFactories.chessCatalog.analysis,
+  chessAnalysisJob: queryKeyFactories.chessCatalog.analysisJob,
+  chessContentScore: queryKeyFactories.chessCatalog.contentScore,
+  chessGameProvenance: queryKeyFactories.chessCatalog.provenance,
   workflowDefinitions: queryKeyFactories.workflows.definitions,
   workflowDefinition: queryKeyFactories.workflows.definition,
   workflowVersions: queryKeyFactories.workflows.versions,

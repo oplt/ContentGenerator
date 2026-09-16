@@ -210,7 +210,7 @@ describe("ChessVideoPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /generate video/i })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: /generate video/i }));
 
-    expect(await screen.findByText(/Preview & Export/)).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /preview/i })).toBeInTheDocument();
     await waitFor(() => {
       const el = document.querySelector("video");
       expect(el).toBeTruthy();

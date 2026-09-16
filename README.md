@@ -31,7 +31,7 @@ AI systems can ingest, rank, summarize, draft, and prepare content, while operat
 - Multi-provider AI routing
 - Webhook and messaging integrations
 - Queue-driven asynchronous processing
-- Chess match video generation (PGN/SAN/UCI → 2D MP4; see [`docs/chess-video.md`](docs/chess-video.md))
+- Chess catalog intelligence + match video (search, puzzles, Stockfish, PGN→MP4; see [`docs/chess.md`](docs/chess.md))
 - Multi-brand workflow automations (reusable DAGs → brands → accounts; see [`docs/workflows.md`](docs/workflows.md))
 
 > Status: active development platform with production-oriented architecture and semi-autonomous publishing workflows.
@@ -578,7 +578,8 @@ OLLAMA_BASE_URL=http://localhost:11434
 | Approvals + resume | [`docs/approvals.md`](docs/approvals.md) |
 | Extending workflows | [`docs/workflow-development.md`](docs/workflow-development.md) |
 | Testing strategy | [`docs/workflows-phase18-testing.md`](docs/workflows-phase18-testing.md) |
-| Chess video | [`docs/chess-video.md`](docs/chess-video.md) |
+| Chess (catalog + video) | [`docs/chess.md`](docs/chess.md) |
+| Chess video pipeline | [`docs/chess-video.md`](docs/chess-video.md) |
 | Metrics | [`docs/observability/metrics.md`](docs/observability/metrics.md) |
 
 Phase-by-phase workflow notes: `docs/workflows-phase*.md`.

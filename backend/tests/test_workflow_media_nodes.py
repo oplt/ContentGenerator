@@ -285,6 +285,9 @@ def test_implemented_slice_includes_media_nodes() -> None:
         "generate_tts",
         "generate_video",
         "generate_chess_video",
+        "retrieve_chess_game",
+        "analyze_chess_game",
+        "generate_chess_narrative",
     }.issubset(types)
 
 

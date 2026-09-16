@@ -8,6 +8,7 @@
 | HTTP providers | `backend/core/http.py` | `cg.provider.*` |
 | Publishing / accounts | `publishing/attempt_lifecycle`, `job_executor` | `cg.publish.*` |
 | Workflows | `workflows/observability.py` | `cg.operation.*` (`workflow.run` / `workflow.node` / `workflow.approval_wait` / `workflow.media` / `workflow.publish`) |
+| Chess intelligence | `chess_intelligence/observability.py` | `cg.chess.import.total`, `cg.operation.*` (`chess.engine.analyze` / `chess.video.handoff`); provider HTTP via `cg.provider.*` |
 | Tenant cache | `backend/core/tenant_cache.py` | `cg.cache.ops.total` |
 | DB pool | `backend/db/session.py` | `cg.db.pool.events.total` |
 | Inference | `inference/providers.py` | `cg.inference.event.total` |

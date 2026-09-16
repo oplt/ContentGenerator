@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.modules.chess_video.models import ChessVideoJobStatus
 from backend.modules.chess_video.schemas import ChessVideoCreateRequest
@@ -37,9 +39,20 @@ class GenerateChessVideoConfig(BaseModel):
 
 
 class GenerateChessVideoInput(BaseModel):
-    source_text: str = Field(min_length=1)
+    """Provide ``source_text`` and/or ``chess_game_id`` (catalog bridge)."""
+
+    source_text: str | None = None
+    chess_game_id: UUID | None = None
     title: str | None = None
     subtitle: str | None = None
+
+    @model_validator(mode="after")
+    def _require_source(self) -> GenerateChessVideoInput:
+        text = (self.source_text or "").strip()
+        self.source_text = text or None
+        if self.source_text is None and self.chess_game_id is None:
+            raise ValueError("Provide source_text or chess_game_id")
+        return self
 
 
 class GenerateChessVideoOutput(BaseModel):
@@ -65,7 +78,8 @@ class GenerateChessVideoNode(
     OutputSchema = GenerateChessVideoOutput
     required_capabilities = ["video", "chess"]
     input_ports = [
-        NodePort(name="source_text", data_type="string"),
+        NodePort(name="source_text", data_type="string", required=False),
+        NodePort(name="chess_game_id", data_type="uuid", required=False),
         NodePort(name="title", data_type="string", required=False),
         NodePort(name="subtitle", data_type="string", required=False),
     ]
@@ -91,6 +105,7 @@ class GenerateChessVideoNode(
         assert context.db is not None
         payload = ChessVideoCreateRequest(
             source_text=typed_in.source_text,
+            chess_game_id=typed_in.chess_game_id,
             input_format=typed_cfg.input_format,
             orientation=typed_cfg.orientation,
             render_preset=typed_cfg.render_preset,

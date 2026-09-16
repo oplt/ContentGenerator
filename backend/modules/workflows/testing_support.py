@@ -17,6 +17,7 @@ GENERATION_NODE_TYPES = frozenset(
         "generate_video",
         "generate_tts",
         "generate_chess_video",
+        "generate_chess_narrative",
     }
 )
 
@@ -90,6 +91,14 @@ def mock_generation_result(node_type: str, inputs: dict[str, Any]) -> NodeResult
             "render_fingerprint": "mock-fp",
             "provider": "mock",
             "mocked": True,
+        }
+    elif node_type == "generate_chess_narrative":
+        game_id = str(inputs.get("chess_game_id") or "00000000-0000-4000-8000-0000000000c2")
+        output = {
+            "chess_game_id": game_id,
+            "narrative": f"[mock narrative] game={game_id[:36]}",
+            "moment_count": len(inputs.get("selected_moments") or []),
+            "provider": "mock",
         }
     else:
         prompt = str(inputs.get("prompt") or inputs.get("topic") or "content")

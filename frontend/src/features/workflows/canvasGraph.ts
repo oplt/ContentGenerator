@@ -41,6 +41,7 @@ export const PALETTE_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "triggers", label: "Triggers" },
   { key: "sources", label: "Sources" },
   { key: "ai_content", label: "AI" },
+  { key: "chess", label: "Chess" },
   { key: "media", label: "Media" },
   { key: "control", label: "Control" },
   { key: "human", label: "Human" },
@@ -56,6 +57,8 @@ export function categoryGlyph(category: string | undefined): string {
       return "◎";
     case "ai_content":
       return "✦";
+    case "chess":
+      return "♟";
     case "media":
       return "▣";
     case "control":

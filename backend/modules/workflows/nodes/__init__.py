@@ -7,6 +7,14 @@ from backend.modules.workflows.nodes.approval import ApprovalNode
 from backend.modules.workflows.nodes.audio import GenerateTTSNode
 from backend.modules.workflows.nodes.canonical_content import GenerateCanonicalContentNode
 from backend.modules.workflows.nodes.chess import GenerateChessVideoNode
+from backend.modules.workflows.nodes.chess_intelligence import (
+    AnalyzeChessGameNode,
+    GenerateChessNarrativeNode,
+    RetrieveChessGameNode,
+    RetrieveChessPuzzleNode,
+    ScoreChessContentNode,
+    SelectCriticalMomentNode,
+)
 from backend.modules.workflows.nodes.control import (
     ConditionNode,
     DelayNode,
@@ -31,6 +39,15 @@ from backend.modules.workflows.nodes.triggers import (
 )
 from backend.modules.workflows.nodes.video import GenerateVideoNode
 
+_CHESS_INTELLIGENCE_NODES = (
+    RetrieveChessGameNode,
+    RetrieveChessPuzzleNode,
+    AnalyzeChessGameNode,
+    SelectCriticalMomentNode,
+    ScoreChessContentNode,
+    GenerateChessNarrativeNode,
+)
+
 IMPLEMENTED_SLICE = (
     ManualTriggerNode,
     WebhookTriggerNode,
@@ -44,6 +61,7 @@ IMPLEMENTED_SLICE = (
     GenerateTTSNode,
     GenerateVideoNode,
     GenerateChessVideoNode,
+    *_CHESS_INTELLIGENCE_NODES,
     ConditionNode,
     FanOutNode,
     MergeNode,
@@ -69,6 +87,7 @@ ALL_NODE_TYPES = (
     GenerateTTSNode,
     GenerateVideoNode,
     GenerateChessVideoNode,
+    *_CHESS_INTELLIGENCE_NODES,
     ApprovalNode,
     ConditionNode,
     FanOutNode,

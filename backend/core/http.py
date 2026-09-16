@@ -17,7 +17,7 @@ import httpx
 
 from backend.core.config import settings
 from backend.core.domain_metrics import domain_metrics
-from backend.core.http_concurrency import map_concurrent
+from backend.core.http_concurrency import map_concurrent  # noqa: F401  — re-exported
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,8 @@ def provider_limit(provider: str) -> int:
         "publishing": settings.HTTP_PROVIDER_PUBLISHING_CONCURRENCY,
         "image": settings.HTTP_PROVIDER_IMAGE_CONCURRENCY,
         "tts": settings.HTTP_PROVIDER_TTS_CONCURRENCY,
+        "lichess": settings.HTTP_PROVIDER_LICHESS_CONCURRENCY,
+        "chesscom": settings.HTTP_PROVIDER_CHESSCOM_CONCURRENCY,
         "approvals": settings.HTTP_PROVIDER_LLM_CONCURRENCY,
     }
     return overrides.get(normalized, settings.HTTP_PROVIDER_MAX_CONCURRENCY)

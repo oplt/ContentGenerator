@@ -90,6 +90,19 @@ WORKFLOW_TABLES = (
     "brand_social_accounts",
 )
 
+CHESS_TABLES = (
+    "chess_games",
+    "chess_puzzles",
+    "chess_game_sources",
+    "chess_analysis_jobs",
+    "chess_position_analyses",
+    "chess_critical_moments",
+    "chess_tactical_patterns",
+    "chess_content_opportunity_scores",
+    "chess_catalog_jobs",
+    "chess_video_jobs",
+)
+
 
 def _migration_config(monkeypatch: pytest.MonkeyPatch) -> Config:
     monkeypatch.setenv("DB_POOL_USE_NULL", "true")
@@ -152,6 +165,55 @@ def test_workflow_tables_exist_after_upgrade(monkeypatch: pytest.MonkeyPatch) ->
     tables = _table_names_after_upgrade(cfg)
     missing = [name for name in WORKFLOW_TABLES if name not in tables]
     assert not missing, f"missing workflow tables: {missing}"
+    missing_chess = [name for name in CHESS_TABLES if name not in tables]
+    assert not missing_chess, f"missing chess tables: {missing_chess}"
+
+
+@pytest.mark.integration
+def test_chess_tables_exist_after_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 23: chess vertical tables come from Alembic, not create_all."""
+    import os
+
+    if os.environ.get("CG_RUN_DB_MIGRATIONS") != "1":
+        pytest.skip("set CG_RUN_DB_MIGRATIONS=1 with disposable Postgres to run")
+
+    from alembic import command
+    from sqlalchemy import create_engine, inspect, text
+
+    from backend.core.config import settings
+
+    cfg = _migration_config(monkeypatch)
+    command.upgrade(cfg, "head")
+    tables = _table_names_after_upgrade(cfg)
+    missing = [name for name in CHESS_TABLES if name not in tables]
+    assert not missing, f"missing chess tables: {missing}"
+
+    sync_url = settings.DATABASE_URL.replace("+asyncpg", "")
+    engine = create_engine(sync_url, pool_pre_ping=True)
+    try:
+        insp = inspect(engine)
+        game_indexes = {ix["name"] for ix in insp.get_indexes("chess_games")}
+        assert "uq_chess_games_tenant_id_game_fingerprint" in game_indexes
+        assert "uq_chess_games_tenant_provider_external" in game_indexes
+        puzzle_indexes = {ix["name"] for ix in insp.get_indexes("chess_puzzles")}
+        assert "uq_chess_puzzles_tenant_id_puzzle_fingerprint" in puzzle_indexes
+        assert "uq_chess_puzzles_tenant_provider_external" in puzzle_indexes
+        fks = {fk["name"] for fk in insp.get_foreign_keys("chess_video_jobs")}
+        assert "fk_chess_video_jobs_chess_game_id" in fks
+        # Soft-delete partial unique: re-import after soft-delete must be allowed.
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT indexdef FROM pg_indexes
+                    WHERE tablename = 'chess_games'
+                      AND indexname = 'uq_chess_games_tenant_id_game_fingerprint'
+                    """
+                )
+            ).scalar_one()
+        assert "deleted_at IS NULL" in row
+    finally:
+        engine.dispose()
 
 
 # First workflow-domain Alembic revision (parent is last pre-workflow revision).

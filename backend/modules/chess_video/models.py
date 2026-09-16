@@ -52,6 +52,7 @@ class ChessVideoJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_chess_video_jobs_render_fingerprint", "render_fingerprint"),
         Index("ix_chess_video_jobs_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_chess_video_jobs_tenant_id_status", "tenant_id", "status"),
+        Index("ix_chess_video_jobs_chess_game_id", "chess_game_id"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -79,6 +80,12 @@ class ChessVideoJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source_text: Mapped[str] = mapped_column(Text, nullable=False)
     normalized_pgn: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Catalog bridge — keeps Content → ChessGame → provider provenance intact.
+    chess_game_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("chess_games.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     white_player: Mapped[str | None] = mapped_column(String(255), nullable=True)
     black_player: Mapped[str | None] = mapped_column(String(255), nullable=True)

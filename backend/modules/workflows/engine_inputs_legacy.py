@@ -107,10 +107,17 @@ def resolve_legacy_node_inputs(
         }
 
     if node_type == "generate_chess_video":
-        source = bag.get("source_text") or bag.get("pgn") or bag.get("text") or ""
+        source = (
+            bag.get("source_text")
+            or bag.get("normalized_pgn")
+            or bag.get("pgn")
+            or bag.get("text")
+            or ""
+        )
         return {
-            "source_text": source,
-            "title": bag.get("title"),
+            "source_text": source or None,
+            "chess_game_id": bag.get("chess_game_id") or bag.get("game_id"),
+            "title": bag.get("title") or bag.get("famous_title"),
             "subtitle": bag.get("subtitle"),
         }
 

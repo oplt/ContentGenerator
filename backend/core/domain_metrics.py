@@ -45,6 +45,7 @@ from backend.core.domain_metrics_store import (
     METRIC_TASK_QUEUE_DELAY,
     METRIC_TASK_TOTAL,
     METRIC_WEB_VITAL,
+    METRIC_CHESS_IMPORT,
     _InMemoryStore,
     _sanitize_attrs,
 )
@@ -84,6 +85,7 @@ __all__ = [
     "METRIC_TASK_QUEUE_DELAY",
     "METRIC_TASK_TOTAL",
     "METRIC_WEB_VITAL",
+    "METRIC_CHESS_IMPORT",
 ]
 
 
@@ -115,6 +117,7 @@ class DomainMetrics(ObservabilityMetricsMixin):
             (METRIC_HTTP_429, "Outbound HTTP 429 responses"),
             (METRIC_INGESTION, "Ingestion article outcomes"),
             (METRIC_PUBLISH_CLAIM, "Publishing claim/recovery events"),
+            (METRIC_CHESS_IMPORT, "Chess game/puzzle import and video handoff counts"),
         )
         hist_defs = (
             (METRIC_OPERATION_DURATION, "Domain operation duration"),
@@ -264,6 +267,28 @@ class DomainMetrics(ObservabilityMetricsMixin):
             METRIC_CONTENT_VIDEO_DURATION,
             duration_ms,
             {"platform": platform, "post_type": "video"},
+        )
+
+    def record_chess_import(
+        self,
+        *,
+        kind: str,
+        provider: str,
+        result: str,
+        amount: int = 1,
+        operation: str | None = None,
+    ) -> None:
+        """Chess catalog import / handoff counters (low-cardinality attrs only)."""
+        if amount <= 0:
+            return
+        self._inc(
+            METRIC_CHESS_IMPORT,
+            {
+                "operation": (operation or f"chess.{kind}.import")[:64],
+                "provider": provider,
+                "result": result,
+            },
+            amount=amount,
         )
 
     @contextmanager

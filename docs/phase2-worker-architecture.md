@@ -17,39 +17,32 @@ were not running.
 
 ## Changes
 
-- Local worker concurrency is now 4, matching the configured worker pool
-  ceiling.
-- Local prefetch is explicitly 1 so long-running tasks do not reserve extra
-  messages and increase queue latency.
-- Local startup remains one simple worker consuming all queues.
-- Existing workload queue groups remain available for production separation:
-
-  - `io`: `ingestion,enrichment,email,approvals`, concurrency 4
-  - `llm`: `generation`, concurrency 2
-  - `media`: `video`, concurrency 1
-  - `publishing`: `publishing`, concurrency 2
-  - `db`: `analytics`, concurrency 2
-
-Production should run those groups as separate Celery worker processes so
-video/media and generation workloads cannot starve publishing, approvals,
-email, ingestion, or analytics. The `celery_worker_argv()` helper emits the
-queue, concurrency, prefetch, and hostname arguments for each group.
+- Local `Procfile.dev` runs **specialized workers** aligned with docker-compose
+  Phase 14 groups (`worker_io`, `worker_llm`, `worker_media`,
+  `worker_publishing`, `worker_db`) so video/LLM work cannot starve
+  publishing, approvals, email, or ingestion.
+- Media uses `--pool=prefork --concurrency=1`; I/O/LLM/publishing/db use gevent
+  with workload-appropriate concurrency and `--prefetch-multiplier=1`.
+- Frontend and Celery processes wait on `GET /api/v1/health/live` before start
+  to avoid startup `ECONNREFUSED` races.
+- Alembic `upgrade head` runs only from the backend process (plus
+  `make migrate` before honcho), not from every worker/beat process.
+- `celery_worker_argv()` remains the source of queue/concurrency fragments for
+  production compose.
 
 ## Before / after
 
 | Item | Before | After |
-|---|---:|---:|
-| Local worker concurrency | 16 | 4 |
-| Worker DB pool slots | 4 | 4 |
-| Maximum configured DB-backed task concurrency | 16 local worker slots | 4 local worker slots |
-| Local prefetch | implicit/default | 1 |
-
-The change removes the known 4-versus-16 resource mismatch without enlarging
-the database pool.
+|---|---|---|
+| Local worker shape | one gevent worker, all queues, concurrency 4 | five specialized workers |
+| Media pool | gevent (shared) | prefork concurrency 1 |
+| Frontend start | immediate with backend | waits for `/health/live` |
+| Alembic on startup | backend + worker + beat | backend only |
 
 ## Files changed in Phase 2
 
-- `Procfile.dev`
+- `Procfile.dev` (specialized workers + readiness gates)
+- `Makefile.local` (project-scoped process cleanup)
 - `backend/tests/test_phase2_worker_architecture.py`
 - `docs/phase2-worker-architecture.md`
 

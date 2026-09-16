@@ -4,6 +4,7 @@ import { GENERIC_SIGN_IN_ERROR } from "../features/auth/messages";
 import { PERIOD_LABELS, PERIODS } from "../features/trending";
 import { SETTINGS_TABS, SOCIAL_PLATFORM_DEFINITIONS } from "../features/settings";
 import { SOURCES_TABS, SOURCE_CATEGORIES } from "../features/sources";
+import { CHESS_CATALOG_TABS } from "../features/chess";
 
 describe("T7.2 feature module characterization", () => {
   it("exposes auth field primitives and stable error copy", () => {
@@ -15,7 +16,7 @@ describe("T7.2 feature module characterization", () => {
     expect(screen.getByText(GENERIC_SIGN_IN_ERROR)).toBeInTheDocument();
   });
 
-  it("keeps settings/sources/trending constants stable for deep links", () => {
+  it("keeps settings/sources/trending/chess constants stable for deep links", () => {
     expect(SETTINGS_TABS).toEqual(["account", "general", "publishing", "integrations", "social"]);
     expect(SOCIAL_PLATFORM_DEFINITIONS.map((item) => item.platform)).toEqual([
       "youtube",
@@ -28,5 +29,6 @@ describe("T7.2 feature module characterization", () => {
     expect(SOURCE_CATEGORIES).toContain("technology");
     expect(PERIODS).toEqual(["daily", "weekly", "monthly"]);
     expect(PERIOD_LABELS.daily).toBe("Today");
+    expect(CHESS_CATALOG_TABS).toEqual(["search", "famous", "puzzles"]);
   });
 });

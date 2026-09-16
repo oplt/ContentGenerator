@@ -63,6 +63,7 @@ def test_gitignore_covers_runtime_artifacts() -> None:
     assert "tsbuildinfo" in root_ignore or "tsbuildinfo" in frontend_ignore
     assert "tasks.txt" in root_ignore
     assert ".codex" in root_ignore or ".codex" in frontend_ignore
+    assert "lichess_db_puzzle" in root_ignore
 
 
 def test_backend_deps_exclude_proven_unused_packages() -> None:

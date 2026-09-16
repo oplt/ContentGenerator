@@ -254,7 +254,16 @@ export async function apiFetch<T>(
 
     return response.json() as Promise<T>;
   } catch (error) {
-    throw toApiError(error, timedOut || Boolean(timeout?.signal.aborted && !userSignal?.aborted));
+    const apiError = toApiError(
+      error,
+      timedOut || Boolean(timeout?.signal.aborted && !userSignal?.aborted)
+    );
+    // One short retry for transient connect failures (e.g. Vite up before API).
+    if (retry && apiError.retryable && apiError.code === "network") {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      return apiFetch<T>(path, options, false);
+    }
+    throw apiError;
   } finally {
     timeout?.clear();
   }

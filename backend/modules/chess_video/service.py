@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -12,12 +11,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.storage import object_storage
-from backend.modules.chess_video.fingerprint import compute_render_fingerprint
+from backend.modules.chess_video.create import create_video_job
 from backend.modules.chess_video.job_state import copy_cached_outputs
 from backend.modules.chess_video.models import ChessVideoJob, ChessVideoJobStatus
 from backend.modules.chess_video.parser import ChessParseError, parse_chess_input
 from backend.modules.chess_video.pipeline import cleanup_pipeline, render_chess_video
-from backend.modules.chess_video.presets import get_preset
 from backend.modules.chess_video.renderer import RENDERER_VERSION
 from backend.modules.chess_video.repository import ChessVideoRepository
 from backend.modules.chess_video.schemas import (
@@ -25,7 +23,6 @@ from backend.modules.chess_video.schemas import (
     ChessVideoValidateRequest,
     ChessVideoValidateResponse,
 )
-from backend.modules.chess_video.themes import get_board_theme
 
 logger = logging.getLogger(__name__)
 def _utcnow() -> datetime:
@@ -66,68 +63,14 @@ class ChessVideoService:
         user_id: uuid.UUID | None,
         payload: ChessVideoCreateRequest,
     ) -> ChessVideoJob:
-        try:
-            game = parse_chess_input(payload.source_text, payload.input_format)  # type: ignore[arg-type]
-            # Validate preset / theme early.
-            get_preset(payload.render_preset)
-            get_board_theme(payload.board_theme)
-        except ChessParseError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-        fingerprint = compute_render_fingerprint(
-            normalized_pgn=game.normalized_pgn,
-            starting_fen=game.starting_fen,
-            orientation=payload.orientation,
-            render_preset=payload.render_preset,
-            seconds_per_move=payload.seconds_per_move,
-            include_coordinates=payload.include_coordinates,
-            include_move_text=payload.include_move_text,
-            title=payload.title,
-            board_theme=payload.board_theme,
-        )
-        source_hash = hashlib.sha256(payload.source_text.encode("utf-8")).hexdigest()
-
-        cached = await self.repo.find_reusable_completed(
-            tenant_id=tenant_id, render_fingerprint=fingerprint
-        )
-        job = ChessVideoJob(
+        return await create_video_job(
+            self.db,
+            self.repo,
             tenant_id=tenant_id,
-            created_by_user_id=user_id,
-            status=ChessVideoJobStatus.QUEUED.value,
-            stage=ChessVideoJobStatus.QUEUED.value,
-            progress=0.0,
-            input_format=game.input_format,
-            source_text=payload.source_text,
-            normalized_pgn=game.normalized_pgn,
-            source_hash=source_hash,
-            white_player=game.white_player,
-            black_player=game.black_player,
-            event=game.event,
-            game_date=game.date,
-            result=game.result,
-            starting_fen=game.starting_fen,
-            move_count=game.move_count,
-            orientation=payload.orientation,
-            render_preset=payload.render_preset,
-            board_theme=payload.board_theme,
-            seconds_per_move=payload.seconds_per_move,
-            include_coordinates=payload.include_coordinates,
-            include_move_text=payload.include_move_text,
-            title=payload.title,
-            subtitle=payload.subtitle,
-            renderer_version=RENDERER_VERSION,
-            render_fingerprint=fingerprint,
+            user_id=user_id,
+            payload=payload,
+            copy_cached_outputs=self._copy_cached_outputs,
         )
-
-        if cached is not None and cached.video_public_url:
-            self._copy_cached_outputs(job, cached)
-            await self.repo.create(job)
-            return job
-
-        await self.repo.create(job)
-        return job
 
     def enqueue_job(self, *, tenant_id: uuid.UUID, job_id: uuid.UUID) -> None:
         self._enqueue(tenant_id=tenant_id, job_id=job_id)

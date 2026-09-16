@@ -27,7 +27,8 @@ export type ChessBoardTheme =
 export type ChessInputFormat = "pgn" | "san" | "uci" | "auto";
 
 export type ChessVideoCreateRequest = {
-  source_text: string;
+  source_text?: string;
+  chess_game_id?: string;
   input_format?: ChessInputFormat;
   orientation?: "white" | "black";
   render_preset?: ChessRenderPreset;
@@ -62,6 +63,7 @@ export type ChessVideoJob = {
   stage: string;
   progress: number;
   input_format: string;
+  chess_game_id?: string | null;
   source_hash?: string | null;
   white_player?: string | null;
   black_player?: string | null;
@@ -110,17 +112,23 @@ export function validateChessGame(
 }
 
 export function createChessVideo(payload: ChessVideoCreateRequest, init?: ApiFetchOptions) {
+  const body: Record<string, unknown> = {
+    ...payload,
+    title: payload.title?.trim() || null,
+    subtitle: payload.subtitle?.trim() || null,
+  };
+  if (payload.chess_game_id) {
+    body.chess_game_id = payload.chess_game_id;
+    delete body.source_text;
+  } else {
+    body.source_text = (payload.source_text ?? "").trim();
+  }
   return apiFetch<ChessVideoJob>("/chess-videos", {
     ...init,
     method: "POST",
     // Large PGNs can take >30s to parse + persist.
     timeoutMs: init?.timeoutMs ?? 120_000,
-    body: JSON.stringify({
-      ...payload,
-      source_text: payload.source_text.trim(),
-      title: payload.title?.trim() || null,
-      subtitle: payload.subtitle?.trim() || null,
-    }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -130,6 +138,20 @@ export function getChessVideoJobs(limit = 50, init?: ApiFetchOptions) {
 
 export function getChessVideoJob(jobId: string, init?: ApiFetchOptions) {
   return apiFetch<ChessVideoJob>(`/chess-videos/${jobId}`, init);
+}
+
+export type ChessVideoProvenance = {
+  entity_type: "chess_video";
+  chess_video_job_id: string;
+  chess_game_id?: string | null;
+  normalized_pgn?: string | null;
+  source_hash?: string | null;
+  game?: unknown;
+  evidence_note: string;
+};
+
+export function getChessVideoProvenance(jobId: string, init?: ApiFetchOptions) {
+  return apiFetch<ChessVideoProvenance>(`/chess-videos/${jobId}/provenance`, init);
 }
 
 export function retryChessVideoJob(jobId: string, init?: ApiFetchOptions) {
