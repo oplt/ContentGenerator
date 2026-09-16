@@ -22,6 +22,8 @@ export type BriefCardProps = {
   onRewrite: (id: string) => void;
   onSendTelegram: (id: string) => void;
   isMutating: boolean;
+  /** When false, action buttons are hidden (viewer without briefs:write). */
+  canWrite?: boolean;
 };
 
 export function BriefCard({
@@ -32,6 +34,7 @@ export function BriefCard({
   onRewrite,
   onSendTelegram,
   isMutating,
+  canWrite = true,
 }: BriefCardProps) {
   const [showActions, setShowActions] = useState(false);
   const [rejectNote, setRejectNote] = useState("");
@@ -62,42 +65,44 @@ export function BriefCard({
           <h2 className="font-semibold text-lg leading-tight">{brief.headline}</h2>
           <p className="mt-1 text-sm text-muted-foreground italic">{brief.angle}</p>
         </div>
-        <div className="flex flex-wrap gap-2 shrink-0">
-          {brief.status === "ready" && (
-            <>
-              <Button size="sm" disabled={isMutating} onClick={() => onApprove(brief.id)}>
-                Approve
+        {canWrite ? (
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {brief.status === "ready" && (
+              <>
+                <Button size="sm" disabled={isMutating} onClick={() => onApprove(brief.id)}>
+                  Approve
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isMutating}
+                  onClick={() => setShowActions(!showActions)}
+                >
+                  Reject
+                </Button>
+                <Button size="sm" variant="outline" disabled={isMutating} onClick={() => onRewrite(brief.id)}>
+                  Rewrite
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isMutating}
+                  onClick={() => onSendTelegram(brief.id)}
+                >
+                  Send Telegram
+                </Button>
+              </>
+            )}
+            {(brief.status === "rejected" || brief.status === "expired" || brief.status === "ready") && (
+              <Button size="sm" variant="outline" disabled={isMutating} onClick={() => onRegenerate(brief.id)}>
+                Regenerate
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={isMutating}
-                onClick={() => setShowActions(!showActions)}
-              >
-                Reject
-              </Button>
-              <Button size="sm" variant="outline" disabled={isMutating} onClick={() => onRewrite(brief.id)}>
-                Rewrite
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={isMutating}
-                onClick={() => onSendTelegram(brief.id)}
-              >
-                Send Telegram
-              </Button>
-            </>
-          )}
-          {(brief.status === "rejected" || brief.status === "expired" || brief.status === "ready") && (
-            <Button size="sm" variant="outline" disabled={isMutating} onClick={() => onRegenerate(brief.id)}>
-              Regenerate
-            </Button>
-          )}
-        </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
-      {showActions && brief.status === "ready" && (
+      {canWrite && showActions && brief.status === "ready" && (
         <div className="flex gap-2">
           <Input
             placeholder="Rejection reason (required)"

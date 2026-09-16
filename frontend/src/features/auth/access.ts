@@ -31,3 +31,7 @@ export function canAccessTenantSettings(user: AuthUser | null, tenantId: string 
 export function canAccessAuditLogs(user: AuthUser | null, tenantId: string | null) {
   return hasPermission(user, "audit:read", tenantId);
 }
+
+export function canWriteBriefs(user: AuthUser | null, tenantId: string | null) {
+  return hasPermission(user, "briefs:write", tenantId);
+}

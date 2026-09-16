@@ -65,4 +65,4 @@ def get_preset(name: str | None = None) -> RenderPreset:
     key = (name or DEFAULT_PRESET).strip().lower()
     if key not in PRESETS:
         raise ValueError(f"Unknown render preset: {name}")
-    return PRESETS[key]  # type: ignore[index]
+    return PRESETS[key]

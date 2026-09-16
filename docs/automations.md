@@ -25,7 +25,10 @@ Same definition → many automations (different brands, schedules, accounts).
 |------|----------|
 | `manual` | Operator / API `start_run` |
 | `schedule` | DB scheduler (below) |
-| `webhook` / `event` | Reserved; resume stays on auth paths for now |
+| `webhook` / `event` | Signed `POST /workflows/webhooks/{endpoint_id}` → WebhookInbox → run |
+
+Webhook `trigger_config` requires `signing_secret_ref` (reference only). See
+[phase17-webhook-event-triggers.md](phase17-webhook-event-triggers.md).
 
 ### Schedule `trigger_config`
 
@@ -65,7 +68,11 @@ Creating an automation does not require enabling it — enable when schedule/tar
 ## Authorization
 
 * Mutations need `content:write` + tenant membership.
-* Target account IDs must belong to the tenant (`authorize_social_account_ids`).
+* Brand must exist for the tenant and not be soft-deleted.
+* Workflow version must belong to the selected definition (service + composite FK).
+* Target account IDs must belong to the tenant **and** be linked via
+  `BrandSocialAccount` (enabled, not deleted). Strict by default.
+* Explicit admin override: `allow_unlinked_targets=true` (audited).
 * Settings/trigger JSON sanitized (no raw secrets).
 
 ## Related

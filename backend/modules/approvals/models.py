@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Boolean, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -35,6 +35,11 @@ class ApprovalRequest(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
             "status",
             "approval_type",
             "expires_at",
+        ),
+        Index(
+            "ix_approval_requests_pending_expires_at",
+            "expires_at",
+            postgresql_where=text("status = 'pending'"),
         ),
     )
 
@@ -89,7 +94,10 @@ class ApprovalMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class WebhookInbox(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "webhooks_inbox"
-    __table_args__ = (Index("ix_webhooks_inbox_provider_received_at", "provider", "received_at"),)
+    __table_args__ = (
+        Index("ix_webhooks_inbox_provider_received_at", "provider", "received_at"),
+        Index("ix_webhooks_inbox_status_received_at", "status", "received_at"),
+    )
 
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True

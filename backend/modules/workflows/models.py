@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,15 +45,19 @@ class WorkflowDefinition(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, V
         UniqueConstraint("tenant_id", "id", name="uq_workflow_definitions_tenant_id_id"),
         Index("ix_workflow_definitions_tenant_id_status", "tenant_id", "status"),
         Index(
-            "ix_workflow_definitions_tenant_id_enabled",
+            "ix_workflow_definitions_tenant_updated_at_alive",
             "tenant_id",
-            "deleted_at",
+            text("updated_at DESC"),
             postgresql_where=(SoftDeleteMixin.deleted_at.is_(None)),
         ),
         ForeignKeyConstraint(
-            ["current_version_id"],
-            ["workflow_versions.id"],
-            name="fk_workflow_definitions_current_version_id",
+            ["tenant_id", "id", "current_version_id"],
+            [
+                "workflow_versions.tenant_id",
+                "workflow_versions.workflow_definition_id",
+                "workflow_versions.id",
+            ],
+            name="fk_workflow_definitions_current_version_composite",
             ondelete="SET NULL",
             use_alter=True,
         ),
@@ -90,6 +95,12 @@ class WorkflowVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="uq_workflow_versions_tenant_definition_version",
         ),
         UniqueConstraint("tenant_id", "id", name="uq_workflow_versions_tenant_id_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "workflow_definition_id",
+            "id",
+            name="uq_workflow_versions_tenant_definition_id",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "workflow_definition_id"],
             ["workflow_definitions.tenant_id", "workflow_definitions.id"],
@@ -132,9 +143,13 @@ class Automation(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMi
             ondelete="CASCADE",
         ),
         ForeignKeyConstraint(
-            ["tenant_id", "workflow_version_id"],
-            ["workflow_versions.tenant_id", "workflow_versions.id"],
-            name="fk_automations_tenant_workflow_version",
+            ["tenant_id", "workflow_definition_id", "workflow_version_id"],
+            [
+                "workflow_versions.tenant_id",
+                "workflow_versions.workflow_definition_id",
+                "workflow_versions.id",
+            ],
+            name="fk_automations_tenant_definition_version",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
@@ -152,10 +167,24 @@ class Automation(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMi
         ),
         Index("ix_automations_tenant_id_next_run_at", "tenant_id", "next_run_at"),
         Index(
-            "ix_automations_enabled_next_run_at",
-            "enabled",
-            "next_run_at",
+            "uq_automations_webhook_endpoint_id",
+            "webhook_endpoint_id",
+            unique=True,
+            postgresql_where=text("webhook_endpoint_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_automations_tenant_updated_at_alive",
+            "tenant_id",
+            text("updated_at DESC"),
             postgresql_where=(SoftDeleteMixin.deleted_at.is_(None)),
+        ),
+        Index(
+            "ix_automations_due_schedule_next_run_at",
+            "next_run_at",
+            postgresql_where=text(
+                "enabled IS TRUE AND trigger_type = 'schedule' "
+                "AND deleted_at IS NULL AND next_run_at IS NOT NULL"
+            ),
         ),
     )
 
@@ -175,6 +204,8 @@ class Automation(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMi
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     settings: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    # Public opaque id for POST /workflows/webhooks/{endpoint_id} (Phase 17).
+    webhook_endpoint_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class AutomationTarget(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
@@ -223,52 +254,10 @@ class AutomationTarget(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Bas
     overrides_json: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
 
 
-class AutomationOccurrenceStatus(str, enum.Enum):
-    CLAIMED = "claimed"
-    STARTED = "started"
-    SKIPPED = "skipped"
-    FAILED = "failed"
-
-
-class AutomationOccurrence(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """Idempotent scheduled slot — UNIQUE(automation_id, scheduled_occurrence)."""
-
-    __tablename__ = "automation_occurrences"
-    __table_args__ = (
-        UniqueConstraint(
-            "automation_id",
-            "scheduled_occurrence",
-            name="uq_automation_occurrences_automation_occurrence",
-        ),
-        UniqueConstraint("tenant_id", "id", name="uq_automation_occurrences_tenant_id_id"),
-        ForeignKeyConstraint(
-            ["tenant_id", "automation_id"],
-            ["automations.tenant_id", "automations.id"],
-            name="fk_automation_occurrences_tenant_automation",
-            ondelete="CASCADE",
-        ),
-        ForeignKeyConstraint(
-            ["tenant_id", "workflow_run_id"],
-            ["workflow_runs.tenant_id", "workflow_runs.id"],
-            name="fk_automation_occurrences_tenant_workflow_run",
-            ondelete="SET NULL",
-        ),
-        Index("ix_automation_occurrences_tenant_id_automation_id", "tenant_id", "automation_id"),
-        Index("ix_automation_occurrences_tenant_id_status", "tenant_id", "status"),
-    )
-
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
-    )
-    automation_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
-    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    scheduled_occurrence: Mapped[str] = mapped_column(String(64), nullable=False)
-    workflow_run_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=AutomationOccurrenceStatus.CLAIMED.value
-    )
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-
+from backend.modules.workflows.occurrence_models import (  # noqa: E402
+    AutomationOccurrence,
+    AutomationOccurrenceStatus,
+)
 
 # Phase 4 execution state (imported so model_registry picks them up via this module).
 from backend.modules.workflows.run_models import (  # noqa: E402
@@ -276,6 +265,9 @@ from backend.modules.workflows.run_models import (  # noqa: E402
     WorkflowNodeRunStatus,
     WorkflowRun,
     WorkflowRunStatus,
+    WorkflowWait,
+    WorkflowWaitStatus,
+    WorkflowWaitType,
 )
 
 __all__ = [
@@ -291,4 +283,7 @@ __all__ = [
     "WorkflowRun",
     "WorkflowRunStatus",
     "WorkflowVersion",
+    "WorkflowWait",
+    "WorkflowWaitStatus",
+    "WorkflowWaitType",
 ]

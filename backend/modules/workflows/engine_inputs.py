@@ -1,26 +1,29 @@
-"""Resolve node inputs from trigger payload + upstream outputs (linear engine)."""
+"""Resolve workflow node inputs.
+
+schema_version == 1 → legacy node-type router (historical graphs only)
+schema_version >= 2 → port/binding resolver (no node-type switches)
+"""
 
 from __future__ import annotations
 
 from typing import Any
 from uuid import UUID
 
+from backend.modules.workflows.engine_inputs_bag import merge_upstream_bag
+from backend.modules.workflows.engine_inputs_legacy import resolve_legacy_node_inputs
+from backend.modules.workflows.engine_inputs_ports import resolve_ports_and_bindings
+from backend.modules.workflows.graph_schema import GraphNode, WorkflowGraph
+from backend.modules.workflows.nodes.base import NodePort
 
-def merge_upstream_bag(
-    *,
-    trigger_payload: dict[str, Any],
-    initial_inputs: dict[str, Any],
-    upstream_outputs: list[dict[str, Any]],
-) -> dict[str, Any]:
-    bag: dict[str, Any] = {}
-    bag.update(initial_inputs)
-    bag.update(trigger_payload)
-    payload = trigger_payload.get("payload")
-    if isinstance(payload, dict):
-        bag.update(payload)
-    for output in upstream_outputs:
-        bag.update(output)
-    return bag
+__all__ = ["merge_upstream_bag", "resolve_node_inputs", "graph_schema_version"]
+
+
+def graph_schema_version(graph: WorkflowGraph | dict[str, Any] | None) -> int:
+    if graph is None:
+        return 1
+    if isinstance(graph, WorkflowGraph):
+        return int(graph.schema_version or 1)
+    return int(graph.get("schema_version") or 1)
 
 
 def resolve_node_inputs(
@@ -30,154 +33,45 @@ def resolve_node_inputs(
     initial_inputs: dict[str, Any],
     upstream_outputs: list[dict[str, Any]],
     run_id: UUID | None = None,
+    schema_version: int = 1,
+    graph: WorkflowGraph | None = None,
+    graph_node: GraphNode | None = None,
+    node_outputs: dict[str, dict[str, Any]] | None = None,
+    input_ports: list[NodePort] | None = None,
+    run_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    bag = merge_upstream_bag(
+    """Facade used by the engine. Dispatches only on schema_version."""
+    version = schema_version
+    if graph is not None:
+        version = graph_schema_version(graph)
+
+    if version >= 2:
+        if graph is None or graph_node is None:
+            raise ValueError("schema_version >= 2 requires graph and graph_node")
+        outputs = node_outputs or {}
+        # When callers only pass upstream_outputs, rebuild a minimal node_outputs map.
+        if not outputs and upstream_outputs and graph is not None:
+            incoming = [e for e in graph.edges if e.target == graph_node.id]
+            outputs = {
+                edge.source: dict(upstream_outputs[idx])
+                for idx, edge in enumerate(incoming)
+                if idx < len(upstream_outputs)
+            }
+        return resolve_ports_and_bindings(
+            graph=graph,
+            graph_node=graph_node,
+            trigger_payload=trigger_payload,
+            initial_inputs=initial_inputs,
+            node_outputs=outputs,
+            input_ports=input_ports,
+            run_context=run_context,
+            run_id=run_id,
+        )
+
+    return resolve_legacy_node_inputs(
+        node_type=node_type,
         trigger_payload=trigger_payload,
         initial_inputs=initial_inputs,
         upstream_outputs=upstream_outputs,
+        run_id=run_id,
     )
-
-    if node_type == "manual_trigger":
-        return {"payload": dict(trigger_payload or initial_inputs or {})}
-
-    if node_type == "generate_text":
-        prompt = bag.get("prompt")
-        if not prompt and isinstance(bag.get("text"), str):
-            prompt = bag.get("text")
-        return {
-            "prompt": prompt or "",
-            "system_hint": bag.get("system_hint"),
-        }
-
-    if node_type == "summarize":
-        text = bag.get("text") or bag.get("prompt") or bag.get("script") or ""
-        return {"text": text}
-
-    if node_type == "generate_script":
-        return {
-            "digest": bag.get("digest"),
-            "headline": bag.get("headline") or bag.get("title"),
-            "summary": bag.get("summary") or bag.get("text") or "",
-            "article_points": bag.get("article_points") or [],
-        }
-
-    if node_type == "fact_review":
-        generated = bag.get("generated_texts")
-        if not isinstance(generated, dict):
-            generated = {}
-            if isinstance(bag.get("text"), str) and bag["text"]:
-                generated = {"body": bag["text"]}
-        return {
-            "headline": bag.get("headline") or bag.get("title") or bag.get("text") or "",
-            "summary": bag.get("summary") or "",
-            "claims": bag.get("claims") or [],
-            "keywords": bag.get("keywords") or [],
-            "topic": bag.get("topic"),
-            "generated_texts": generated,
-            "evidence_links": bag.get("evidence_links") or [],
-            "source_articles": bag.get("source_articles") or [],
-            "reviewer_issues": bag.get("reviewer_issues") or [],
-        }
-
-    if node_type == "generate_image":
-        keywords = bag.get("keywords") or ""
-        if isinstance(keywords, list):
-            keywords = ", ".join(str(k) for k in keywords)
-        return {
-            "content_job_id": bag.get("content_job_id"),
-            "headline": bag.get("headline") or bag.get("title") or bag.get("text") or "",
-            "primary_topic": bag.get("primary_topic") or bag.get("topic") or "general",
-            "keywords": keywords,
-        }
-
-    if node_type == "generate_tts":
-        return {
-            "content_job_id": bag.get("content_job_id"),
-            "headline": bag.get("headline") or bag.get("title") or "",
-            "summary": bag.get("summary") or bag.get("text") or bag.get("script") or "",
-            "cta": bag.get("cta") or "",
-        }
-
-    if node_type == "generate_video":
-        return {
-            "headline": bag.get("headline") or bag.get("title"),
-            "summary": bag.get("summary") or bag.get("text") or "",
-            "article_points": bag.get("article_points") or [],
-            "script": bag.get("script"),
-            "content_job_id": bag.get("content_job_id"),
-            "cluster_id": bag.get("cluster_id"),
-        }
-
-    if node_type == "generate_chess_video":
-        source = bag.get("source_text") or bag.get("pgn") or bag.get("text") or ""
-        return {
-            "source_text": source,
-            "title": bag.get("title"),
-            "subtitle": bag.get("subtitle"),
-        }
-
-    if node_type == "approval":
-        return {"content_job_id": bag.get("content_job_id")}
-
-    if node_type == "condition":
-        return {
-            "value": bag.get("value", bag.get("risk_score")),
-            "payload": dict(bag),
-            **{k: v for k, v in bag.items() if k not in {"payload"}},
-        }
-
-    if node_type == "delay":
-        return {}
-
-    if node_type == "wait":
-        return {
-            "correlation_key": bag.get("correlation_key"),
-            "payload": bag.get("payload") if isinstance(bag.get("payload"), dict) else {},
-        }
-
-    if node_type == "fan_out":
-        items = bag.get("items")
-        if not isinstance(items, list):
-            items = []
-        return {
-            "items": items,
-            "social_account_ids": bag.get("social_account_ids") or [],
-        }
-
-    if node_type == "merge":
-        sources = [dict(o) for o in upstream_outputs if isinstance(o, dict)]
-        return {"sources": sources, "bag": dict(bag)}
-
-    if node_type == "platform_transform":
-        text = bag.get("text") or bag.get("canonical_text")
-        hashtags = bag.get("hashtags") or []
-        if not isinstance(hashtags, list):
-            hashtags = []
-        return {
-            "text": text or "",
-            "title": bag.get("title"),
-            "hashtags": hashtags,
-            "social_account_ids": bag.get("social_account_ids"),
-            "content_job_id": bag.get("content_job_id"),
-        }
-
-    if node_type == "publish":
-        idempotency = bag.get("idempotency_key")
-        if not idempotency and run_id is not None:
-            idempotency = f"wf-publish-{run_id}"
-        account_ids = bag.get("social_account_ids")
-        if not account_ids and isinstance(bag.get("variants"), list):
-            collected: list[Any] = []
-            for variant in bag["variants"]:
-                if isinstance(variant, dict):
-                    collected.extend(variant.get("social_account_ids") or [])
-            account_ids = collected or None
-        return {
-            "content_job_id": bag.get("content_job_id"),
-            "approval_request_id": bag.get("approval_request_id"),
-            "social_account_ids": account_ids,
-            "scheduled_for": bag.get("scheduled_for"),
-            "idempotency_key": idempotency,
-        }
-
-    return bag

@@ -25,6 +25,10 @@ def test_maintenance_schedules_are_staggered_and_expiring() -> None:
         "countdown": 30,
         "expires": 1_800,
     }
+    assert schedules["workflow-retention-hourly"]["options"] == {
+        "countdown": 40,
+        "expires": 3_500,
+    }
 
 
 def test_periodic_lock_allows_one_overlapping_execution(monkeypatch) -> None:

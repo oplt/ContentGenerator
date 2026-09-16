@@ -90,6 +90,9 @@ frontend/playwright/.cache/
 # Runtime / generated application data
 # ---------------------------------------------------------------------------
 
+logs/
+*.log
+
 backend/video/recordings/
 backend/logs/
 

@@ -9,6 +9,7 @@ from backend.modules.workflows.nodes.base import NodeResult, NodeResultStatus
 GENERATION_NODE_TYPES = frozenset(
     {
         "generate_text",
+        "generate_canonical_content",
         "summarize",
         "generate_script",
         "fact_review",
@@ -52,6 +53,18 @@ def mock_generation_result(node_type: str, inputs: dict[str, Any]) -> NodeResult
             "text": f"[mock summarize] {text}",
             "provider": "mock",
         }
+    elif node_type == "generate_canonical_content":
+        plan_id = str(inputs.get("content_plan_id") or "00000000-0000-4000-8000-000000000002")
+        output = {
+            "content_job_id": "00000000-0000-4000-8000-000000000001",
+            "content_plan_id": plan_id,
+            "text": f"[mock canonical] plan={plan_id[:36]}",
+            "status": "completed",
+            "risk_label": "low",
+            "asset_group_id": None,
+            "target_social_account_ids": [],
+            "provider": "mock",
+        }
     elif node_type == "fact_review":
         output = {
             "risk_label": "low",
@@ -62,9 +75,19 @@ def mock_generation_result(node_type: str, inputs: dict[str, Any]) -> NodeResult
             "policy_flags": [],
             "review": {"provider": "mock"},
         }
-    elif node_type in {"generate_image", "generate_video", "generate_tts", "generate_chess_video"}:
+    elif node_type in {"generate_image", "generate_video", "generate_tts"}:
         output = {
             "asset_url": f"mock://{node_type}",
+            "provider": "mock",
+            "mocked": True,
+        }
+    elif node_type == "generate_chess_video":
+        output = {
+            "chess_video_job_id": "00000000-0000-4000-8000-0000000000c1",
+            "status": "completed",
+            "video_public_url": "mock://chess-video",
+            "thumbnail_public_url": None,
+            "render_fingerprint": "mock-fp",
             "provider": "mock",
             "mocked": True,
         }

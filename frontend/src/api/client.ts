@@ -235,8 +235,14 @@ export async function apiFetch<T>(
           message = `${message} (${detailMsg})`;
         }
       }
+      const transient =
+        response.status === 429 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504;
       throw new ApiRequestError(String(message), "http", {
-        retryable: response.status >= 500,
+        // Do not treat every 5xx as retryable (deterministic 500s stay fail-fast).
+        retryable: transient,
         status: response.status,
         details,
       });

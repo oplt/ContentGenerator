@@ -17,6 +17,7 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("sources:read", "View source configurations", "sources"),
     ("sources:write", "Manage source configurations", "sources"),
     ("stories:read", "View story clusters", "stories"),
+    ("briefs:write", "Generate and action editorial briefs", "briefs"),
     ("content:write", "Generate and revise content", "content"),
     ("approvals:read", "View approval state", "approvals"),
     ("publishing:write", "Publish content to social platforms", "publishing"),
@@ -35,6 +36,7 @@ SYSTEM_ROLES: dict[str, tuple[str, list[str]]] = {
         [
             "sources:read",
             "stories:read",
+            "briefs:write",
             "content:write",
             "approvals:read",
             "publishing:write",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from backend.modules.workflows.nodes.analytics import FetchMetricsNode
 from backend.modules.workflows.nodes.approval import ApprovalNode
 from backend.modules.workflows.nodes.audio import GenerateTTSNode
+from backend.modules.workflows.nodes.canonical_content import GenerateCanonicalContentNode
 from backend.modules.workflows.nodes.chess import GenerateChessVideoNode
 from backend.modules.workflows.nodes.control import (
     ConditionNode,
@@ -32,7 +33,10 @@ from backend.modules.workflows.nodes.video import GenerateVideoNode
 
 IMPLEMENTED_SLICE = (
     ManualTriggerNode,
+    WebhookTriggerNode,
     GenerateTextNode,
+    GenerateCanonicalContentNode,
+    ResearchSourcesNode,
     SummarizeNode,
     GenerateScriptNode,
     FactReviewNode,
@@ -48,6 +52,7 @@ IMPLEMENTED_SLICE = (
     PlatformTransformNode,
     ApprovalNode,
     PublishNode,
+    FetchMetricsNode,
 )
 
 ALL_NODE_TYPES = (
@@ -56,6 +61,7 @@ ALL_NODE_TYPES = (
     WebhookTriggerNode,
     ResearchSourcesNode,
     GenerateTextNode,
+    GenerateCanonicalContentNode,
     SummarizeNode,
     GenerateScriptNode,
     FactReviewNode,

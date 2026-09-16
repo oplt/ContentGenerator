@@ -35,3 +35,9 @@ OAuth/refresh tokens, provider secrets, webhook secrets — redacted by `drop_se
 * `engine_resume.resume_waiting_node` → `record_approval_wait`
 
 LLM cost metering: not available yet (no cost fields on inference) — deferred.
+
+## Phase 19
+
+Extended counters/histograms for claim expirations, stale recoveries, durable waits,
+scheduler lag/occurrences, publish job counts, and workflow LLM calls. See
+[phase19-observability.md](phase19-observability.md).

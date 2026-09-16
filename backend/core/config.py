@@ -27,6 +27,8 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     SQL_ECHO: bool = False
     SQL_SLOW_QUERY_MS: float = Field(default=500.0, ge=1.0)
     HEALTH_CHECK_TIMEOUT_SECONDS: float = Field(default=0.75, gt=0, le=5)
+    # Refuse API/worker/beat startup and readiness when alembic_version != head.
+    SCHEMA_REVISION_ENFORCE: bool = True
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:4173"
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/content_generator"
@@ -131,7 +133,7 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     HTTP_PROVIDER_GITHUB_CONCURRENCY: int = 4
     HTTP_PROVIDER_ANALYTICS_CONCURRENCY: int = 6
     HTTP_PROVIDER_X_CONCURRENCY: int = 4
-    HTTP_PROVIDER_LLM_CONCURRENCY: int = 4
+    HTTP_PROVIDER_LLM_CONCURRENCY: int = 1
     HTTP_PROVIDER_INGESTION_CONCURRENCY: int = 8
     HTTP_PROVIDER_PUBLISHING_CONCURRENCY: int = 4
     HTTP_PROVIDER_IMAGE_CONCURRENCY: int = 2
@@ -146,6 +148,8 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     CACHE_SINGLEFLIGHT_LOCK_MS: int = 15_000
     CACHE_DEFAULT_TTL_JITTER_SECONDS: int = 30
     CACHE_ROBOTS_TTL_SECONDS: int = 3600
+    # Cached embed/summarize results for unchanged article text (Phase 12).
+    LLM_ENRICHMENT_CACHE_TTL_SECONDS: int = Field(default=604_800, ge=60, le=30 * 24 * 3600)
     CACHE_OAUTH_SKEW_SECONDS: int = 60
     # Optional dedicated app-cache Redis URL (else REDIS_URL). Prefer isolating
     # cache vs Celery broker/results in production.
@@ -153,6 +157,20 @@ class Settings(SettingsDerivedMixin, BaseSettings):
     PUBLISHING_CLAIM_LEASE_SECONDS: int = 900
     PUBLISHING_MAX_ATTEMPTS: int = 3
     PUBLISHING_CLAIM_BATCH_SIZE: int = 50
+    # Workflow node claim lease (Phase 1 durable execution).
+    WORKFLOW_CLAIM_LEASE_SECONDS: int = Field(default=900, ge=60, le=86_400)
+    WORKFLOW_CLAIM_RECOVERY_BATCH_SIZE: int = Field(default=50, ge=1, le=500)
+    # When True, advance executes claimed nodes in-process (unit tests / local sync).
+    # Production must keep this False so API/workers only enqueue Celery node tasks.
+    WORKFLOW_INLINE_NODE_EXECUTION: bool = False
+    # Phase 20 — historical payload retention (scrub/delete; never blind-delete audit_logs).
+    WORKFLOW_RETENTION_ENABLED: bool = True
+    WORKFLOW_RETENTION_NODE_PAYLOAD_DAYS: int = Field(default=30, ge=1, le=3650)
+    WORKFLOW_RETENTION_TASK_EXECUTION_DAYS: int = Field(default=14, ge=1, le=3650)
+    WORKFLOW_RETENTION_WEBHOOK_PAYLOAD_DAYS: int = Field(default=14, ge=1, le=3650)
+    WORKFLOW_RETENTION_BATCH_SIZE: int = Field(default=200, ge=1, le=5_000)
+    # When True and object storage is configured, archive payloads to S3/MinIO before scrub.
+    WORKFLOW_RETENTION_ARCHIVE_TO_STORAGE: bool = False
     PUBLISHING_ACCOUNT_MAX_PUBLISHES_PER_HOUR: int = Field(default=30, ge=1, le=10_000)
     PUBLISHING_ACCOUNT_MAX_RETRIES_PER_HOUR: int = Field(default=10, ge=1, le=10_000)
     INGESTION_STALE_CACHE_TTL_SECONDS: int = 3600

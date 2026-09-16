@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
+from backend.modules.content_generation.variant_store import ContentVariantStore
 from backend.modules.publishing.account_ops import consume_retry_quota, schedule_local_to_utc
 from backend.modules.publishing.account_selection import (
     build_publish_idempotency_key,
@@ -72,16 +73,37 @@ async def publish_now(
         else None
     )
 
+    variant_store = ContentVariantStore(svc.db)
+    preferred_variant_ids = list(payload.content_variant_ids or [])
+
     jobs: list[PublishingJob] = []
     new_jobs: list[PublishingJob] = []
     for social_account in accounts:
         platform = str(social_account.platform)
+        variant_snap = await variant_store.resolve_for_account(
+            tenant_id=tenant_id,
+            content_job_id=content_job.id,
+            social_account_id=social_account.id,
+            preferred_variant_ids=preferred_variant_ids or None,
+        )
+        # When caller explicitly passed variant ids, require a match (no silent fallback).
+        if preferred_variant_ids and variant_snap is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"No ContentVariant among content_variant_ids targets "
+                    f"social_account_id={social_account.id}"
+                ),
+            )
+
+        content_variant_id = variant_snap.variant_id if variant_snap else None
         idempotency_key = build_publish_idempotency_key(
             content_job_id=content_job.id,
             social_account_id=social_account.id,
             scheduled_for=scheduled_for_utc,
             dry_run=payload.dry_run,
             client_key=payload.idempotency_key,
+            content_variant_id=content_variant_id,
         )
         existing = await svc.repo.get_job_by_idempotency(idempotency_key)
         if existing:
@@ -97,17 +119,35 @@ async def publish_now(
             account_external_id=social_account.account_external_id or "",
             dry_run=payload.dry_run,
         )
+        schedule_assets = assets
+        if variant_snap is not None:
+            from backend.modules.content_generation.variant_store import assets_from_variant_snapshot
+
+            schedule_assets = assets_from_variant_snapshot(variant_snap, media_assets=assets)
+
         schedule_result = None
         if scheduled_for_utc:
             schedule_result = await provider.schedule_publish(
                 social_account=social_account,
-                assets=assets,
+                assets=schedule_assets,
                 scheduled_for=scheduled_for_utc,
             )
+
+        provider_payload: dict[str, str] = {
+            "variant_fingerprint": (
+                variant_snap.fingerprint if variant_snap else variant_fingerprint(social_account)
+            ),
+            "tenant_timezone": tenant_timezone,
+            "scheduled_for_utc": scheduled_for_utc.isoformat() if scheduled_for_utc else "",
+        }
+        if variant_snap is not None:
+            provider_payload.update(variant_snap.as_provider_payload())
+
         job = await svc.repo.create_publishing_job(
             PublishingJob(
                 tenant_id=tenant_id,
                 content_job_id=content_job.id,
+                content_variant_id=content_variant_id,
                 social_account_id=social_account.id,
                 connected_account_id=connected_account.id if connected_account else None,
                 approval_request_id=approval_request_id,
@@ -121,11 +161,7 @@ async def publish_now(
                     if scheduled_for_utc
                     else PublishingJobStatus.PENDING.value
                 ),
-                provider_payload={
-                    "variant_fingerprint": variant_fingerprint(social_account),
-                    "tenant_timezone": tenant_timezone,
-                    "scheduled_for_utc": scheduled_for_utc.isoformat() if scheduled_for_utc else "",
-                },
+                provider_payload=provider_payload,
             )
         )
         if schedule_result:
@@ -244,5 +280,3 @@ async def retry_job(svc, tenant_id: UUID, job_id: UUID) -> PublishingJobActionRe
     }
     await svc.db.flush()
     return PublishingJobActionResponse(job_id=job.id, status=job.status, detail="Publishing job queued for retry")
-
-

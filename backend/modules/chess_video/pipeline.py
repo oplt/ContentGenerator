@@ -12,6 +12,8 @@ from backend.modules.chess_video.frames import generate_position_frames
 from backend.modules.chess_video.parser import ParsedChessGame
 from backend.modules.chess_video.presets import RenderPreset, get_preset
 from backend.modules.chess_video.renderer import ChessVideoRenderer
+from backend.modules.chess_video.themes import BoardThemeName
+from typing import cast
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +40,10 @@ def render_chess_video(
     frames_dir = root / "frames"
     output_path = root / "output.mp4"
 
-    renderer = ChessVideoRenderer(preset, board_theme=board_theme)
+    renderer = ChessVideoRenderer(
+        preset,
+        board_theme=cast(BoardThemeName | None, board_theme),
+    )
     frames = generate_position_frames(
         game,
         frames_dir,

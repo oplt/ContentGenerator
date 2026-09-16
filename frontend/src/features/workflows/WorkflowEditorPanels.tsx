@@ -1,10 +1,19 @@
+import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
-import type { DryRunOptions, NodeTestResult, WorkflowGraphNode } from "../../api/workflows";
+import type {
+  DryRunOptions,
+  NodeTestResult,
+  WorkflowGraphNode,
+  WorkflowNodeDefinition,
+} from "../../api/workflows";
+import { WorkflowNodeConfigForm } from "./WorkflowNodeConfigForm";
+import { WorkflowPortHandle } from "./WorkflowPortHandle";
 
 type Props = {
   selected: WorkflowGraphNode | null;
+  definition: WorkflowNodeDefinition | null;
   onConfigChange: (config: Record<string, unknown>) => void;
   testInputs: string;
   onTestInputsChange: (value: string) => void;
@@ -15,6 +24,7 @@ type Props = {
 
 export function WorkflowStepConfigPanel({
   selected,
+  definition,
   onConfigChange,
   testInputs,
   onTestInputsChange,
@@ -22,9 +32,24 @@ export function WorkflowStepConfigPanel({
   testBusy,
   testResult,
 }: Props) {
+  const [advancedJson, setAdvancedJson] = useState(false);
+  const [jsonDraft, setJsonDraft] = useState("{}");
+  const [jsonError, setJsonError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // A new node selection owns a fresh editor mode and JSON draft.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAdvancedJson(false);
+    setJsonError(null);
+    if (selected) {
+      setJsonDraft(JSON.stringify(selected.config ?? {}, null, 2));
+    }
+  }, [selected?.id, selected?.type]);
+
   if (!selected) {
     return <p className="text-sm text-muted-foreground">Select a step</p>;
   }
+
   return (
     <>
       <div>
@@ -33,22 +58,71 @@ export function WorkflowStepConfigPanel({
       </div>
       <div>
         <label className="mb-1 block text-sm text-muted-foreground">Type</label>
-        <Input value={selected.type} disabled />
-      </div>
-      <div>
-        <label className="mb-1 block text-sm text-muted-foreground">Config JSON</label>
-        <Textarea
-          className="min-h-28 font-mono text-xs"
-          value={JSON.stringify(selected.config ?? {}, null, 2)}
-          onChange={(event) => {
-            try {
-              onConfigChange(JSON.parse(event.target.value) as Record<string, unknown>);
-            } catch {
-              /* keep typing */
-            }
-          }}
+        <Input
+          value={definition ? `${definition.display_name} (${selected.type})` : selected.type}
+          disabled
         />
       </div>
+      {definition?.description ? (
+        <p className="text-xs text-muted-foreground">{definition.description}</p>
+      ) : null}
+
+      <div className="space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Inputs</p>
+        <WorkflowPortHandle direction="input" ports={definition?.input_ports ?? []} />
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Outputs</p>
+        <WorkflowPortHandle direction="output" ports={definition?.output_ports ?? []} />
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium">Configuration</p>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={advancedJson}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setAdvancedJson(next);
+              if (next) {
+                setJsonDraft(JSON.stringify(selected.config ?? {}, null, 2));
+                setJsonError(null);
+              }
+            }}
+          />
+          Advanced JSON
+        </label>
+      </div>
+
+      {advancedJson ? (
+        <div>
+          <Textarea
+            className="min-h-28 font-mono text-xs"
+            value={jsonDraft}
+            onChange={(event) => {
+              const text = event.target.value;
+              setJsonDraft(text);
+              try {
+                onConfigChange(JSON.parse(text) as Record<string, unknown>);
+                setJsonError(null);
+              } catch {
+                setJsonError("Invalid JSON");
+              }
+            }}
+          />
+          {jsonError ? <p className="mt-1 text-xs text-destructive">{jsonError}</p> : null}
+        </div>
+      ) : (
+        <WorkflowNodeConfigForm
+          nodeType={selected.type}
+          version={selected.version}
+          definition={definition}
+          config={selected.config ?? {}}
+          onChange={onConfigChange}
+        />
+      )}
+
       <div>
         <label className="mb-1 block text-sm text-muted-foreground">Test inputs JSON</label>
         <Textarea

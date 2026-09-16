@@ -18,6 +18,7 @@ SERVICE_COMMIT_ALLOWLIST: frozenset[str] = frozenset(
         "modules/approvals/telegram_callbacks.py",
         "modules/approvals/telegram_messages.py",
         "modules/approvals/webhook_processing.py",
+        "modules/workflows/webhook_ingress.py",
         "modules/identity_access/auth_credentials.py",
         "modules/identity_access/auth_sessions.py",
         "modules/chess_video/service.py",
@@ -27,6 +28,7 @@ SERVICE_COMMIT_ALLOWLIST: frozenset[str] = frozenset(
 ROUTER_COMMIT_ALLOWLIST: set[tuple[str, str]] = {
     ("modules/chess_video/router.py", "create_chess_video"),
     ("modules/chess_video/router.py", "retry_chess_video"),
+    ("modules/chess_video/router.py", "delete_chess_video"),
     ("modules/source_ingestion/router.py", "_enqueue_source_ingestion"),
 }
 

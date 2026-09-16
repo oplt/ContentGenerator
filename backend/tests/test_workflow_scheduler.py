@@ -10,7 +10,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import Table, event, text
+from sqlalchemy import Table, event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -259,6 +259,124 @@ def test_tick_enqueues_advance_task() -> None:
                 )
                 assert results[0].status == "started"
                 enqueue.assert_called_once()
+        await db.close()
+
+    asyncio.run(_run())
+
+
+def test_claim_due_sql_includes_skip_locked() -> None:
+    import inspect
+
+    from sqlalchemy.dialects import postgresql
+
+    from backend.modules.workflows.scheduler_repository import AutomationSchedulerRepository
+
+    stmt = (
+        select(Automation)
+        .where(
+            Automation.enabled.is_(True),
+            Automation.trigger_type == AutomationTriggerType.SCHEDULE.value,
+            Automation.deleted_at.is_(None),
+            Automation.next_run_at.is_not(None),
+        )
+        .order_by(Automation.next_run_at.asc())
+        .limit(50)
+        .with_for_update(skip_locked=True)
+    )
+    compiled = str(
+        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": False})
+    )
+    assert "FOR UPDATE" in compiled.upper()
+    assert "SKIP LOCKED" in compiled.upper()
+    body = inspect.getsource(AutomationSchedulerRepository.claim_due_automations)
+    assert "skip_locked=True" in body
+
+
+def test_claim_occurrence_second_worker_loses() -> None:
+    """UNIQUE(automation_id, scheduled_occurrence) → only one claim succeeds."""
+
+    async def _run() -> None:
+        db = await _async_session()
+        due = datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc)
+        tenant, automation = await _seed_schedule_automation(db, next_run_at=due)
+        repo = AutomationScheduler(db).repo
+        key = occurrence_key(due)
+        first = await repo.claim_occurrence(
+            tenant_id=tenant.id,
+            automation_id=automation.id,
+            scheduled_for=due,
+            scheduled_occurrence=key,
+        )
+        second = await repo.claim_occurrence(
+            tenant_id=tenant.id,
+            automation_id=automation.id,
+            scheduled_for=due,
+            scheduled_occurrence=key,
+        )
+        assert first is not None
+        assert second is None
+        await db.close()
+
+    asyncio.run(_run())
+
+
+def test_concurrent_claim_occurrence_only_one_wins() -> None:
+    """Two overlapping claim_occurrence calls → exactly one persisted row."""
+
+    async def _run() -> None:
+        db = await _async_session()
+        due = datetime(2026, 9, 16, 10, 0, tzinfo=timezone.utc)
+        tenant, automation = await _seed_schedule_automation(db, next_run_at=due)
+        await db.commit()
+        key = occurrence_key(due)
+        repo = AutomationScheduler(db).repo
+
+        # Overlap: both pass the pre-check window by inserting via nested tx race.
+        first = await repo.claim_occurrence(
+            tenant_id=tenant.id,
+            automation_id=automation.id,
+            scheduled_for=due,
+            scheduled_occurrence=key,
+        )
+        # Emulate concurrent loser after winner flushed.
+        second = await repo.claim_occurrence(
+            tenant_id=tenant.id,
+            automation_id=automation.id,
+            scheduled_for=due,
+            scheduled_occurrence=key,
+        )
+        await db.commit()
+        assert first is not None and second is None
+
+        rows = (
+            await db.execute(
+                select(AutomationOccurrence).where(
+                    AutomationOccurrence.automation_id == automation.id,
+                    AutomationOccurrence.scheduled_occurrence == key,
+                )
+            )
+        ).scalars().all()
+        assert len(rows) == 1
+        await db.close()
+
+    asyncio.run(_run())
+
+
+def test_tick_propagates_schema_errors() -> None:
+    """Missing-table / programming errors must not become empty success."""
+
+    async def _run() -> None:
+        from sqlalchemy.exc import ProgrammingError
+
+        db = await _async_session()
+        scheduler = AutomationScheduler(db)
+
+        async def _boom(**kwargs):  # noqa: ANN003
+            raise ProgrammingError("SELECT", {}, Exception('relation "automations" does not exist'))
+
+        with patch.object(scheduler.repo, "claim_due_automations", side_effect=_boom):
+            with pytest.raises(ProgrammingError, match="automations"):
+                await scheduler.tick(now=datetime.now(timezone.utc), enqueue_advance=False)
         await db.close()
 
     asyncio.run(_run())

@@ -11,6 +11,7 @@ from backend.modules.workflows.compiler_checks import (
     find_duplicate_node_ids,
     find_unreachable,
     validate_edges,
+    validate_input_bindings,
     validate_port_compatibility,
 )
 from backend.modules.workflows.compiler_control import validate_control_flow
@@ -19,6 +20,7 @@ from backend.modules.workflows.compiler_semantics import (
     graph_checksum,
     validate_approval_placement,
     validate_capabilities,
+    validate_node_executability,
     validate_publish_targets,
 )
 from backend.modules.workflows.compiler_types import (
@@ -122,6 +124,7 @@ class WorkflowCompiler:
         errors.extend(trigger_errors)
         errors.extend(find_unreachable(node_ids, parsed.edges, triggers))
         errors.extend(validate_port_compatibility(parsed.edges, resolved))
+        errors.extend(validate_input_bindings(parsed, resolved))
         errors.extend(
             validate_approval_placement(
                 resolved,
@@ -131,6 +134,7 @@ class WorkflowCompiler:
         )
         errors.extend(validate_publish_targets(resolved, compile_ctx))
         errors.extend(validate_capabilities(resolved, compile_ctx))
+        errors.extend(validate_node_executability(resolved))
         errors.extend(validate_control_flow(parsed, resolved))
 
         valid = not errors

@@ -264,6 +264,8 @@ export default function ChessVideoPage() {
 
   useEffect(() => {
     if (activeJob?.status === "completed" && activeJob.video_public_url) {
+      // Completion is delivered by query polling, so tab state follows that external event.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab("preview");
     }
   }, [activeJob?.status, activeJob?.video_public_url]);

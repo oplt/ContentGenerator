@@ -88,4 +88,8 @@ Definitions, versions, validate/publish, nodes catalog, runs, resume, automation
 * [approvals.md](approvals.md) — human pause / resume
 * [social-accounts.md](social-accounts.md) — accounts + capabilities
 * [workflows-phase18-testing.md](workflows-phase18-testing.md) — test matrix
+* [phase18-production-grade-testing.md](phase18-production-grade-testing.md) — distributed-system scenarios
+* [workflows-phase16-observability.md](workflows-phase16-observability.md) — workflow metrics baseline
+* [phase19-observability.md](phase19-observability.md) — Phase 19 metric aliases + hooks
 * [workflows-phase17-security.md](workflows-phase17-security.md) — tenant / secrets / audit
+* [phase17-webhook-event-triggers.md](phase17-webhook-event-triggers.md) — signed webhook / event triggers

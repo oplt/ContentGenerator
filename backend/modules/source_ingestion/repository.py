@@ -1,26 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from uuid import UUID, uuid4
+from datetime import datetime, timezone
+from uuid import UUID
 
-from sqlalchemy import and_, or_, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import utc_now
-from backend.modules.source_ingestion.models import RawArticle, Source, SourceFetchRun, SourceHealthEvent
+from backend.modules.source_ingestion.article_repository import (
+    ArticleDedupeKeys,
+    ArticleRepositoryMixin,
+)
+from backend.modules.source_ingestion.models import Source, SourceFetchRun, SourceHealthEvent
 
 
-@dataclass(frozen=True, slots=True)
-class ArticleDedupeKeys:
-    canonical_url: str
-    content_hash: str
-    dedupe_key: str | None = None
-    title_normalized: str | None = None
-
-
-class SourceRepository:
+class SourceRepository(ArticleRepositoryMixin):
     def __init__(self, db: AsyncSession):
         self.db = db
 

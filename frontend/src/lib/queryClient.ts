@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { queryPolicy } from "./queryPolicy";
+import { shouldRetryQuery } from "./queryRetry";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -7,14 +8,10 @@ export const queryClient = new QueryClient({
       ...queryPolicy.moderate,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
-      retry: (failureCount, error) => {
-        if (error instanceof Error && "retryable" in error && (error as { retryable?: boolean }).retryable === false) {
-          return false;
-        }
-        return failureCount < 1;
-      },
+      retry: shouldRetryQuery,
     },
     mutations: {
+      // Never auto-retry POST/PUT/PATCH/DELETE — including non-idempotent writes.
       retry: false,
     },
   },

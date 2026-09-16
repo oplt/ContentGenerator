@@ -21,11 +21,15 @@ _CONTEXT_KEYS = frozenset(
         "workflow_run_id",
         "workflow_definition_id",
         "workflow_version_id",
+        "workflow_version",
         "automation_id",
         "brand_id",
         "node_id",
         "node_type",
         "attempt",
+        "fetch_run_id",
+        "celery_task_id",
+        "content_job_id",
     }
 )
 

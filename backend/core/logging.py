@@ -12,8 +12,8 @@ from pythonjsonlogger import jsonlogger  # type: ignore[attr-defined]
 from backend.core.config import settings
 from backend.core.log_context import drop_sensitive_log_keys
 
-# Create logs directory if it doesn't exist
-LOG_DIR = Path("/home/polat/Desktop/Projects/content_generator/logs")
+# Repo-root logs/ (ignored by git; used for local file logging and benchmarks).
+LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -23,6 +23,26 @@ class CorrelationIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         context = structlog.contextvars.get_contextvars()
         record.correlation_id = context.get("correlation_id", "n/a")
+        return True
+
+
+class _DropDuplicateAsgiTrace(logging.Filter):
+    """Uvicorn re-logs ASGI exceptions that we already emit as application_error."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "Exception in ASGI application" in msg:
+            return False
+        return True
+
+
+class _DropCeleryDuplicateTrace(logging.Filter):
+    """Celery trace logger duplicates task_failure application_error events."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "raised unexpected" in msg or "Raised unexpected" in msg:
+            return False
         return True
 
 
@@ -57,6 +77,10 @@ def setup_logging() -> None:
     root_logger.addHandler(console_handler)
     root_logger._signalforge_logging_configured = True  # type: ignore[attr-defined]
     logging.getLogger("uvicorn.access").disabled = True
+    # ExceptionMiddleware / our application_error is canonical; drop uvicorn's duplicate.
+    logging.getLogger("uvicorn.error").addFilter(_DropDuplicateAsgiTrace())
+    # Celery task_failure → application_error; suppress celery's second full traceback.
+    logging.getLogger("celery.app.trace").addFilter(_DropCeleryDuplicateTrace())
     
     # Configure structlog
     structlog.configure(

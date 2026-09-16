@@ -30,4 +30,4 @@ Account selection / compile context still real and tenant-scoped.
 
 Editor: dry-run checkboxes + Test Run + Test node panel with I/O JSON.
 
-Run detail: shows each node `input_json` / `output_json`.
+Operator run inspection / recovery: see [phase15-run-inspection-operator-recovery.md](phase15-run-inspection-operator-recovery.md).

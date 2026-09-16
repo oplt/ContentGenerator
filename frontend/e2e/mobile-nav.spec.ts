@@ -23,6 +23,7 @@ const sessionUser = {
           "settings:write",
           "audit:read",
           "sources:write",
+          "briefs:write",
           "content:write",
           "publishing:write",
           "analytics:read",

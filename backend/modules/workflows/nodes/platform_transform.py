@@ -1,11 +1,16 @@
-"""PlatformTransform — late specialization of canonical content (Phase 9)."""
+"""PlatformTransform — late specialization of canonical content (Phase 9/10).
+
+Phase 10: persist ContentVariant rows when content_job_id + DB are available so
+Publish consumes durable variants instead of ephemeral adaptation only.
+"""
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.publishing.account_selection import group_by_fingerprint
 from backend.modules.workflows.nodes.base import (
@@ -30,7 +35,7 @@ class PlatformTransformConfig(BaseModel):
 
 
 class PlatformTransformInput(BaseModel):
-    text: str = Field(min_length=1)
+    text: str | None = None
     title: str | None = None
     hashtags: list[str] = Field(default_factory=list)
     social_account_ids: list[UUID] | None = None
@@ -38,6 +43,7 @@ class PlatformTransformInput(BaseModel):
 
 
 class PlatformVariantModel(BaseModel):
+    id: str | None = None
     platform: str
     fingerprint: str
     text: str
@@ -50,6 +56,7 @@ class PlatformVariantModel(BaseModel):
 class PlatformTransformOutput(BaseModel):
     canonical_text: str
     variants: list[PlatformVariantModel]
+    variant_ids: list[UUID] = Field(default_factory=list)
     fingerprint_count: int
     content_job_id: UUID | None = None
 
@@ -86,7 +93,7 @@ class PlatformTransformNode(
     OutputSchema = PlatformTransformOutput
     required_capabilities = []
     input_ports = [
-        NodePort(name="text", data_type="string"),
+        NodePort(name="text", data_type="string", required=False),
         NodePort(name="title", data_type="string", required=False),
         NodePort(name="hashtags", data_type="array", required=False),
         NodePort(name="social_account_ids", data_type="array", required=False),
@@ -95,6 +102,7 @@ class PlatformTransformNode(
     output_ports = [
         NodePort(name="canonical_text", data_type="string"),
         NodePort(name="variants", data_type="array"),
+        NodePort(name="variant_ids", data_type="array"),
         NodePort(name="fingerprint_count", data_type="number"),
         NodePort(name="content_job_id", data_type="uuid", required=False),
     ]
@@ -107,6 +115,20 @@ class PlatformTransformNode(
     ) -> NodeResult:
         typed_in = PlatformTransformInput.model_validate(inputs.model_dump())
         typed_cfg = PlatformTransformConfig.model_validate(config.model_dump())
+        canonical_text = (typed_in.text or "").strip()
+        if not canonical_text:
+            canonical_text = await self._load_canonical_text(context, typed_in.content_job_id)
+        if not canonical_text:
+            return NodeResult(
+                status=NodeResultStatus.FAILED,
+                error={
+                    "code": "missing_canonical_text",
+                    "message": (
+                        "PlatformTransform requires text input or a ContentJob "
+                        "with durable canonical content"
+                    ),
+                },
+            )
         accounts = await self._resolve_accounts(context, typed_in.social_account_ids)
         if not accounts:
             return NodeResult(
@@ -119,9 +141,17 @@ class PlatformTransformNode(
 
         groups = group_by_fingerprint(list(accounts))  # type: ignore[arg-type]
         variants: list[PlatformVariantModel] = []
+        variant_ids: list[UUID] = []
+        persist = context.db is not None and typed_in.content_job_id is not None
+        store = None
+        if persist:
+            from backend.modules.content_generation.variant_store import ContentVariantStore
+
+            store = ContentVariantStore(cast(AsyncSession, context.db))
+
         for fingerprint, group in sorted(groups.items(), key=lambda item: item[0]):
             adapted = adapt_canonical_for_platform(
-                canonical_text=typed_in.text,
+                canonical_text=canonical_text,
                 platform=group[0].platform,
                 fingerprint=fingerprint,
                 social_account_ids=[str(a.id) for a in group],
@@ -130,17 +160,63 @@ class PlatformTransformNode(
                 include_hashtags=typed_cfg.include_hashtags,
                 capability_flags=dict(group[0].capability_flags or {}),
             )
-            variants.append(PlatformVariantModel.model_validate(adapted.as_dict()))
+            row = PlatformVariantModel.model_validate(adapted.as_dict())
+            if store is not None and typed_in.content_job_id is not None:
+                saved = await store.upsert_variant(
+                    tenant_id=context.tenant_id,
+                    content_job_id=typed_in.content_job_id,
+                    fingerprint=adapted.fingerprint,
+                    platform=adapted.platform,
+                    text=adapted.text,
+                    social_account_ids=[a.id for a in group],
+                    workflow_run_id=context.workflow_run_id,
+                    title=adapted.title,
+                    description=adapted.description,
+                    tags=list(adapted.tags or []),
+                )
+                row = row.model_copy(update={"id": str(saved.id)})
+                variant_ids.append(saved.id)
+            variants.append(row)
 
         output = PlatformTransformOutput(
-            canonical_text=typed_in.text.strip(),
+            canonical_text=canonical_text,
             variants=variants,
+            variant_ids=variant_ids,
             fingerprint_count=len(variants),
             content_job_id=typed_in.content_job_id,
         )
         return NodeResult(
             status=NodeResultStatus.SUCCEEDED,
             output=output.model_dump(mode="json"),
+        )
+
+    async def _load_canonical_text(
+        self,
+        context: WorkflowNodeContext,
+        content_job_id: UUID | None,
+    ) -> str:
+        if context.db is None or content_job_id is None:
+            return ""
+        from backend.modules.content_generation.canonical import (
+            canonical_primary_platform,
+            extract_canonical_text,
+        )
+        from backend.modules.content_generation.repository import ContentGenerationRepository
+
+        repo = ContentGenerationRepository(context.db)
+        job = await repo.get_job(context.tenant_id, content_job_id)
+        if job is None:
+            return ""
+        grounding = job.grounding_bundle if isinstance(job.grounding_bundle, dict) else {}
+        stamped = grounding.get("canonical_text")
+        if isinstance(stamped, str) and stamped.strip():
+            return stamped.strip()
+        assets = await repo.list_assets(job.id)
+        return (
+            extract_canonical_text(
+                assets, primary_platform=canonical_primary_platform(job)
+            )
+            or ""
         )
 
     async def _resolve_accounts(

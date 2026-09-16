@@ -1,4 +1,7 @@
-"""Phase 9: request correlation IDs are safe, propagated, and log-visible."""
+"""Phase 9: request correlation IDs are safe, propagated, and log-visible.
+
+Full HTTP middleware lifecycle coverage: ``test_correlation_id_propagation.py``.
+"""
 
 import logging
 import uuid

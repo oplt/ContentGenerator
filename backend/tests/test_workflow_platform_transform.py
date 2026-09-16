@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Iterator
+from typing import cast
 from uuid import UUID
 
 import pytest
 
 from backend.modules.publishing.account_selection import group_by_fingerprint, variant_fingerprint
+from backend.modules.publishing.models import SocialAccount
 from backend.modules.workflows.context import build_node_context
 from backend.modules.workflows.nodes import IMPLEMENTED_SLICE
 from backend.modules.workflows.nodes.platform_transform import (
@@ -46,7 +48,7 @@ def test_adapt_x_trims_and_shares_fingerprint_group() -> None:
     a1 = _FakeAccount("x")
     a2 = _FakeAccount("x")  # same caps/settings → same fingerprint
     assert variant_fingerprint(a1) == variant_fingerprint(a2)  # type: ignore[arg-type]
-    groups = group_by_fingerprint([a1, a2])  # type: ignore[arg-type]
+    groups = group_by_fingerprint(cast(list[SocialAccount], [a1, a2]))
     assert len(groups) == 1
     fp = next(iter(groups))
     long = "word " * 80

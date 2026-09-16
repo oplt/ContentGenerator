@@ -8,21 +8,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import TypeVar
 
 import httpx
 
 from backend.core.config import settings
 from backend.core.domain_metrics import domain_metrics
+from backend.core.http_concurrency import map_concurrent
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
-R = TypeVar("R")
 
 _client: httpx.AsyncClient | None = None
 _client_lock = asyncio.Lock()
@@ -197,8 +194,9 @@ async def request(
         correlation_id = structlog.contextvars.get_contextvars().get("correlation_id")
     except Exception:
         correlation_id = None
-    if correlation_id and "X-Correlation-ID" not in (kwargs.get("headers") or {}):
-        headers = dict(kwargs.get("headers") or {})
+    raw_headers = kwargs.get("headers")
+    headers = dict(raw_headers) if isinstance(raw_headers, Mapping) else {}
+    if correlation_id and "X-Correlation-ID" not in headers:
         headers["X-Correlation-ID"] = str(correlation_id)
         kwargs["headers"] = headers
     retries = settings.HTTP_MAX_RETRIES if max_retries is None else max_retries
@@ -264,41 +262,3 @@ async def request(
     assert last_error is not None
     raise last_error
 
-
-async def map_concurrent(
-    items: Sequence[T],
-    worker: Callable[[T], Awaitable[R]],
-    *,
-    limit: int,
-    return_exceptions: bool = True,
-) -> list[R | BaseException]:
-    """
-    Run ``worker`` over ``items`` with bounded concurrency.
-
-    Preserves input order. When ``return_exceptions`` is True, ordinary failures become
-    exception objects in-place so successful siblings are kept. Cancellation and other
-    ``BaseException`` types always propagate.
-    """
-    if not items:
-        return []
-    if limit < 1:
-        raise ValueError("limit must be >= 1")
-
-    sem = asyncio.Semaphore(limit)
-    results: list[R | BaseException | None] = [None] * len(items)
-
-    async def _run(index: int, item: T) -> None:
-        async with sem:
-            try:
-                results[index] = await worker(item)
-            except Exception as exc:
-                if return_exceptions:
-                    results[index] = exc
-                else:
-                    raise
-
-    async with asyncio.TaskGroup() as group:
-        for index, item in enumerate(items):
-            group.create_task(_run(index, item))
-
-    return [item if item is not None else RuntimeError("missing result") for item in results]

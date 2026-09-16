@@ -11,17 +11,21 @@ import {
   sendBriefToTelegram,
   type BriefStatus,
 } from "../api/briefs";
+import { ApiRequestError } from "../api/client";
 import { getStoryClusters } from "../api/stories";
 import { BriefCard } from "../components/dashboard/BriefCard";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { LoadingState } from "../components/ui/LoadingState";
 import { EmptyState } from "../components/ui/EmptyState";
+import { useAuth } from "../features/auth/AuthContext";
+import { canWriteBriefs } from "../features/auth/access";
 import { useDocumentVisible } from "../hooks/useDocumentVisible";
 import { useTenantScope } from "../hooks/useTenantScope";
 import { briefsNeedPolling, statusAwareRefetchInterval } from "../lib/polling";
 import { queryClient } from "../lib/queryClient";
 import { queryKeys } from "../lib/queryKeys";
+import { queryPolicy } from "../lib/queryPolicy";
 
 const STATUS_TABS: Array<{ label: string; value: BriefStatus | undefined }> = [
   { label: "All", value: undefined },
@@ -35,22 +39,39 @@ type GenerateForm = {
   story_cluster_id: string;
 };
 
+function mutationErrorMessage(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 403) {
+      return error.message || "You do not have permission to manage editorial briefs.";
+    }
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Request failed.";
+}
+
 export default function EditorialBriefsPage() {
   const [activeStatus, setActiveStatus] = useState<BriefStatus | undefined>(undefined);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
+  const { currentUser } = useAuth();
   const { tenantId, enabled } = useTenantScope();
   const visible = useDocumentVisible();
+  const canWrite = canWriteBriefs(currentUser, tenantId);
 
   const briefs = useQuery({
     queryKey: queryKeys.briefs(tenantId ?? "none", activeStatus),
     queryFn: ({ signal }) => getBriefs(activeStatus, { signal }),
     enabled,
+    ...queryPolicy.moderate,
     refetchInterval: visible ? statusAwareRefetchInterval(15_000, briefsNeedPolling) : false,
   });
   const clusters = useQuery({
     queryKey: queryKeys.stories(tenantId ?? "none"),
     queryFn: getStoryClusters,
     enabled,
+    ...queryPolicy.moderate,
   });
 
   const form = useForm<GenerateForm>();
@@ -114,6 +135,13 @@ export default function EditorialBriefsPage() {
   });
 
   const worthyClusters = clusters.data?.filter((cluster) => cluster.worthy_for_content) ?? [];
+  const writeError =
+    generateMutation.error ??
+    approveMutation.error ??
+    rejectMutation.error ??
+    regenerateMutation.error ??
+    rewriteMutation.error ??
+    sendTelegramMutation.error;
 
   return (
     <div className="space-y-6">
@@ -122,34 +150,46 @@ export default function EditorialBriefsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Briefs convert approved trend candidates into editorial angles before asset package generation can proceed.
         </p>
-        <form
-          className="mt-5 flex flex-wrap gap-3 items-end"
-          onSubmit={form.handleSubmit((data) => generateMutation.mutate(data))}
-        >
-          <div className="flex-1 min-w-[240px] space-y-1">
-            <label className="text-sm font-medium">Trend candidate</label>
-            <select
-              aria-label="Select trend candidate"
-              className="flex h-11 w-full rounded-xl border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              {...form.register("story_cluster_id", { required: true })}
-            >
-              <option value="">— Select a candidate —</option>
-              {worthyClusters.map((cluster) => (
-                <option key={cluster.id} value={cluster.id}>
-                  {cluster.headline.slice(0, 80)} [{cluster.content_vertical}]
-                </option>
-              ))}
-            </select>
-          </div>
-          <Button type="submit" disabled={generateMutation.isPending || worthyClusters.length === 0}>
-            {generateMutation.isPending ? "Generating…" : "Generate Brief"}
-          </Button>
-        </form>
-        {worthyClusters.length === 0 && (
+        {!canWrite ? (
+          <p className="mt-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Your role can view briefs but cannot generate or action them. Ask a workspace owner for{" "}
+            <span className="font-medium text-foreground">briefs:write</span>.
+          </p>
+        ) : (
+          <form
+            className="mt-5 flex flex-wrap gap-3 items-end"
+            onSubmit={form.handleSubmit((data) => generateMutation.mutate(data))}
+          >
+            <div className="flex-1 min-w-[240px] space-y-1">
+              <label className="text-sm font-medium">Trend candidate</label>
+              <select
+                aria-label="Select trend candidate"
+                className="flex h-11 w-full rounded-xl border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                {...form.register("story_cluster_id", { required: true })}
+              >
+                <option value="">— Select a candidate —</option>
+                {worthyClusters.map((cluster) => (
+                  <option key={cluster.id} value={cluster.id}>
+                    {cluster.headline.slice(0, 80)} [{cluster.content_vertical}]
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button type="submit" disabled={generateMutation.isPending || worthyClusters.length === 0}>
+              {generateMutation.isPending ? "Generating…" : "Generate Brief"}
+            </Button>
+          </form>
+        )}
+        {canWrite && worthyClusters.length === 0 && (
           <p className="mt-3 text-xs text-muted-foreground">
             No editorially ready trend candidates available. Ingest signals and wait for risk gates to clear.
           </p>
         )}
+        {writeError ? (
+          <p className="mt-3 text-sm text-destructive" role="alert">
+            {mutationErrorMessage(writeError)}
+          </p>
+        ) : null}
       </Card>
 
       <div className="flex flex-wrap gap-2">
@@ -184,6 +224,7 @@ export default function EditorialBriefsPage() {
               key={brief.id}
               brief={brief}
               isMutating={mutatingId === brief.id}
+              canWrite={canWrite}
               onApprove={(id, note) => {
                 setMutatingId(id);
                 approveMutation.mutate({ id, note });

@@ -13,6 +13,7 @@ from backend.modules.identity_access.models import TenantUser
 from backend.modules.workflows.compiler import WorkflowCompileResult
 from backend.modules.workflows.nodes.base import WorkflowNodeNotFoundError
 from backend.modules.workflows.schemas import (
+    GraphSimulateRequest,
     GraphValidateRequest,
     NodeConfigValidateRequest,
     NodeConfigValidateResponse,
@@ -22,12 +23,7 @@ from backend.modules.workflows.schemas import (
     WorkflowDefinitionCreateRequest,
     WorkflowDefinitionResponse,
     WorkflowDraftSaveRequest,
-    WorkflowNodeRunResponse,
     WorkflowPublishRequest,
-    WorkflowResumeRequest,
-    WorkflowRunDetailResponse,
-    WorkflowRunResponse,
-    WorkflowStartRunRequest,
     WorkflowVersionResponse,
 )
 from backend.modules.workflows.service import WorkflowService
@@ -92,6 +88,21 @@ async def validate_workflow_graph(
     payload: GraphValidateRequest,
     membership: TenantUser = Depends(get_current_membership),
 ) -> WorkflowCompileResult:
+    """Design-time validation. Hypothetical capability maps are allowed."""
+    _ = membership
+    return WorkflowService().validate_graph(payload.graph, payload.context)
+
+
+@router.post("/simulate-graph", response_model=WorkflowCompileResult)
+async def simulate_workflow_graph(
+    payload: GraphSimulateRequest,
+    membership: TenantUser = Depends(get_current_membership),
+) -> WorkflowCompileResult:
+    """Explicit design-time capability simulation (hypothetical caps OK).
+
+    Runtime execution never trusts client-supplied capability maps — use this
+    endpoint (or ``/validate-graph``) only for editor what-if checks.
+    """
     _ = membership
     return WorkflowService().validate_graph(payload.graph, payload.context)
 
@@ -190,111 +201,3 @@ async def publish_workflow_version(
         actor_user_id=membership.user_id,
     )
     return WorkflowVersionResponse.model_validate(row)
-
-
-@router.get("/runs", response_model=list[WorkflowRunResponse])
-async def list_workflow_runs(
-    status: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    membership: TenantUser = Depends(get_current_membership),
-    db: AsyncSession = Depends(get_db),
-) -> list[WorkflowRunResponse]:
-    rows = await WorkflowService(db).list_runs(
-        membership.tenant_id, limit=limit, status=status
-    )
-    return [WorkflowRunResponse.model_validate(row) for row in rows]
-
-
-@router.get("/runs/{run_id}", response_model=WorkflowRunDetailResponse)
-async def get_workflow_run(
-    run_id: UUID,
-    membership: TenantUser = Depends(get_current_membership),
-    db: AsyncSession = Depends(get_db),
-) -> WorkflowRunDetailResponse:
-    service = WorkflowService(db)
-    run = await service.get_run(membership.tenant_id, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Workflow run not found")
-    nodes = await service.list_node_runs(membership.tenant_id, run_id)
-    return WorkflowRunDetailResponse(
-        run=WorkflowRunResponse.model_validate(run),
-        nodes=[WorkflowNodeRunResponse.model_validate(node) for node in nodes],
-    )
-
-
-@router.post(
-    "/definitions/{definition_id}/runs",
-    response_model=WorkflowRunDetailResponse,
-    status_code=201,
-)
-async def start_workflow_run(
-    definition_id: UUID,
-    payload: WorkflowStartRunRequest,
-    membership: TenantUser = Depends(require_permission("content:write")),
-    db: AsyncSession = Depends(get_db),
-) -> WorkflowRunDetailResponse:
-    service = WorkflowService(db)
-    definition = await service.get_definition(membership.tenant_id, definition_id)
-    if definition is None:
-        raise HTTPException(status_code=404, detail="Workflow definition not found")
-    version_id = payload.workflow_version_id or definition.current_version_id
-    if version_id is None:
-        raise HTTPException(status_code=400, detail="No published workflow version")
-    run = await service.start_run(
-        tenant_id=membership.tenant_id,
-        workflow_version_id=version_id,
-        trigger_payload=payload.trigger_payload,
-        initial_inputs=payload.initial_inputs,
-        automation_id=payload.automation_id,
-        brand_id=payload.brand_id,
-        correlation_id=payload.correlation_id,
-        compile_context=payload.context,
-        advance=payload.advance,
-        run_config=payload.run_config,
-        dry_run=payload.dry_run,
-        mock_generation=payload.mock_generation,
-        simulate_approval=payload.simulate_approval,
-        actor_user_id=membership.user_id,
-    )
-    nodes = await service.list_node_runs(membership.tenant_id, run.id)
-    return WorkflowRunDetailResponse(
-        run=WorkflowRunResponse.model_validate(run),
-        nodes=[WorkflowNodeRunResponse.model_validate(node) for node in nodes],
-    )
-
-
-@router.post("/runs/{run_id}/advance", response_model=WorkflowRunDetailResponse)
-async def advance_workflow_run(
-    run_id: UUID,
-    membership: TenantUser = Depends(require_permission("content:write")),
-    db: AsyncSession = Depends(get_db),
-) -> WorkflowRunDetailResponse:
-    service = WorkflowService(db)
-    run = await service.advance_run(membership.tenant_id, run_id)
-    nodes = await service.list_node_runs(membership.tenant_id, run.id)
-    return WorkflowRunDetailResponse(
-        run=WorkflowRunResponse.model_validate(run),
-        nodes=[WorkflowNodeRunResponse.model_validate(node) for node in nodes],
-    )
-
-
-@router.post("/resume", response_model=WorkflowRunDetailResponse)
-async def resume_workflow_waiting_node(
-    payload: WorkflowResumeRequest,
-    membership: TenantUser = Depends(require_permission("content:write")),
-    db: AsyncSession = Depends(get_db),
-) -> WorkflowRunDetailResponse:
-    """Resume a WAITING node via resume_token (ops / in-app). Channel webhooks use the approval hook."""
-    service = WorkflowService(db)
-    run = await service.resume_run(
-        membership.tenant_id,
-        resume_token=payload.resume_token,
-        outcome=payload.outcome,
-        decision=payload.decision,
-        advance=payload.advance,
-    )
-    nodes = await service.list_node_runs(membership.tenant_id, run.id)
-    return WorkflowRunDetailResponse(
-        run=WorkflowRunResponse.model_validate(run),
-        nodes=[WorkflowNodeRunResponse.model_validate(node) for node in nodes],
-    )

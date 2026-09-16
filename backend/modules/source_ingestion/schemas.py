@@ -84,6 +84,19 @@ class SourceResponse(ORMModel):
     last_error: str | None
 
 
+class IngestionTriggerResponse(BaseModel):
+    source_id: UUID
+    status: str
+    raw_articles_ingested: int
+    clusters_updated: int
+    fetch_run_id: UUID | None = None
+    # Celery task UUID (pre-assigned on HTTP enqueue; worker request.id otherwise).
+    task_id: str | None = Field(
+        default=None,
+        description="Celery task id for this ingestion run (not TaskExecution.id).",
+    )
+
+
 class SourceFetchRunResponse(ORMModel):
     id: UUID
     source_id: UUID
@@ -95,6 +108,8 @@ class SourceFetchRunResponse(ORMModel):
     articles_found: int
     new_articles: int
     error_message: str | None
+    celery_task_id: str | None = None
+    correlation_id: str | None = None
 
 
 class RawArticleResponse(ORMModel):
@@ -124,15 +139,6 @@ class SourceHealthResponse(ORMModel):
     circuit_state: str
     negative_cache_until: datetime | None
     last_success_at: datetime | None
-
-
-class IngestionTriggerResponse(BaseModel):
-    source_id: UUID
-    status: str
-    raw_articles_ingested: int
-    clusters_updated: int
-    fetch_run_id: UUID | None = None
-    task_id: str | None = None
 
 
 class SourceActionResponse(BaseModel):

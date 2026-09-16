@@ -61,7 +61,22 @@ celery_app.conf.update(
         "backend.workers.tasks.trending_repos_daily_fanout_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
         "backend.workers.tasks.tick_due_automations_task": {"queue": settings.CELERY_QUEUE_GENERATION},
         "backend.workers.tasks.advance_workflow_run_task": {"queue": settings.CELERY_QUEUE_GENERATION},
+        "backend.workers.tasks.execute_workflow_node_task": {
+            "queue": settings.CELERY_QUEUE_GENERATION
+        },
+        "backend.workers.tasks.recover_stale_workflow_node_runs_task": {
+            "queue": settings.CELERY_QUEUE_GENERATION
+        },
+        "backend.workers.tasks.wake_due_workflow_waits_task": {
+            "queue": settings.CELERY_QUEUE_GENERATION
+        },
         "backend.workers.tasks.resume_workflow_waiting_node_task": {
+            "queue": settings.CELERY_QUEUE_GENERATION
+        },
+        "backend.workers.tasks.process_workflow_webhook_inbox_task": {
+            "queue": settings.CELERY_QUEUE_GENERATION
+        },
+        "backend.workers.tasks.run_workflow_retention_task": {
             "queue": settings.CELERY_QUEUE_GENERATION
         },
     },
@@ -90,6 +105,21 @@ celery_app.conf.update(
             "task": "backend.workers.tasks.tick_due_automations_task",
             "schedule": crontab(minute="*"),
             "options": {"countdown": 5, "expires": 240},
+        },
+        "recover-stale-workflow-nodes-every-minute": {
+            "task": "backend.workers.tasks.recover_stale_workflow_node_runs_task",
+            "schedule": crontab(minute="*"),
+            "options": {"countdown": 15, "expires": 240},
+        },
+        "wake-due-workflow-waits-every-minute": {
+            "task": "backend.workers.tasks.wake_due_workflow_waits_task",
+            "schedule": crontab(minute="*"),
+            "options": {"countdown": 10, "expires": 50},
+        },
+        "workflow-retention-hourly": {
+            "task": "backend.workers.tasks.run_workflow_retention_task",
+            "schedule": crontab(minute=40),
+            "options": {"countdown": 40, "expires": 3_500},
         },
         "trending-repos-daily-8am": {
             "task": "backend.workers.tasks.trending_repos_daily_fanout_task",

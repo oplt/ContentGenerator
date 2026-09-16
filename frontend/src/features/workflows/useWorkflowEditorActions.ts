@@ -8,6 +8,7 @@ import {
   validateWorkflowGraph,
   type DryRunOptions,
   type NodeTestResult,
+  type WorkflowCompileError,
   type WorkflowGraph,
   type WorkflowGraphNode,
 } from "../../api/workflows";
@@ -22,7 +23,7 @@ type Args = {
   compileContext: { social_account_ids: string[]; require_publish_targets: boolean };
   dryRunOptions: DryRunOptions;
   testInputs: string;
-  setCompileErrors: (errors: string[]) => void;
+  setCompileErrors: (errors: WorkflowCompileError[]) => void;
   setMessage: (message: string | null) => void;
   setTestResult: (result: NodeTestResult | null) => void;
 };
@@ -72,7 +73,7 @@ export function useWorkflowEditorActions({
       return validateWorkflowGraph({ graph, context: compileContext });
     },
     onSuccess: async (result) => {
-      setCompileErrors(result.errors.map((error) => `${error.code}: ${error.message}`));
+      setCompileErrors(result.errors);
       setMessage(result.valid ? "Validate OK" : "Validate failed");
       await invalidate();
     },
@@ -88,7 +89,7 @@ export function useWorkflowEditorActions({
         context: compileContext,
       });
       if (!compiled.valid) {
-        setCompileErrors(compiled.errors.map((error) => `${error.code}: ${error.message}`));
+        setCompileErrors(compiled.errors);
         throw new Error("Validate failed — fix before publish");
       }
       return publishWorkflowVersion(definitionId, {

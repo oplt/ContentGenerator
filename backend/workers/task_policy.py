@@ -184,6 +184,31 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
         max_retries=2,
         acks_late=True,
     ),
+    "backend.workers.tasks.execute_workflow_node_task": TaskPolicy(
+        workload="llm",
+        soft_time_limit=600,
+        time_limit=720,
+        max_retries=2,
+        acks_late=True,
+    ),
+    "backend.workers.tasks.recover_stale_workflow_node_runs_task": TaskPolicy(
+        workload="io",
+        soft_time_limit=60,
+        time_limit=90,
+        max_retries=0,
+        acks_late=True,
+        retry_backoff=False,
+        retry_jitter=False,
+    ),
+    "backend.workers.tasks.wake_due_workflow_waits_task": TaskPolicy(
+        workload="io",
+        soft_time_limit=60,
+        time_limit=90,
+        max_retries=0,
+        acks_late=True,
+        retry_backoff=False,
+        retry_jitter=False,
+    ),
     "backend.workers.tasks.resume_workflow_waiting_node_task": TaskPolicy(
         workload="llm",
         soft_time_limit=600,
@@ -191,14 +216,31 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
         max_retries=2,
         acks_late=True,
     ),
+    "backend.workers.tasks.process_workflow_webhook_inbox_task": TaskPolicy(
+        workload="llm",
+        soft_time_limit=300,
+        time_limit=360,
+        max_retries=2,
+        acks_late=True,
+    ),
+    "backend.workers.tasks.run_workflow_retention_task": TaskPolicy(
+        workload="io",
+        soft_time_limit=300,
+        time_limit=360,
+        max_retries=0,
+        acks_late=True,
+        retry_backoff=False,
+        retry_jitter=False,
+    ),
 }
 
 
 # Compose / ops: which queues each specialized worker should consume.
 # Keep critical paths disjoint so LLM/media/publishing cannot starve ingestion.
 WORKER_QUEUE_GROUPS: Final[dict[str, tuple[str, ...]]] = {
-    "io": ("ingestion", "enrichment", "email", "approvals"),
-    "llm": ("generation",),
+    # Keep ingestion I/O off the LLM worker; enrichment shares the LLM-capped pool.
+    "io": ("ingestion", "email", "approvals"),
+    "llm": ("generation", "enrichment"),
     "media": ("video",),
     "publishing": ("publishing",),
     "db": ("analytics",),

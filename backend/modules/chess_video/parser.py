@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Literal
 
 import chess
@@ -155,7 +156,7 @@ def _build_result(
 
 
 def _parse_pgn(text: str) -> ParsedChessGame:
-    class _StrictGameBuilder(chess.pgn.GameBuilder):
+    class _StrictGameBuilder(chess.pgn.GameBuilder[chess.pgn.Game]):
         def handle_error(self, error: Exception) -> None:
             raise ChessParseError(f"Malformed PGN: {error}") from error
 
@@ -203,7 +204,7 @@ def _apply_token_moves(
     tokens: list[str],
     *,
     input_format: DetectedFormat,
-    parse_token,
+    parse_token: Callable[[chess.Board, str], chess.Move],
 ) -> ParsedChessGame:
     board = chess.Board()
     starting_fen = board.fen()

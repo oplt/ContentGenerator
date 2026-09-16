@@ -37,6 +37,7 @@ from backend.modules.workflows.run_models import (
     WorkflowNodeRunStatus,
     WorkflowRun,
     WorkflowRunStatus,
+    WorkflowWait,
 )
 
 
@@ -105,6 +106,7 @@ async def _async_session() -> AsyncSession:
                         TaskExecution.__table__,
                         WorkflowRun.__table__,
                         WorkflowNodeRun.__table__,
+                        WorkflowWait.__table__,
                     ],
                 ),
             )
@@ -145,12 +147,9 @@ async def _seed_published(
 
 async def _pause_on_approval(db: AsyncSession) -> tuple[Tenant, Any, str]:
     tenant, version = await _seed_published(db, _full_slice_graph())
-    account_id = uuid.uuid4()
-    ctx = CompileContext(
-        social_account_ids=[account_id],
-        account_capabilities={str(account_id): ["llm", "publish"]},
-    )
+    ctx = CompileContext(require_publish_targets=False)
     approval_id = uuid.uuid4()
+    job_id = uuid.uuid4()
 
     async def _waiting_execute(context, inputs, config):  # type: ignore[no-untyped-def]
         assert context.resume_token
@@ -160,6 +159,8 @@ async def _pause_on_approval(db: AsyncSession) -> tuple[Tenant, Any, str]:
                 "approval_request_id": str(approval_id),
                 "status": "pending",
                 "channels": ["in_app"],
+                "content_job_id": str(job_id),
+                "revision_count": 0,
             },
             waiting_reason="approval_pending",
         )
@@ -173,6 +174,7 @@ async def _pause_on_approval(db: AsyncSession) -> tuple[Tenant, Any, str]:
             "backend.modules.workflows.nodes.approval.ApprovalNode.execute",
             new=AsyncMock(side_effect=_waiting_execute),
         ),
+        patch("backend.modules.workflows.wait_persist.schedule_fast_wake"),
     ):
         engine = WorkflowEngine(db)
         run = await engine.start_run(
@@ -180,7 +182,7 @@ async def _pause_on_approval(db: AsyncSession) -> tuple[Tenant, Any, str]:
             workflow_version_id=version.id,
             trigger_payload={
                 "prompt": "need approval",
-                "content_job_id": str(uuid.uuid4()),
+                "content_job_id": str(job_id),
             },
             compile_context=ctx,
             correlation_id=f"corr-resume-{uuid.uuid4().hex[:8]}",
@@ -204,7 +206,11 @@ def test_resume_approved_unlocks_publish() -> None:
             new=AsyncMock(
                 return_value=NodeResult(
                     status=NodeResultStatus.SUCCEEDED,
-                    output={"publishing_job_id": str(uuid.uuid4()), "status": "dry_run"},
+                    output={
+                        "job_ids": [str(uuid.uuid4())],
+                        "statuses": ["dry_run"],
+                        "dry_run": True,
+                    },
                 )
             ),
         ):
@@ -253,7 +259,11 @@ def test_resume_idempotent() -> None:
             new=AsyncMock(
                 return_value=NodeResult(
                     status=NodeResultStatus.SUCCEEDED,
-                    output={"status": "dry_run"},
+                    output={
+                        "job_ids": [str(uuid.uuid4())],
+                        "statuses": ["dry_run"],
+                        "dry_run": True,
+                    },
                 )
             ),
         ):
@@ -281,6 +291,8 @@ def test_maybe_resume_from_approval_binding() -> None:
         request.tenant_id = tenant.id
         request.id = uuid.uuid4()
         request.status = ApprovalStatus.APPROVED.value
+        request.content_job_id = uuid.uuid4()
+        request.revision_count = 0
         request.response_payload_json = {
             WORKFLOW_BINDING_KEY: build_workflow_binding(
                 workflow_run_id=paused.id,
@@ -296,7 +308,11 @@ def test_maybe_resume_from_approval_binding() -> None:
             new=AsyncMock(
                 return_value=NodeResult(
                     status=NodeResultStatus.SUCCEEDED,
-                    output={"status": "dry_run"},
+                    output={
+                        "job_ids": [str(uuid.uuid4())],
+                        "statuses": ["dry_run"],
+                        "dry_run": True,
+                    },
                 )
             ),
         ):

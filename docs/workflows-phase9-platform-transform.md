@@ -19,7 +19,8 @@ manual_trigger
 * Input: canonical `text` (+ optional `title` / `hashtags` / account ids)
 * Groups targets via `group_by_fingerprint` (`publishing/account_selection.py`)
 * Adapts with `platform_adapt.py` using `PLATFORM_LIMITS` (no LLM)
-* Output: `canonical_text`, `variants[]` (`platform`, `fingerprint`, `text`, account ids)
+* Output: `canonical_text`, `variants[]` (`id?`, `platform`, `fingerprint`, `text`, account ids),
+  `variant_ids[]` when persisted
 
 Platform rules (deterministic):
 
@@ -33,12 +34,18 @@ Platform rules (deterministic):
 
 Accounts resolved from input ids, else `context_snapshot.accounts`.
 
+## Persistence (production gap Phase 10)
+
+When `content_job_id` + DB are present, variants are written as durable
+`ContentVariant` (+ `ContentVariantTarget`) rows. Publish consumes those rows /
+provider_payload snapshots — see [phase10-platform-variants-publishing.md](phase10-platform-variants-publishing.md).
+
+Canonical body may be loaded from the ContentJob when `text` is omitted
+([phase11-canonical-content-model.md](phase11-canonical-content-model.md)).
+
 ## Modules
 
 * `platform_adapt.py`
 * `nodes/platform_transform.py`
-* `engine_inputs` maps `text`/`variants` → transform/publish
-
-## Next
-
-Phase 10 — typed platform capability model.
+* `content_generation/variant_store.py`
+* `engine_inputs` maps `text`/`variants`/`variant_ids` → transform/publish

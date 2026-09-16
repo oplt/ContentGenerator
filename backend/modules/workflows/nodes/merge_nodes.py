@@ -29,7 +29,6 @@ class FanOutOutput(BaseModel):
     items: list[Any]
     count: int
     mode: str
-    # Graph-level parallel instances stay Phase 12+; this shapes a list for downstream.
 
 
 class FanOutNode(WorkflowNode[FanOutConfig, FanOutInput, FanOutOutput]):
@@ -38,8 +37,8 @@ class FanOutNode(WorkflowNode[FanOutConfig, FanOutInput, FanOutOutput]):
     category = "control"
     display_name = "Fan Out"
     description = (
-        "Normalize items/account ids into a list for downstream nodes "
-        "(data fan-out; parallel graph instances later)."
+        "Normalize items into a list and spawn one WorkflowNodeRun per item "
+        "on the successor (iteration_key = immutable item key)."
     )
     ConfigSchema = FanOutConfig
     InputSchema = FanOutInput

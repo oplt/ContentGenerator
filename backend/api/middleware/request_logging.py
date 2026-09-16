@@ -8,8 +8,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from backend.core.app_errors import log_application_error, was_application_error_logged
 from backend.core.domain_metrics import domain_metrics
 from backend.core.logging import get_logger
+from backend.core.request_context import get_tenant_id
 
 logger = get_logger("backend.request")
 
@@ -34,6 +36,20 @@ def _route_label(request: Request) -> str:
     return _UUID_RE.sub("{id}", request.url.path)[:64]
 
 
+def _correlation_id(request: Request) -> str:
+    """Prefer request.state (set by CorrelationIdMiddleware); never invent here."""
+    value = getattr(request.state, "correlation_id", None)
+    return str(value) if value else "n/a"
+
+
+def _tenant_id(request: Request) -> str | None:
+    """request.state may be invisible across BaseHTTPMiddleware; fall back to contextvar."""
+    state_val = getattr(request.state, "tenant_id", None)
+    if state_val is not None:
+        return str(state_val)
+    return get_tenant_id()
+
+
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self,
@@ -42,11 +58,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         started_at = perf_counter()
         route = _route_label(request)
-        correlation_id = getattr(request.state, "correlation_id", "n/a")
-        tenant_id = getattr(request.state, "tenant_id", None)
         try:
             response = await call_next(request)
-        except Exception:
+        except Exception as exc:
             duration_ms = (perf_counter() - started_at) * 1000
             domain_metrics.record_request(
                 method=request.method,
@@ -54,22 +68,25 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 status_class="5xx",
                 duration_ms=duration_ms,
             )
-            logger.exception(
-                "request_failed",
-                method=request.method,
-                route=route,
-                path=request.url.path,
-                duration_ms=round(duration_ms, 2),
-                correlation_id=correlation_id,
-                tenant_id=tenant_id,
-            )
+            # Handler usually already emitted application_error; do not duplicate traceback.
+            if not was_application_error_logged(request):
+                log_application_error(
+                    exc,
+                    request=request,
+                    route=route,
+                    status_code=500,
+                    error_code="internal_error",
+                    duration_ms=duration_ms,
+                    include_traceback=True,
+                )
             raise
 
         duration_ms = (perf_counter() - started_at) * 1000
         status_class = f"{response.status_code // 100}xx"
         # Route may resolve after matching; prefer template when available.
         route = _route_label(request)
-        tenant_id = getattr(request.state, "tenant_id", tenant_id)
+        correlation_id = _correlation_id(request)
+        tenant_id = _tenant_id(request)
         domain_metrics.record_request(
             method=request.method,
             route=route,

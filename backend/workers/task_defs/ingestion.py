@@ -51,12 +51,16 @@ def ingest_source_task(
     correlation_id: str | None = None,
 ) -> dict[str, str | int | None]:
     """Per-source ingest with no worker DB hold across network fetch."""
+    celery_id = ingest_source_task.request.id
+    corr = correlation_id or celery_id
 
     async def operation():
         return await run_ingestion_workflow(
             tenant_id=UUID(tenant_id),
             source_id=UUID(source_id),
             fetch_run_id=UUID(fetch_run_id) if fetch_run_id else None,
+            celery_task_id=celery_id,
+            correlation_id=corr,
         )
 
     result = run_detached_async_task(
@@ -65,13 +69,17 @@ def ingest_source_task(
         tenant_id=UUID(tenant_id),
         entity_type="source",
         entity_id=source_id,
-        celery_task_id=ingest_source_task.request.id,
-        correlation_id=correlation_id or ingest_source_task.request.id,
+        celery_task_id=celery_id,
+        correlation_id=corr,
         payload=enqueue_payload(
             source_id=source_id,
             fetch_run_id=fetch_run_id or "",
-            correlation_id=correlation_id or "",
+            correlation_id=corr or "",
+            celery_task_id=celery_id or "",
         ),
         operation=operation,
     )
-    return result.model_dump()
+    payload = result.model_dump()
+    # Celery result must always carry the real task UUID (ops Phase 14).
+    payload["task_id"] = celery_id
+    return payload

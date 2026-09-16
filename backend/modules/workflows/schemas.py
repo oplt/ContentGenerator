@@ -6,10 +6,15 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.modules.shared.schemas import ORMModel
-from backend.modules.workflows.graph_schema import CompileContext, WorkflowGraph
+from backend.modules.workflows.graph_schema import (
+    CompileContext,
+    DesignValidationContext,
+    RuntimeClientContext,
+    WorkflowGraph,
+)
 
 
 class NodePortResponse(BaseModel):
@@ -22,6 +27,7 @@ class NodePortResponse(BaseModel):
 class RetryPolicyResponse(BaseModel):
     max_attempts: int
     backoff_seconds: float
+    max_backoff_seconds: float = 300.0
     retry_on: list[str] = Field(default_factory=list)
 
 
@@ -31,6 +37,8 @@ class NodeDefinitionResponse(BaseModel):
     category: str
     display_name: str
     description: str
+    implementation_status: str = "stable"
+    executable: bool = True
     input_ports: list[NodePortResponse]
     output_ports: list[NodePortResponse]
     config_schema: dict[str, Any]
@@ -56,8 +64,17 @@ class NodeConfigValidateResponse(BaseModel):
 
 
 class GraphValidateRequest(BaseModel):
+    """Design-time graph validation. Hypothetical capability maps allowed."""
+
     graph: dict[str, Any] | WorkflowGraph = Field(default_factory=dict)
-    context: CompileContext | None = None
+    context: DesignValidationContext | CompileContext | None = None
+
+
+class GraphSimulateRequest(BaseModel):
+    """Explicit design-time capability simulation (hypothetical caps OK)."""
+
+    graph: dict[str, Any] | WorkflowGraph = Field(default_factory=dict)
+    context: DesignValidationContext | None = None
 
 
 class WorkflowDefinitionCreateRequest(BaseModel):
@@ -74,7 +91,8 @@ class WorkflowDraftSaveRequest(BaseModel):
 
 class WorkflowPublishRequest(BaseModel):
     version_id: UUID | None = None
-    context: CompileContext | None = None
+    # Design-time compile check at publish; hypothetical caps allowed.
+    context: DesignValidationContext | CompileContext | None = None
 
 
 class WorkflowDefinitionResponse(ORMModel):
@@ -133,6 +151,7 @@ class WorkflowNodeRunResponse(ORMModel):
     node_version: int
     status: str
     attempt: int
+    iteration_key: str = ""
     input_json: dict[str, Any]
     output_json: dict[str, Any]
     error_json: dict[str, Any] | None
@@ -142,13 +161,43 @@ class WorkflowNodeRunResponse(ORMModel):
     finished_at: datetime | None
     waiting_reason: str | None
     resume_token: str | None
+    claim_token: str | None = None
+    claim_expires_at: datetime | None = None
+    claimed_at: datetime | None = None
+    worker_task_id: str | None = None
+    next_attempt_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    execution_key: str | None = None
+    last_error: str | None = None
+    error_class: str | None = None
+    cancellation_requested: bool = False
     created_at: datetime
     updated_at: datetime
+    # Phase 15 inspection helpers (computed; tokens redacted on GET).
+    duration_ms: int | None = None
+    can_resume: bool = False
+    can_retry: bool = False
+
+
+class WorkflowRunInspectionMeta(BaseModel):
+    version_number: int | None = None
+    automation_name: str | None = None
+    brand_name: str | None = None
 
 
 class WorkflowRunDetailResponse(BaseModel):
     run: WorkflowRunResponse
     nodes: list[WorkflowNodeRunResponse]
+    meta: WorkflowRunInspectionMeta | None = None
+
+
+class WorkflowResumeNodeRequest(BaseModel):
+    outcome: str = Field(
+        default="received",
+        pattern=r"^(approved|rejected|expired|elapsed|received)$",
+    )
+    decision: dict[str, Any] = Field(default_factory=dict)
+    advance: bool = True
 
 
 class WorkflowStartRunRequest(BaseModel):
@@ -158,7 +207,8 @@ class WorkflowStartRunRequest(BaseModel):
     automation_id: UUID | None = None
     brand_id: UUID | None = None
     correlation_id: str | None = Field(default=None, max_length=128)
-    context: CompileContext | None = None
+    # Capability maps forbidden — server builds authoritative CompileContext.
+    context: RuntimeClientContext | None = None
     advance: bool = True
     run_config: dict[str, Any] = Field(default_factory=dict)
     # Phase 15 — testing / dry-run controls (auth still required).
@@ -168,12 +218,20 @@ class WorkflowStartRunRequest(BaseModel):
 
 
 class WorkflowResumeRequest(BaseModel):
-    resume_token: str = Field(min_length=8, max_length=128)
+    resume_token: str | None = Field(default=None, min_length=8, max_length=128)
+    event_key: str | None = Field(default=None, min_length=1, max_length=255)
     outcome: str = Field(
-        pattern=r"^(approved|rejected|expired|elapsed|received)$"
+        default="received",
+        pattern=r"^(approved|rejected|expired|elapsed|received)$",
     )
     decision: dict[str, Any] = Field(default_factory=dict)
     advance: bool = True
+
+    @model_validator(mode="after")
+    def _require_lookup(self) -> WorkflowResumeRequest:
+        if not self.resume_token and not self.event_key:
+            raise ValueError("resume_token or event_key is required")
+        return self
 
 
 class NodeTestRequest(BaseModel):
@@ -183,7 +241,7 @@ class NodeTestRequest(BaseModel):
     dry_run: bool = True
     mock_generation: bool = False
     brand_id: UUID | None = None
-    context: CompileContext | None = None
+    context: RuntimeClientContext | None = None
 
 
 class NodeTestResponse(BaseModel):

@@ -26,6 +26,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Startup
     setup_telemetry(app)
 
+    from backend.db.schema_revision import SchemaRevisionError, assert_schema_at_head
+
+    try:
+        assert_schema_at_head(role="api")
+    except SchemaRevisionError as exc:
+        raise RuntimeError(str(exc)) from exc
+
     # Initialize Redis connection
     await redis_cache.connect()
 
@@ -60,8 +67,10 @@ async def root_metrics() -> MetricsResponse:
     """Compatibility endpoint for scrapers configured with the root path."""
     return await health_metrics()
 
-app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+# CorrelationId must wrap request logging so the ID exists for the full
+# request_complete / request_failed log and contextvars are cleared only after.
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

@@ -26,7 +26,7 @@ from backend.modules.publishing.models import SocialAccount
 from backend.modules.workflows.compiler import WorkflowCompiler
 from backend.modules.workflows.engine import WorkflowEngine
 from backend.modules.workflows.engine_inputs import resolve_node_inputs
-from backend.modules.workflows.graph_schema import CompileContext
+from backend.modules.workflows.graph_schema import CompileContext, DesignValidationContext
 from backend.modules.workflows.models import Automation, WorkflowDefinition, WorkflowVersion
 from backend.modules.workflows.nodes.base import NodeResult, NodeResultStatus
 from backend.modules.workflows.registry import build_default_registry, reset_default_registry
@@ -35,6 +35,7 @@ from backend.modules.workflows.run_models import (
     WorkflowNodeRunStatus,
     WorkflowRun,
     WorkflowRunStatus,
+    WorkflowWait,
 )
 from backend.modules.workflows.run_repository import WorkflowRunRepository
 
@@ -118,6 +119,7 @@ async def _async_session() -> AsyncSession:
                         TaskExecution.__table__,
                         WorkflowRun.__table__,
                         WorkflowNodeRun.__table__,
+                        WorkflowWait.__table__,
                     ],
                 ),
             )
@@ -249,22 +251,10 @@ def test_node_retry_increments_attempt() -> None:
                 mock_generation=False,
             )
         nodes = {n.node_id: n for n in await engine.runs.list_node_runs(tenant.id, run.id)}
-        assert nodes["generate"].status == WorkflowNodeRunStatus.FAILED.value
-        assert nodes["generate"].attempt == 1
-        assert run.status == WorkflowRunStatus.FAILED.value
-
-        nodes["generate"].status = WorkflowNodeRunStatus.READY.value
-        run.status = WorkflowRunStatus.RUNNING.value
-        await db.flush()
-        with patch(
-            "backend.modules.workflows.nodes.text.GenerateTextNode.execute",
-            new=_flaky_execute,
-        ):
-            run = await engine.advance(tenant.id, run.id)
-        nodes = {n.node_id: n for n in await engine.runs.list_node_runs(tenant.id, run.id)}
-        assert nodes["generate"].attempt == 2
-        assert nodes["generate"].status == WorkflowNodeRunStatus.SUCCEEDED.value
         assert run.status == WorkflowRunStatus.SUCCEEDED.value
+        assert nodes["generate"].status == WorkflowNodeRunStatus.SUCCEEDED.value
+        assert nodes["generate"].attempt == 2
+        assert calls["n"] == 2
         await db.close()
 
     asyncio.run(_run())
@@ -276,18 +266,36 @@ def test_e2e_dry_run_happy_path() -> None:
     async def _run() -> None:
         db = await _async_session()
         tenant, version = await _seed_published(db, _full_slice_graph())
-        account_id = uuid.uuid4()
+        account = SocialAccount(
+            tenant_id=tenant.id,
+            platform="x",
+            display_name="X",
+            handle="@x",
+            auth_type="stub",
+            status="connected",
+            capability_flags={"text": "true", "publish": "true"},
+            settings={},
+        )
+        db.add(account)
+        await db.flush()
+        account_id = account.id
         job_id = uuid.uuid4()
         ctx = CompileContext(
             social_account_ids=[account_id],
-            account_capabilities={str(account_id): ["llm", "publish"]},
+            require_publish_targets=True,
         )
 
         async def _waiting_approval(self, context, inputs, config):  # noqa: ANN001
             _ = self, context, inputs, config
             return NodeResult(
                 status=NodeResultStatus.WAITING,
-                output={"approval_request_id": str(uuid.uuid4()), "status": "pending"},
+                output={
+                    "approval_request_id": str(uuid.uuid4()),
+                    "status": "pending",
+                    "channels": ["in_app"],
+                    "content_job_id": str(job_id),
+                    "revision_count": 0,
+                },
                 waiting_reason="approval_pending",
             )
 
@@ -307,6 +315,7 @@ def test_e2e_dry_run_happy_path() -> None:
                 "backend.modules.publishing.service.PublishingService",
                 return_value=publish_mock,
             ),
+            patch("backend.modules.workflows.wait_persist.schedule_fast_wake"),
         ):
             engine = WorkflowEngine(db)
             run = await engine.start_run(
@@ -342,7 +351,7 @@ def test_chess_workflow_compiles() -> None:
     account_id = uuid.uuid4()
     result = WorkflowCompiler().validate_graph(
         _chess_slice_graph(),
-        context=CompileContext(
+        context=DesignValidationContext(
             social_account_ids=[account_id],
             account_capabilities={
                 str(account_id): ["video", "chess", "publish", "llm"]

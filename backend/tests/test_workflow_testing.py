@@ -189,7 +189,8 @@ def test_dry_run_mocks_generation_without_llm() -> None:
                 trigger_payload={"prompt": "daily tip"},
             )
         assert run.trigger_type == "dry_run"
-        assert run.context_snapshot["testing"]["mock_generation"] is True
+        testing = cast(dict[str, object], run.context_snapshot["testing"])
+        assert testing["mock_generation"] is True
         assert run.status == WorkflowRunStatus.SUCCEEDED.value
         nodes = await engine.runs.list_node_runs(tenant.id, run.id)
         gen = next(n for n in nodes if n.node_id == "generate")

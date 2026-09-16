@@ -132,6 +132,35 @@ export function advanceWorkflowRun(runId: string) {
   return apiFetch<WorkflowRunDetail>(`/workflows/runs/${runId}/advance`, { method: "POST" });
 }
 
+export function cancelWorkflowRun(runId: string) {
+  return apiFetch<WorkflowRunDetail>(`/workflows/runs/${runId}/cancel`, { method: "POST" });
+}
+
+export function retryWorkflowNode(runId: string, nodeId: string) {
+  return apiFetch<WorkflowRunDetail>(
+    `/workflows/runs/${runId}/nodes/${encodeURIComponent(nodeId)}/retry`,
+    { method: "POST" },
+  );
+}
+
+export function retryWorkflowFromNode(runId: string, nodeId: string) {
+  return apiFetch<WorkflowRunDetail>(
+    `/workflows/runs/${runId}/retry-from/${encodeURIComponent(nodeId)}`,
+    { method: "POST" },
+  );
+}
+
+export function resumeWorkflowNode(
+  runId: string,
+  nodeId: string,
+  payload: { outcome: string; decision?: Record<string, unknown>; advance?: boolean },
+) {
+  return apiFetch<WorkflowRunDetail>(
+    `/workflows/runs/${runId}/nodes/${encodeURIComponent(nodeId)}/resume`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
 export function resumeWorkflowRun(payload: {
   resume_token: string;
   outcome: string;
@@ -146,6 +175,19 @@ export function resumeWorkflowRun(payload: {
 
 export function listWorkflowNodes(init?: ApiFetchOptions) {
   return apiFetch<WorkflowNodeDefinition[]>("/workflows/nodes", init);
+}
+
+export function validateWorkflowNodeConfig(
+  nodeType: string,
+  payload: { config?: Record<string, unknown>; version?: number | null },
+) {
+  return apiFetch<import("./workflowTypes").NodeConfigValidateResult>(
+    `/workflows/nodes/${encodeURIComponent(nodeType)}/validate-config`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export function listAutomations(init?: ApiFetchOptions) {

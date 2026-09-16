@@ -29,4 +29,6 @@ Nodes/APIs expose `social_account_id` only — never OAuth/refresh tokens.
 
 ## Deferred
 
-Workflow-owned signed webhook ingress (`WebhookTriggerNode` stub). External wait resumes stay behind authenticated `/workflows/resume`. Approval channel webhooks remain the signed external path.
+External wait resumes stay behind authenticated `/workflows/resume`. Approval channel
+webhooks remain a separate signed path. Workflow-owned signed webhook ingress is
+implemented — see [phase17-webhook-event-triggers.md](phase17-webhook-event-triggers.md).

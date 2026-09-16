@@ -109,6 +109,16 @@ def test_run_ingestion_workflow_fetches_outside_db_sessions() -> None:
     asyncio.run(_run())
 
 
+def test_persist_success_does_not_import_process_articles() -> None:
+    """Guard: clustering must not run inside the persist TX module."""
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    persist_src = (repo_root / "backend/modules/source_ingestion/ingestion_persist.py").read_text()
+    assert "process_articles" not in persist_src
+    assert "enrich_raw_articles" not in persist_src
+
+
 def test_create_assets_batch_flushes_once() -> None:
     flush = AsyncMock()
     added: list[object] = []

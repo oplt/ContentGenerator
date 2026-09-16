@@ -124,9 +124,11 @@ class WorkflowVersioningService:
 
         assert result.checksum is not None
         if result.normalized_graph is not None:
-            version.graph_json = sanitize_workflow_graph(result.normalized_graph).model_dump(
-                mode="json"
-            )
+            graph = sanitize_workflow_graph(result.normalized_graph)
+            # New publishes use the port/binding resolver; do not mutate already-published rows.
+            if int(graph.schema_version or 1) < 2:
+                graph = graph.model_copy(update={"schema_version": 2})
+            version.graph_json = graph.model_dump(mode="json")
         self.repo.mark_published(version, checksum=result.checksum)
         definition.current_version_id = version.id
         definition.status = WorkflowDefinitionStatus.ACTIVE.value

@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from backend.modules.workflows.nodes.base import (
+    NodeImplementationStatus,
     WorkflowNode,
     WorkflowNodeNotFoundError,
 )
@@ -59,12 +60,19 @@ class WorkflowNodeRegistry:
         return [self.to_definition(node) for node in self.list_nodes()]
 
     def to_definition(self, node: WorkflowNode[Any, Any, Any]) -> NodeDefinitionResponse:
+        status = getattr(
+            node, "implementation_status", None
+        )
+        status_value = status.value if isinstance(status, NodeImplementationStatus) else str(status or "stable")
+        executable = bool(getattr(type(node), "is_executable", lambda: True)())
         return NodeDefinitionResponse(
             type=node.type,
             version=node.version,
             category=node.category,
             display_name=node.display_name,
             description=node.description,
+            implementation_status=status_value,
+            executable=executable,
             input_ports=[
                 NodePortResponse(
                     name=p.name,
@@ -92,6 +100,7 @@ class WorkflowNodeRegistry:
             retry_policy=RetryPolicyResponse(
                 max_attempts=node.retry_policy.max_attempts,
                 backoff_seconds=node.retry_policy.backoff_seconds,
+                max_backoff_seconds=node.retry_policy.max_backoff_seconds,
                 retry_on=list(node.retry_policy.retry_on),
             ),
         )

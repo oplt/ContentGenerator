@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar, cast
 
 from pydantic import BaseModel, Field
 
@@ -53,7 +53,7 @@ class FactReviewNode(WorkflowNode[FactReviewConfig, FactReviewInput, FactReviewO
     ConfigSchema = FactReviewConfig
     InputSchema = FactReviewInput
     OutputSchema = FactReviewOutput
-    required_capabilities: list[str] = []
+    required_capabilities: ClassVar[list[str]] = []
     input_ports = [
         NodePort(name="headline", data_type="string"),
         NodePort(name="summary", data_type="string", required=False),
@@ -105,9 +105,9 @@ class FactReviewNode(WorkflowNode[FactReviewConfig, FactReviewInput, FactReviewO
             risk_label=str(review.get("label") or review.get("risk_label") or "unknown"),
             blocked=bool(review.get("blocked")),
             fail_closed=bool(review.get("fail_closed")),
-            topic_categories=list(review.get("topic_categories") or []),
-            reasons=[str(r) for r in list(review.get("reasons") or [])],
-            policy_flags=list(review.get("policy_flags") or []),
+            topic_categories=list(cast(list[str], review.get("topic_categories") or [])),
+            reasons=[str(r) for r in cast(list[Any], review.get("reasons") or [])],
+            policy_flags=list(cast(list[Any], review.get("policy_flags") or [])),
             review=dict(review),
         )
         return NodeResult(status=NodeResultStatus.SUCCEEDED, output=output.model_dump())

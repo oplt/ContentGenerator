@@ -114,7 +114,7 @@ services:
     command: >
       celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
       --hostname=worker-io@%h
-      --queues=ingestion,enrichment,email,approvals
+      --queues=ingestion,email,approvals
       --concurrency=${CELERY_WORKER_IO_CONCURRENCY:-4}
       --prefetch-multiplier=${CELERY_WORKER_PREFETCH_MULTIPLIER:-1}
     env_file:
@@ -124,6 +124,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - EMBEDDINGS_PROVIDER=ollama
       - EMBEDDINGS_MODEL=nomic-embed-text
+      - HTTP_PROVIDER_LLM_CONCURRENCY=${HTTP_PROVIDER_LLM_CONCURRENCY:-1}
     volumes:
       - ./backend:/app/backend
       - ./docs:/app/docs
@@ -139,7 +140,7 @@ services:
     command: >
       celery -A backend.workers.celery_app:celery_app worker --loglevel=INFO
       --hostname=worker-llm@%h
-      --queues=generation
+      --queues=generation,enrichment
       --concurrency=${CELERY_WORKER_LLM_CONCURRENCY:-2}
       --prefetch-multiplier=1
     env_file:
@@ -151,6 +152,7 @@ services:
       - EMBEDDINGS_MODEL=nomic-embed-text
       - LLM_PROVIDER=ollama
       - LLM_MODEL=llama3.2:3b
+      - HTTP_PROVIDER_LLM_CONCURRENCY=${HTTP_PROVIDER_LLM_CONCURRENCY:-1}
     volumes:
       - ./backend:/app/backend
       - ./docs:/app/docs

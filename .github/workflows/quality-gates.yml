@@ -116,9 +116,14 @@ jobs:
       - name: Reject tracked runtime/report artifacts
         run: |
           set -euo pipefail
+          # Paths allowed to stay tracked despite matching log patterns (test fixtures only).
+          whitelist=(
+          )
           patterns=(
             '^dump\.rdb$'
             '\.rdb$'
+            '^logs/'
+            '\.log$'
             '^frontend/playwright-report/'
             '^frontend/test-results/'
             '^frontend/blob-report/'
@@ -129,9 +134,25 @@ jobs:
           for pattern in "${patterns[@]}"; do
             matches="$(printf '%s\n' "$tracked" | grep -E "$pattern" || true)"
             if [[ -n "$matches" ]]; then
-              echo "::error::Tracked runtime/report artifact(s) matched /$pattern/:"
-              printf '%s\n' "$matches"
-              failed=1
+              filtered=""
+              while IFS= read -r path; do
+                [[ -z "$path" ]] && continue
+                allowed=0
+                for w in "${whitelist[@]}"; do
+                  if [[ "$path" == "$w" ]]; then
+                    allowed=1
+                    break
+                  fi
+                done
+                if [[ "$allowed" -eq 0 ]]; then
+                  filtered+="${path}"$'\n'
+                fi
+              done <<< "$matches"
+              if [[ -n "$filtered" ]]; then
+                echo "::error::Tracked runtime/report artifact(s) matched /$pattern/:"
+                printf '%s' "$filtered"
+                failed=1
+              fi
             fi
           done
           if [[ "$failed" -ne 0 ]]; then

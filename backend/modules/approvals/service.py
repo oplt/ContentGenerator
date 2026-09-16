@@ -91,12 +91,16 @@ class ApprovalService:
         tenant_id: UUID,
         content_job_id: UUID,
         recipient: str | None,
+        channels: list[str] | None = None,
+        deliver: bool = True,
     ) -> ApprovalRequest:
         return await approval_outbound.send_for_approval(
             self,
             tenant_id=tenant_id,
             content_job_id=content_job_id,
             recipient=recipient,
+            channels=channels,
+            deliver=deliver,
         )
 
     async def send_topic_for_approval(

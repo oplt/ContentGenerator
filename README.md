@@ -310,7 +310,8 @@ python -m venv .venv
 
 pip install -r requirements.txt
 
-alembic upgrade head
+make migrate
+# equivalent: cd backend && PYTHONPATH=.. alembic upgrade head
 ```
 
 ## Frontend Setup

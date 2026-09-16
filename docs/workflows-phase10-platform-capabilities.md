@@ -25,14 +25,20 @@ Defaults keyed by provider string (`x`, `youtube`, `instagram`, …) — not a g
 
 ## Compile context
 
-`CompileContext` fields:
+`CompileContext` fields (internal / server-built):
 
-* `account_capabilities` — string tags (existing)
+* `account_capabilities` — string tags
 * `account_platform_capabilities` — typed dumps
 * `account_platforms` — account_id → provider id
+* `account_statuses` — account_id → SocialAccount.status (runtime)
 * `require_capability_check` — hard-fail when caps unresolved
 
-`capability_context.enrich_compile_context*` fills maps from platform/flags or DB accounts before validate/start.
+**Phase 8:** runtime never trusts client-supplied capability maps. Clients send
+`RuntimeClientContext` (account IDs + policy flags). Server builds maps via
+`build_runtime_compile_context`. Design-time hypothetical caps use
+`DesignValidationContext` on `/validate-graph` or `/simulate-graph`.
+
+See [`phase8-runtime-capability-context.md`](phase8-runtime-capability-context.md).
 
 ## Compiler rules
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from time import perf_counter
 from typing import Any
 
 import httpx
 
 from backend.core.config import settings
+from backend.core.domain_metrics import domain_metrics
 from backend.core.http import provider_semaphore, request, shared_http_client
 from backend.modules.inference.base import EmbeddingsProvider, LLMProvider, _timeout_for_task
 from backend.modules.inference.capabilities import ProviderHealth
@@ -44,25 +46,46 @@ class OllamaCompatibleLLMProvider(LLMProvider):
         # since Ollama streams tokens incrementally and the total generation can be slow.
         timeout = httpx.Timeout(connect=15.0, read=task_timeout, write=15.0, pool=15.0)
         chunks: list[str] = []
-        async with provider_semaphore("llm"):
-            async with shared_http_client() as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.base_url}/api/generate",
-                    json=payload,
-                    timeout=timeout,
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        try:
-                            event = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        chunks.append(event.get("response", ""))
-                        if event.get("done"):
-                            break
+        started = perf_counter()
+        outcome = "success"
+        try:
+            async with provider_semaphore("llm"):
+                async with shared_http_client() as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/api/generate",
+                        json=payload,
+                        timeout=timeout,
+                    ) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line:
+                                continue
+                            try:
+                                event = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            chunks.append(event.get("response", ""))
+                            if event.get("done"):
+                                break
+        except Exception:
+            outcome = "failure"
+            raise
+        finally:
+            duration_ms = (perf_counter() - started) * 1000.0
+            domain_metrics.record_llm_call(
+                provider=self.provider_name,
+                model=model,
+                operation=task,
+                duration_ms=duration_ms,
+                outcome=outcome,
+            )
+            domain_metrics.record_provider_request(
+                provider=self.provider_name,
+                outcome=outcome,
+                duration_ms=duration_ms,
+                status_class="2xx" if outcome == "success" else "5xx",
+            )
         return "".join(chunks).strip()
 
     async def summarize(self, prompt: str, *, max_words: int = 120) -> str:
@@ -136,15 +159,29 @@ class OllamaEmbeddingsProvider(EmbeddingsProvider):
 
     async def embed(self, text: str) -> list[float]:
         truncated = text[:16_000]
-        response = await request(
-            "POST",
-            f"{self.base_url}/api/embeddings",
-            provider="llm",
-            json={"model": self.model, "prompt": truncated},
-        )
-        response.raise_for_status()
-        data: dict[str, Any] = response.json()
-        embedding: list[float] = data.get("embedding", [])
-        if not embedding:
-            raise ValueError(f"Ollama embeddings returned empty vector for model={self.model}")
-        return embedding
+        started = perf_counter()
+        outcome = "success"
+        try:
+            response = await request(
+                "POST",
+                f"{self.base_url}/api/embeddings",
+                provider="llm",
+                json={"model": self.model, "prompt": truncated},
+            )
+            response.raise_for_status()
+            data: dict[str, Any] = response.json()
+            embedding: list[float] = data.get("embedding", [])
+            if not embedding:
+                raise ValueError(f"Ollama embeddings returned empty vector for model={self.model}")
+            return embedding
+        except Exception:
+            outcome = "failure"
+            raise
+        finally:
+            domain_metrics.record_llm_call(
+                provider="ollama",
+                model=self.model,
+                operation="embed",
+                duration_ms=(perf_counter() - started) * 1000.0,
+                outcome=outcome,
+            )

@@ -2,6 +2,7 @@ import {
   canAccessAdminRoutes,
   canAccessAuditLogs,
   canAccessTenantSettings,
+  canWriteBriefs,
   getActiveMembership,
   requiresAdminMfa,
   requiresEmailVerification,
@@ -85,6 +86,19 @@ describe("auth access helpers", () => {
     expect(canAccessAuditLogs(user, "tenant-b")).toBe(true);
     expect(canAccessAuditLogs(user, "tenant-a")).toBe(false);
     expect(canAccessAuditLogs(makeUser(), "tenant-1")).toBe(false);
+  });
+
+  it("scopes briefs:write to the active tenant", () => {
+    const user = makeUser({
+      memberships: [
+        makeMembership("tenant-a", ["briefs:write"]),
+        makeMembership("tenant-b", ["content:write"]),
+      ],
+    });
+
+    expect(canWriteBriefs(user, "tenant-a")).toBe(true);
+    expect(canWriteBriefs(user, "tenant-b")).toBe(false);
+    expect(canWriteBriefs(user, null)).toBe(false);
   });
 
   it("returns the membership for the active tenant", () => {

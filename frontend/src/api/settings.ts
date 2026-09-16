@@ -31,7 +31,7 @@ export type AuditLog = {
   entity_type: string;
   entity_id: string | null;
   message: string;
-  payload: Record<string, string>;
+  payload: Record<string, unknown>;
   correlation_id: string | null;
 };
 

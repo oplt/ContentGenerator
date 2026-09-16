@@ -2,7 +2,7 @@
 
 Allowed attrs (low-cardinality): operation, outcome, error_class, provider,
 platform, queue, task, owner, result, event, status_class, rating,
-navigation_type, post_type, name, route, method, stage.
+navigation_type, post_type, name, route, method, stage, model.
 Forbidden: tenant/user ids, credentials, secret URLs, raw content.
 """
 
@@ -28,6 +28,8 @@ from backend.core.domain_metrics_store import (
     METRIC_HTTP_429,
     METRIC_INFERENCE_EVENT,
     METRIC_INGESTION,
+    METRIC_INGESTION_STAGE,
+    METRIC_LLM_CALL,
     METRIC_OPERATION_DURATION,
     METRIC_OPERATION_TOTAL,
     METRIC_PROVIDER_DURATION,
@@ -126,6 +128,8 @@ class DomainMetrics(ObservabilityMetricsMixin):
             (METRIC_DB_TX_DURATION, "DB transaction duration"),
             (METRIC_SEMAPHORE_WAIT, "Provider semaphore wait"),
             (METRIC_GENERATION_STAGE, "Content generation stage duration"),
+            (METRIC_INGESTION_STAGE, "Ingestion pipeline stage duration"),
+            (METRIC_LLM_CALL, "LLM/embedding call duration"),
         )
         for name, description in definitions:
             try:

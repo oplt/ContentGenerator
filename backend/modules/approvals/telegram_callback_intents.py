@@ -111,7 +111,9 @@ async def handle_trim_or_cta(
 ) -> CallbackOutcome:
     await _set_revision_session(chat_id, request.id)
     request.status = ApprovalStatus.PENDING.value
-    request.response_payload_json = {"revision_mode": intent_str}
+    payload = dict(request.response_payload_json or {})
+    payload["revision_mode"] = intent_str
+    request.response_payload_json = payload
     label = intent_str.replace("_", " ").upper()
     return CallbackOutcome(
         "✏️ Send your notes in chat.",

@@ -74,6 +74,7 @@ testpaths = ["tests"]
 markers = [
     "integration: requires disposable Postgres/Redis (CG_RUN_DB_MIGRATIONS / services)",
     "benchmark: structural performance baseline harness",
+    "workflow_production_gap: expected failure until workflow hardening phase lands",
 ]
 addopts = "-q"
 

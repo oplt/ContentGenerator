@@ -138,7 +138,7 @@ def validate_capabilities(
     if not context.social_account_ids:
         return []
 
-    ctx = enrich_compile_context(context)
+    ctx = enrich_compile_context(context, prefer_existing=True)
     available = _available_capability_tags(ctx)
     has_media_nodes = any(
         MEDIA_CAPABILITIES.intersection(_hard_required(n.required_capabilities))
@@ -170,6 +170,37 @@ def validate_capabilities(
                     message=(
                         f"node '{node_id}' requires capabilities {missing} "
                         "not provided by selected accounts"
+                    ),
+                    node_id=node_id,
+                    node_type=node.type,
+                )
+            )
+    return errors
+
+
+def validate_node_executability(
+    resolved: dict[str, WorkflowNode[Any, Any, Any]],
+) -> list[WorkflowCompileError]:
+    """Block publish/run/schedule when the graph includes unavailable nodes."""
+    from backend.modules.workflows.nodes.base import NodeImplementationStatus
+
+    errors: list[WorkflowCompileError] = []
+    for node_id, node in resolved.items():
+        status = getattr(node, "implementation_status", NodeImplementationStatus.STABLE)
+        status_value = status.value if hasattr(status, "value") else str(status)
+        executable = True
+        checker = getattr(type(node), "is_executable", None)
+        if callable(checker):
+            executable = bool(checker())
+        elif status_value == NodeImplementationStatus.UNAVAILABLE.value:
+            executable = False
+        if not executable:
+            errors.append(
+                WorkflowCompileError(
+                    code="node_not_executable",
+                    message=(
+                        f"node '{node_id}' ({node.type}) is {status_value} "
+                        "and cannot be published, run, or scheduled"
                     ),
                     node_id=node_id,
                     node_type=node.type,

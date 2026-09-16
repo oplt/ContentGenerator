@@ -26,6 +26,17 @@ class StoryIntelligenceRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_normalized_by_id(
+        self, tenant_id: UUID, normalized_id: UUID
+    ) -> NormalizedArticle | None:
+        result = await self.db.execute(
+            select(NormalizedArticle).where(
+                NormalizedArticle.id == normalized_id,
+                NormalizedArticle.tenant_id == tenant_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def create_normalized_article(self, article: NormalizedArticle) -> NormalizedArticle:
         self.db.add(article)
         await self.db.flush()

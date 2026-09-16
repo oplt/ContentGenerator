@@ -15,6 +15,7 @@ import { StoryClusterCard } from "../components/dashboard/StoryClusterCard";
 import { useTenantScope } from "../hooks/useTenantScope";
 import { useDocumentVisible } from "../hooks/useDocumentVisible";
 import { queryKeys } from "../lib/queryKeys";
+import { queryPolicy } from "../lib/queryPolicy";
 import { statusAwareRefetchInterval } from "../lib/polling";
 import { formatRelativeNumber } from "../lib/utils";
 
@@ -96,6 +97,7 @@ export default function DashboardPage() {
   const health = useQuery({
     queryKey: queryKeys.healthReady,
     queryFn: ({ signal }) => getHealthReadiness({ signal }),
+    ...queryPolicy.health,
     refetchInterval: visible
       ? statusAwareRefetchInterval(15_000, () => true)
       : false,

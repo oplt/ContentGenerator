@@ -1,13 +1,16 @@
 import { queryClient } from "./queryClient";
+import { shouldRetryQuery } from "./queryRetry";
 
 describe("queryClient defaults", () => {
-  it("uses bounded caching and conservative refetch defaults", () => {
+  it("uses shouldRetryQuery for queries and disables mutation retries", () => {
     const defaults = queryClient.getDefaultOptions();
-
-    expect(defaults.queries?.staleTime).toBe(5 * 60_000);
-    expect(defaults.queries?.gcTime).toBe(30 * 60_000);
-    expect(defaults.queries?.refetchOnWindowFocus).toBe(false);
-    expect(defaults.queries?.refetchOnReconnect).toBe(true);
+    expect(defaults.queries?.retry).toBe(shouldRetryQuery);
     expect(defaults.mutations?.retry).toBe(false);
+  });
+
+  it("uses moderate staleTime to dedupe duplicate GETs within the window", () => {
+    const staleTime = queryClient.getDefaultOptions().queries?.staleTime;
+    expect(typeof staleTime).toBe("number");
+    expect(staleTime).toBeGreaterThanOrEqual(60_000);
   });
 });

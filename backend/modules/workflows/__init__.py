@@ -1,7 +1,12 @@
 """Reusable multi-brand workflow automation domain."""
 
 from backend.modules.workflows.compiler import WorkflowCompileResult, WorkflowCompiler
-from backend.modules.workflows.graph_schema import CompileContext, WorkflowGraph
+from backend.modules.workflows.graph_schema import (
+    CompileContext,
+    DesignValidationContext,
+    RuntimeClientContext,
+    WorkflowGraph,
+)
 from backend.modules.workflows.models import (
     Automation,
     AutomationOccurrence,
@@ -26,6 +31,8 @@ __all__ = [
     "AutomationTarget",
     "AutomationTriggerType",
     "CompileContext",
+    "DesignValidationContext",
+    "RuntimeClientContext",
     "WorkflowCompileResult",
     "WorkflowCompiler",
     "WorkflowDefinition",

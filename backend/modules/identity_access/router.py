@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal, cast
-
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps.auth import get_current_user
 from backend.api.deps.db import get_db
-from backend.core.config import settings
-from backend.core.security import generate_csrf_token, verify_csrf_token
+from backend.core.security import generate_csrf_token
 from backend.core.rate_limit import (
     auth_rate_limit_key,
     check_rate_limit,
@@ -17,6 +14,11 @@ from backend.core.rate_limit import (
     record_auth_failure,
 )
 from backend.modules.identity_access.models import User
+from backend.modules.identity_access.auth_cookies import (
+    PERSIST_COOKIE as _PERSIST_COOKIE,
+    assert_csrf as _assert_csrf,
+    set_auth_cookies as _set_auth_cookies,
+)
 from backend.modules.identity_access.schemas import (
     AuthSessionResponse,
     AuthUserResponse,
@@ -33,79 +35,6 @@ from backend.modules.identity_access.schemas import (
 from backend.modules.identity_access.service import IdentityService
 
 router = APIRouter()
-
-_REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * settings.REFRESH_TOKEN_EXPIRE_DAYS
-_ACCESS_COOKIE_MAX_AGE = 60 * settings.ACCESS_TOKEN_EXPIRE_MINUTES
-_COOKIE_SAMESITE = cast(Literal["lax", "strict", "none"], settings.cookie_samesite)
-_PERSIST_COOKIE = "sf_persist"
-
-
-def _set_auth_cookies(
-    response: Response,
-    access_token: str,
-    refresh_token: str,
-    csrf_token: str,
-    *,
-    remember_me: bool = True,
-) -> None:
-    access_max_age = _ACCESS_COOKIE_MAX_AGE if remember_me else None
-    refresh_max_age = _REFRESH_COOKIE_MAX_AGE if remember_me else None
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=settings.COOKIE_SECURE,
-        samesite=_COOKIE_SAMESITE,
-        max_age=access_max_age,
-        path="/",
-    )
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=settings.COOKIE_SECURE,
-        samesite=_COOKIE_SAMESITE,
-        max_age=refresh_max_age,
-        path="/api/v1/auth",
-    )
-    response.set_cookie(
-        key="csrf_token",
-        value=csrf_token,
-        httponly=False,
-        secure=settings.COOKIE_SECURE,
-        samesite=_COOKIE_SAMESITE,
-        max_age=refresh_max_age,
-        path="/",
-    )
-    if remember_me:
-        response.set_cookie(
-            key=_PERSIST_COOKIE,
-            value="1",
-            httponly=True,
-            secure=settings.COOKIE_SECURE,
-            samesite=_COOKIE_SAMESITE,
-            max_age=refresh_max_age,
-            path="/api/v1/auth",
-        )
-    else:
-        response.set_cookie(
-            key=_PERSIST_COOKIE,
-            value="0",
-            httponly=True,
-            secure=settings.COOKIE_SECURE,
-            samesite=_COOKIE_SAMESITE,
-            max_age=None,
-            path="/api/v1/auth",
-        )
-
-
-def _assert_csrf(
-    csrf_cookie: str | None,
-    csrf_header: str | None,
-) -> None:
-    if not verify_csrf_token(csrf_cookie, csrf_header):
-        raise HTTPException(status_code=403, detail="CSRF verification failed")
-
 
 @router.post("/sign-up", response_model=AuthSessionResponse, status_code=202)
 async def sign_up(

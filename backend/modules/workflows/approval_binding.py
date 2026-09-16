@@ -1,4 +1,4 @@
-"""Approval → workflow resume bridge (Phase 6).
+"""Approval → workflow resume bridge (Phase 6 + Phase 9).
 
 Stores binding on ApprovalRequest.response_payload_json["workflow"] so channel
 handlers stay channel-agnostic (Telegram/WhatsApp/in-app).
@@ -51,6 +51,30 @@ def build_workflow_binding(
     }
 
 
+def merge_payload_preserving_workflow(
+    existing: dict[str, Any] | None,
+    update: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge payload updates without dropping the workflow binding."""
+    base = dict(existing or {})
+    binding = base.get(WORKFLOW_BINDING_KEY)
+    merged = {**base, **update}
+    if WORKFLOW_BINDING_KEY not in update and isinstance(binding, dict):
+        merged[WORKFLOW_BINDING_KEY] = binding
+    return merged
+
+
+def stamp_workflow_binding(
+    request: ApprovalRequest, binding: dict[str, Any] | None
+) -> None:
+    """Re-attach workflow binding onto the request payload (revision-safe)."""
+    if not binding:
+        return
+    payload = dict(request.response_payload_json or {})
+    payload[WORKFLOW_BINDING_KEY] = dict(binding)
+    request.response_payload_json = payload
+
+
 async def maybe_resume_workflow_from_approval(
     db: AsyncSession, request: ApprovalRequest
 ) -> Any | None:
@@ -74,6 +98,11 @@ async def maybe_resume_workflow_from_approval(
         decision={
             "approval_request_id": str(request.id),
             "status": str(request.status),
+            "content_job_id": (
+                str(request.content_job_id) if request.content_job_id else None
+            ),
+            "revision_count": int(request.revision_count or 0),
             "on_timeout": binding.get("on_timeout", "stop"),
+            "channels": list(binding.get("channels") or []),
         },
     )

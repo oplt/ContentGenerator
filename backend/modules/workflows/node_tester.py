@@ -8,11 +8,12 @@ from uuid import UUID
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.modules.workflows.capability_context import enrich_compile_context_from_db
+from backend.modules.workflows.capability_context import build_runtime_compile_context
 from backend.modules.workflows.context import build_node_context
-from backend.modules.workflows.graph_schema import CompileContext
+from backend.modules.workflows.graph_schema import CompileContext, RuntimeClientContext
 from backend.modules.workflows.nodes.base import WorkflowNodeNotFoundError
 from backend.modules.workflows.registry import WorkflowNodeRegistry, get_default_registry
+from backend.modules.workflows.runtime_bindings import authorize_runtime_bindings
 from backend.modules.workflows.schemas import NodeTestResponse
 from backend.modules.workflows.testing_support import (
     GENERATION_NODE_TYPES,
@@ -42,7 +43,7 @@ class WorkflowNodeTester:
         dry_run: bool = True,
         mock_generation: bool = False,
         brand_id: UUID | None = None,
-        compile_context: CompileContext | None = None,
+        compile_context: CompileContext | RuntimeClientContext | None = None,
     ) -> NodeTestResponse:
         try:
             impl = self.registry.get(node_type, version)
@@ -102,8 +103,17 @@ class WorkflowNodeTester:
                 output=dict(result.output),
             )
 
-        ctx = await enrich_compile_context_from_db(
-            self.db, compile_context, tenant_id=tenant_id
+        client_ids = list(compile_context.social_account_ids) if compile_context else []
+        await authorize_runtime_bindings(
+            self.db,
+            tenant_id=tenant_id,
+            brand_id=brand_id,
+            social_account_ids=client_ids,
+        )
+        ctx = await build_runtime_compile_context(
+            self.db,
+            tenant_id=tenant_id,
+            client=compile_context,
         )
         snapshot: dict[str, Any] = {
             "testing": {

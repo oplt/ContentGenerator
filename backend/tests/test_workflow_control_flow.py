@@ -36,6 +36,7 @@ from backend.modules.workflows.run_models import (
     WorkflowNodeRunStatus,
     WorkflowRun,
     WorkflowRunStatus,
+    WorkflowWait,
 )
 
 
@@ -205,25 +206,20 @@ def test_compiler_rejects_condition_without_labels() -> None:
     assert any(e.code == "condition_edge_labels_required" for e in result.errors)
 
 
-def test_delay_waits_and_schedules() -> None:
+def test_delay_waits_without_celery_authority() -> None:
     node = DelayNode()
     token = str(uuid.uuid4())
     ctx = build_node_context(tenant_id=uuid.uuid4(), resume_token=token)
 
     async def _run() -> None:
-        with patch(
-            "backend.modules.workflows.nodes.pause_nodes._schedule_resume"
-        ) as sched:
-            result = await node.execute(
-                ctx,
-                node.validate_inputs({}),
-                node.validate_config({"duration_seconds": 30}),
-            )
+        result = await node.execute(
+            ctx,
+            node.validate_inputs({}),
+            node.validate_config({"duration_seconds": 30}),
+        )
         assert result.status == NodeResultStatus.WAITING
         assert result.waiting_reason == "delay_until"
-        sched.assert_called_once()
-        assert sched.call_args.kwargs["outcome"] == "elapsed"
-        assert sched.call_args.kwargs["countdown"] == 30
+        assert result.output["resume_at"]
 
     asyncio.run(_run())
 
@@ -273,6 +269,7 @@ async def _async_session() -> AsyncSession:
                         Automation.__table__,
                         WorkflowRun.__table__,
                         WorkflowNodeRun.__table__,
+                        WorkflowWait.__table__,
                     ],
                 ),
             )
@@ -354,10 +351,10 @@ def test_engine_condition_diamond_skips_false_arm() -> None:
             nodes = await engine.runs.list_node_runs(tenant.id, run.id)
             detail = {n.node_id: (n.status, n.error_json) for n in nodes}
             raise AssertionError(f"run={run.status} nodes={detail}")
-        nodes = {n.node_id: n for n in await engine.runs.list_node_runs(tenant.id, run.id)}
-        assert nodes["yes"].status == WorkflowNodeRunStatus.SUCCEEDED.value
-        assert nodes["no"].status == WorkflowNodeRunStatus.SKIPPED.value
-        assert nodes["merge"].status == WorkflowNodeRunStatus.SUCCEEDED.value
+        nodes_by_id = {n.node_id: n for n in await engine.runs.list_node_runs(tenant.id, run.id)}
+        assert nodes_by_id["yes"].status == WorkflowNodeRunStatus.SUCCEEDED.value
+        assert nodes_by_id["no"].status == WorkflowNodeRunStatus.SKIPPED.value
+        assert nodes_by_id["merge"].status == WorkflowNodeRunStatus.SUCCEEDED.value
         await db.close()
 
     asyncio.run(_run())
@@ -406,7 +403,7 @@ def test_resume_elapsed_outcome() -> None:
         db.add(version)
         await db.commit()
 
-        with patch("backend.modules.workflows.nodes.pause_nodes._schedule_resume"):
+        with patch("backend.modules.workflows.wait_store.schedule_fast_wake"):
             engine = WorkflowEngine(db)
             run = await engine.start_run(
                 tenant_id=tenant.id,

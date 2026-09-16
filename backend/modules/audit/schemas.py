@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from backend.modules.shared.schemas import ORMModel
@@ -14,4 +15,5 @@ class AuditLogResponse(ORMModel):
     entity_id: str | None
     correlation_id: str | None
     message: str
-    payload: dict[str, str]
+    # Stored payloads use mixed JSON values (bool/int/nested), not string-only maps.
+    payload: dict[str, Any]

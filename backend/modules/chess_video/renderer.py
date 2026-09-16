@@ -167,7 +167,7 @@ class ChessVideoRenderer:
         players = self._players_line(meta)
         if players:
             draw.text((pad, y), players, font=self._font_lg, fill=_FG)
-            y += int(self._font_lg.size * 1.35)
+            y += int(self._font_lg.getbbox(players)[3] * 1.35)
         subtitle = meta.title or meta.event
         if subtitle:
             draw.text((pad, y), subtitle, font=self._font_md, fill=_MUTED)
@@ -264,7 +264,7 @@ class ChessVideoRenderer:
         move_line = self._move_line(meta)
         if move_line:
             draw.text((pad, y), move_line, font=self._font_lg, fill=_FG)
-            y += int(self._font_lg.size * 1.35)
+            y += int(self._font_lg.getbbox(move_line)[3] * 1.35)
         if meta.result and meta.result != "*":
             status = f"Result: {meta.result}"
         elif board.is_checkmate():

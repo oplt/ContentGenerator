@@ -1,5 +1,8 @@
 .PHONY: local-dev docker-dev prod-dev fix check install-hooks commit-ready quality-gates \
-	regression-unit regression-integration regression e2e-ci line-budget
+	regression-unit regression-integration regression e2e-ci line-budget migrate
+
+migrate:
+	cd backend && PYTHONPATH=.. .venv/bin/alembic upgrade head
 
 local-dev:
 	$(MAKE) -f Makefile.local local-dev
@@ -42,7 +45,7 @@ quality-gates: check regression-unit
 	cd frontend && npm test -- --run
 	cd frontend && npm run build
 	@tracked="$$(git ls-files)"; \
-	for pattern in '^dump\.rdb$$' '\.rdb$$' '^frontend/playwright-report/' '^frontend/test-results/' '^frontend/blob-report/' '\.tsbuildinfo$$'; do \
+	for pattern in '^dump\.rdb$$' '\.rdb$$' '^logs/' '\.log$$' '^frontend/playwright-report/' '^frontend/test-results/' '^frontend/blob-report/' '\.tsbuildinfo$$'; do \
 	  matches="$$(printf '%s\n' "$$tracked" | grep -E "$$pattern" || true)"; \
 	  if [ -n "$$matches" ]; then echo "Tracked runtime artifact(s): $$matches"; exit 1; fi; \
 	done; \

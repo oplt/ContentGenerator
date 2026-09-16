@@ -17,6 +17,8 @@ export function CommandPalette() {
 
   useEffect(() => {
     if (open) {
+      // Reset transient search state whenever the global palette is reopened.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery("");
       window.requestAnimationFrame(() => inputRef.current?.focus());
     }

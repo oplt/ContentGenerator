@@ -19,9 +19,13 @@ from backend.modules.publishing.schemas import (
     SocialAccountResponse,
     SocialAccountUpsertRequest,
 )
+from backend.api.http_handler_stages import http_handler_stage
+from backend.modules.publishing.serializers import social_account_to_response
 from backend.modules.publishing.service import PublishingService
 
 router = APIRouter()
+
+_SOCIAL_ACCOUNTS_LIST_OP = "http.handler.publishing.social_accounts.list"
 
 
 def _job_response(job: Any) -> PublishingJobResponse:
@@ -33,6 +37,7 @@ def _job_response(job: Any) -> PublishingJobResponse:
     return PublishingJobResponse(
         id=job.id,
         content_job_id=job.content_job_id,
+        content_variant_id=getattr(job, "content_variant_id", None),
         social_account_id=job.social_account_id,
         approval_request_id=job.approval_request_id,
         platform=str(job.platform),
@@ -63,23 +68,10 @@ async def list_social_accounts(
     db: AsyncSession = Depends(get_db),
 ) -> list[SocialAccountResponse]:
     service = PublishingService(db)
-    return [
-        SocialAccountResponse(
-            id=account.id,
-            platform=str(account.platform),
-            display_name=account.display_name,
-            handle=account.handle,
-            account_external_id=account.account_external_id,
-            status=str(account.status),
-            auth_type=getattr(account, "auth_type", "oauth") or "oauth",
-            capability_flags=account.capability_flags,
-            metadata=account.account_metadata,
-            settings=getattr(account, "settings", None) or {},
-            legacy_connected_account_id=getattr(account, "legacy_connected_account_id", None),
-            quarantine_reason=getattr(account, "quarantine_reason", None),
-        )
-        for account in await service.list_social_accounts(membership.tenant_id)
-    ]
+    with http_handler_stage(operation=_SOCIAL_ACCOUNTS_LIST_OP, stage="db_fetch"):
+        accounts = await service.list_social_accounts(membership.tenant_id)
+    with http_handler_stage(operation=_SOCIAL_ACCOUNTS_LIST_OP, stage="serialize"):
+        return [social_account_to_response(account) for account in accounts]
 
 
 @router.post("/social-accounts", response_model=SocialAccountResponse, status_code=201)
@@ -92,20 +84,7 @@ async def upsert_social_account(
     account = await service.upsert_social_account(
         membership.tenant_id, payload, actor_user_id=membership.user_id
     )
-    return SocialAccountResponse(
-        id=account.id,
-        platform=str(account.platform),
-        display_name=account.display_name,
-        handle=account.handle,
-        account_external_id=account.account_external_id,
-        status=str(account.status),
-        auth_type=getattr(account, "auth_type", "oauth") or "oauth",
-        capability_flags=account.capability_flags,
-        metadata=account.account_metadata,
-        settings=getattr(account, "settings", None) or {},
-        legacy_connected_account_id=getattr(account, "legacy_connected_account_id", None),
-        quarantine_reason=getattr(account, "quarantine_reason", None),
-    )
+    return social_account_to_response(account)
 
 
 @router.get("/connected-accounts", response_model=list[ConnectedAccountResponse])

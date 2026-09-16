@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.storage import object_storage
 from backend.modules.chess_video.fingerprint import compute_render_fingerprint
+from backend.modules.chess_video.job_state import copy_cached_outputs
 from backend.modules.chess_video.models import ChessVideoJob, ChessVideoJobStatus
 from backend.modules.chess_video.parser import ChessParseError, parse_chess_input
 from backend.modules.chess_video.pipeline import cleanup_pipeline, render_chess_video
@@ -27,12 +28,8 @@ from backend.modules.chess_video.schemas import (
 from backend.modules.chess_video.themes import get_board_theme
 
 logger = logging.getLogger(__name__)
-
-
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
 class ChessVideoService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -292,21 +289,7 @@ class ChessVideoService:
 
     @staticmethod
     def _copy_cached_outputs(job: ChessVideoJob, cached: ChessVideoJob) -> None:
-        job.status = ChessVideoJobStatus.COMPLETED.value
-        job.stage = ChessVideoJobStatus.COMPLETED.value
-        job.progress = 1.0
-        job.video_storage_key = cached.video_storage_key
-        job.video_public_url = cached.video_public_url
-        job.thumbnail_storage_key = cached.thumbnail_storage_key
-        job.thumbnail_public_url = cached.thumbnail_public_url
-        job.duration_seconds = cached.duration_seconds
-        job.width = cached.width
-        job.height = cached.height
-        job.file_size_bytes = cached.file_size_bytes
-        job.renderer_version = cached.renderer_version or RENDERER_VERSION
-        job.completed_at = _utcnow()
-        job.started_at = job.started_at or _utcnow()
-        job.error_message = None
+        copy_cached_outputs(job, cached)
 
     @staticmethod
     def _enqueue(*, tenant_id: uuid.UUID, job_id: uuid.UUID) -> None:

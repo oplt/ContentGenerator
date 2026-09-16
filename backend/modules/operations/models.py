@@ -11,7 +11,10 @@ from backend.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class TaskExecution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "task_executions"
-    __table_args__ = (Index("ix_task_executions_queue_name_status", "queue_name", "status"),)
+    __table_args__ = (
+        Index("ix_task_executions_queue_name_status", "queue_name", "status"),
+        Index("ix_task_executions_created_at", "created_at"),
+    )
 
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True

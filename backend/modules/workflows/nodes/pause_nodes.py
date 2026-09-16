@@ -1,9 +1,9 @@
-"""Delay and Wait control nodes — durable pause without holding workers (Phase 12)."""
+"""Delay and Wait control nodes — durable pause without holding workers."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -44,12 +44,12 @@ class DelayNode(WorkflowNode[DelayConfig, DelayInput, DelayOutput]):
     version = 1
     category = "control"
     display_name = "Delay"
-    description = "Pause until a duration/date without blocking workers."
+    description = "Pause until a duration/date; Postgres owns wake_at (Celery is optional fast wake)."
     ConfigSchema = DelayConfig
     InputSchema = DelayInput
     OutputSchema = DelayOutput
     may_pause = True
-    input_ports: list[NodePort] = []
+    input_ports: ClassVar[list[NodePort]] = []
     output_ports = [
         NodePort(name="resume_at", data_type="string"),
         NodePort(name="scheduled", data_type="boolean"),
@@ -71,14 +71,6 @@ class DelayNode(WorkflowNode[DelayConfig, DelayInput, DelayOutput]):
                 resume_at = resume_at.replace(tzinfo=timezone.utc)
         else:
             resume_at = now + timedelta(seconds=int(typed_cfg.duration_seconds or 1))
-        countdown = max(0, int((resume_at - now).total_seconds()))
-        if context.resume_token:
-            _schedule_resume(
-                tenant_id=str(context.tenant_id),
-                resume_token=context.resume_token,
-                countdown=countdown,
-                outcome="elapsed",
-            )
         out = DelayOutput(resume_at=resume_at, scheduled=True, status="pending")
         return NodeResult(
             status=NodeResultStatus.WAITING,
@@ -103,6 +95,8 @@ class WaitOutput(BaseModel):
     event: str
     correlation_key: str | None = None
     event_payload: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int | None = None
+    on_timeout: str | None = None
 
 
 class WaitNode(WorkflowNode[WaitConfig, WaitInput, WaitOutput]):
@@ -110,7 +104,7 @@ class WaitNode(WorkflowNode[WaitConfig, WaitInput, WaitOutput]):
     version = 1
     category = "control"
     display_name = "Wait For Event"
-    description = "Pause until webhook/manual resume callback."
+    description = "Pause until webhook/manual resume; optional Postgres-owned timeout."
     ConfigSchema = WaitConfig
     InputSchema = WaitInput
     OutputSchema = WaitOutput
@@ -131,47 +125,19 @@ class WaitNode(WorkflowNode[WaitConfig, WaitInput, WaitOutput]):
         inputs: BaseModel,
         config: BaseModel,
     ) -> NodeResult:
+        _ = context
         typed_in = WaitInput.model_validate(inputs.model_dump())
         typed_cfg = WaitConfig.model_validate(config.model_dump())
-        if typed_cfg.timeout_seconds and context.resume_token:
-            _schedule_resume(
-                tenant_id=str(context.tenant_id),
-                resume_token=context.resume_token,
-                countdown=int(typed_cfg.timeout_seconds),
-                outcome="expired",
-                decision={"on_timeout": typed_cfg.on_timeout},
-            )
         out = WaitOutput(
             status="pending",
             event=typed_cfg.event,
             correlation_key=typed_in.correlation_key,
             event_payload=dict(typed_in.payload),
+            timeout_seconds=typed_cfg.timeout_seconds,
+            on_timeout=typed_cfg.on_timeout if typed_cfg.timeout_seconds else None,
         )
         return NodeResult(
             status=NodeResultStatus.WAITING,
             output=out.model_dump(mode="json"),
             waiting_reason="event_pending",
         )
-
-
-def _schedule_resume(
-    *,
-    tenant_id: str,
-    resume_token: str,
-    countdown: int,
-    outcome: str,
-    decision: dict[str, Any] | None = None,
-) -> None:
-    try:
-        from backend.workers.tasks import resume_workflow_waiting_node_task
-    except Exception:  # noqa: BLE001 — unit tests may lack Celery app wiring
-        return
-    resume_workflow_waiting_node_task.apply_async(
-        kwargs={
-            "tenant_id": tenant_id,
-            "resume_token": resume_token,
-            "outcome": outcome,
-            "decision": decision or {},
-        },
-        countdown=max(0, countdown),
-    )

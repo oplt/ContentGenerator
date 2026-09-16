@@ -172,6 +172,18 @@ class PublishingJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
         Index("ix_publishing_jobs_status_retry_count", "status", "retry_count"),
         Index("ix_publishing_jobs_status_dead_lettered_at", "status", "dead_lettered_at"),
         Index("ix_publishing_jobs_status_claim_expires_at", "status", "claim_expires_at"),
+        Index("ix_publishing_jobs_content_variant_id", "content_variant_id"),
+        Index(
+            "ix_publishing_jobs_tenant_social_account_created_at",
+            "tenant_id",
+            "social_account_id",
+            text("created_at DESC"),
+        ),
+        Index(
+            "ix_publishing_jobs_approval_request_id",
+            "approval_request_id",
+            postgresql_where=text("approval_request_id IS NOT NULL"),
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -182,6 +194,9 @@ class PublishingJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     )
     social_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    content_variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("content_variants.id", ondelete="SET NULL"), nullable=True
     )
     connected_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("connected_accounts.id", ondelete="SET NULL"), nullable=True

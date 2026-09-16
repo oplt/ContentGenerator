@@ -22,4 +22,5 @@ kill-dev: kill-celery
 	-$(MAKE) -f Makefile.local kill-ports
 
 local-dev: kill-dev
+	$(MAKE) -C "$(CURDIR)" migrate
 	honcho -f Procfile.dev start

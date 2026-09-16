@@ -24,6 +24,8 @@ export type WorkflowGraphEdge = {
   source: string;
   target: string;
   condition?: string | null;
+  source_port?: string | null;
+  target_port?: string | null;
 };
 
 export type WorkflowGraph = {
@@ -61,15 +63,38 @@ export type WorkflowCompileResult = {
   checksum: string | null;
 };
 
+export type NodeImplementationStatus = "stable" | "beta" | "unavailable";
+
+export type WorkflowNodePort = {
+  name: string;
+  data_type: string;
+  required?: boolean;
+  description?: string;
+};
+
 export type WorkflowNodeDefinition = {
   type: string;
   version: number;
   category: string;
   display_name: string;
   description: string;
+  implementation_status?: NodeImplementationStatus;
+  executable?: boolean;
   config_schema: Record<string, unknown>;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  input_ports?: WorkflowNodePort[];
+  output_ports?: WorkflowNodePort[];
   required_capabilities: string[];
   may_pause: boolean;
+};
+
+export type NodeConfigValidateResult = {
+  valid: boolean;
+  node_type: string;
+  version: number;
+  normalized_config: Record<string, unknown> | null;
+  errors: string[];
 };
 
 export type WorkflowRun = {
@@ -93,24 +118,48 @@ export type WorkflowRun = {
 
 export type WorkflowNodeRun = {
   id: string;
+  tenant_id?: string;
   workflow_run_id: string;
   node_id: string;
   node_type: string;
   node_version: number;
   status: string;
   attempt: number;
+  iteration_key?: string;
   input_json: Record<string, unknown>;
   output_json: Record<string, unknown>;
   error_json: Record<string, unknown> | null;
+  task_execution_id?: string | null;
+  task_execution_ids?: string[];
   waiting_reason: string | null;
   resume_token: string | null;
+  claim_token?: string | null;
+  claim_expires_at?: string | null;
+  claimed_at?: string | null;
+  worker_task_id?: string | null;
+  next_attempt_at?: string | null;
+  last_heartbeat_at?: string | null;
+  execution_key?: string | null;
+  last_error?: string | null;
+  error_class?: string | null;
+  cancellation_requested?: boolean;
   started_at: string | null;
   finished_at: string | null;
+  duration_ms?: number | null;
+  can_resume?: boolean;
+  can_retry?: boolean;
+};
+
+export type WorkflowRunInspectionMeta = {
+  version_number: number | null;
+  automation_name: string | null;
+  brand_name: string | null;
 };
 
 export type WorkflowRunDetail = {
   run: WorkflowRun;
   nodes: WorkflowNodeRun[];
+  meta?: WorkflowRunInspectionMeta | null;
 };
 
 export type AutomationTarget = {

@@ -77,3 +77,117 @@ def test_alembic_upgrade_head_on_disposable_db(monkeypatch: pytest.MonkeyPatch) 
     cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
     command.upgrade(cfg, "head")
+
+
+WORKFLOW_TABLES = (
+    "workflow_definitions",
+    "workflow_versions",
+    "automations",
+    "automation_targets",
+    "automation_occurrences",
+    "workflow_runs",
+    "workflow_node_runs",
+    "brand_social_accounts",
+)
+
+
+def _migration_config(monkeypatch: pytest.MonkeyPatch) -> Config:
+    monkeypatch.setenv("DB_POOL_USE_NULL", "true")
+    cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
+    return cfg
+
+
+def _table_names_after_upgrade(cfg: Config) -> set[str]:
+    from sqlalchemy import create_engine, inspect
+
+    from backend.core.config import settings
+
+    sync_url = settings.DATABASE_URL.replace("+asyncpg", "")
+    engine = create_engine(sync_url, pool_pre_ping=True)
+    try:
+        return set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
+def test_alembic_upgrade_from_previous_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Upgrade from parent revision, then to head (simulates existing deployments)."""
+    import os
+
+    if os.environ.get("CG_RUN_DB_MIGRATIONS") != "1":
+        pytest.skip("set CG_RUN_DB_MIGRATIONS=1 with disposable Postgres to run")
+
+    from alembic import command
+
+    cfg = _migration_config(monkeypatch)
+    script = _script_dir()
+    head = script.get_heads()[0]
+    parent = script.get_revision(head).down_revision
+    assert isinstance(parent, str)
+
+    command.upgrade(cfg, parent)
+    tables = _table_names_after_upgrade(cfg)
+    for name in WORKFLOW_TABLES:
+        assert name in tables, f"missing {name} after upgrade to {parent}"
+
+    command.upgrade(cfg, "head")
+    tables_head = _table_names_after_upgrade(cfg)
+    for name in WORKFLOW_TABLES:
+        assert name in tables_head
+
+
+@pytest.mark.integration
+def test_workflow_tables_exist_after_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    if os.environ.get("CG_RUN_DB_MIGRATIONS") != "1":
+        pytest.skip("set CG_RUN_DB_MIGRATIONS=1 with disposable Postgres to run")
+
+    from alembic import command
+
+    cfg = _migration_config(monkeypatch)
+    command.upgrade(cfg, "head")
+    tables = _table_names_after_upgrade(cfg)
+    missing = [name for name in WORKFLOW_TABLES if name not in tables]
+    assert not missing, f"missing workflow tables: {missing}"
+
+
+# First workflow-domain Alembic revision (parent is last pre-workflow revision).
+WORKFLOW_FOUNDATION_REVISION = "d0e1f2a3b4c5"
+PRE_WORKFLOW_REVISION = "c9d0e1f2a3b4"
+
+
+@pytest.mark.integration
+def test_alembic_workflow_migrations_downgrade_and_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase 0: disposable Postgres can downgrade workflow stack and return to head."""
+    import os
+
+    if os.environ.get("CG_RUN_DB_MIGRATIONS") != "1":
+        pytest.skip("set CG_RUN_DB_MIGRATIONS=1 with disposable Postgres to run")
+
+    from alembic import command
+
+    cfg = _migration_config(monkeypatch)
+    script = _script_dir()
+    head = script.get_heads()[0]
+    foundation = script.get_revision(WORKFLOW_FOUNDATION_REVISION)
+    assert foundation is not None
+    assert foundation.down_revision == PRE_WORKFLOW_REVISION
+
+    command.upgrade(cfg, "head")
+    tables_head = _table_names_after_upgrade(cfg)
+    for name in WORKFLOW_TABLES:
+        assert name in tables_head
+
+    command.downgrade(cfg, PRE_WORKFLOW_REVISION)
+    tables_pre = _table_names_after_upgrade(cfg)
+    for name in WORKFLOW_TABLES:
+        assert name not in tables_pre, f"{name} should be dropped after downgrade"
+
+    command.upgrade(cfg, "head")
+    tables_restored = _table_names_after_upgrade(cfg)
+    for name in WORKFLOW_TABLES:
+        assert name in tables_restored
+    assert head == script.get_heads()[0]

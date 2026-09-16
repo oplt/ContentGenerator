@@ -207,6 +207,16 @@ async def _apply_approve(svc: Any, request: ApprovalRequest) -> None:
 
 
 async def _apply_revise(svc: Any, request: ApprovalRequest, feedback: str) -> None:
+    from backend.modules.workflows.approval_binding import (
+        get_workflow_binding,
+        stamp_workflow_binding,
+    )
+
+    binding = get_workflow_binding(request)
+    if binding is not None and binding.get("allow_revision") is False:
+        request.status = ApprovalStatus.REJECTED.value
+        return
+
     max_revisions = 5
     if request.revision_count >= max_revisions:
         request.status = ApprovalStatus.REJECTED.value
@@ -225,11 +235,17 @@ async def _apply_revise(svc: Any, request: ApprovalRequest, feedback: str) -> No
     )
     request.content_job_id = revised_job.id
     request.status = ApprovalStatus.PENDING.value
+    # Keep workflow identity across the regenerate + re-send cycle.
+    stamp_workflow_binding(request, binding)
+    channels = list(binding.get("channels") or []) if binding else None
     await svc.send_for_approval(
         tenant_id=request.tenant_id,
         content_job_id=revised_job.id,
         recipient=request.recipient,
+        channels=channels,
     )
+    # send_for_approval may refresh the same row — re-stamp after delivery merge.
+    stamp_workflow_binding(request, binding)
 
 
 async def _apply_reject(svc: Any, request: ApprovalRequest) -> None:

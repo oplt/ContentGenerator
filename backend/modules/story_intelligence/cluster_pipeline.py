@@ -5,14 +5,11 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
-from slugify import slugify
-
 from backend.modules.source_ingestion.enums import TIER_CREDIBILITY_WEIGHTS
 from backend.modules.source_ingestion.models import RawArticle, Source
 from backend.modules.story_intelligence.models import (
     NormalizedArticle,
     StoryCluster,
-    StoryClusterArticle,
     TrendWorkflowState,
 )
 from backend.modules.story_intelligence.providers import cosine_similarity
@@ -38,7 +35,20 @@ class ClusterPipelineMixin:
         topic_tags = keywords[:4]
         entities = [token.title() for token in topic_tags[:3]]
         language = raw_article.language or self.scorer._infer_language(body)
-        embedding = await self.embeddings.embed(f"{raw_article.title}\n{body}")
+        embed_model = getattr(self.embeddings, "model", None) or "default"
+
+        async def _embed() -> list[float]:
+            return await self.embeddings.embed(f"{raw_article.title}\n{body}")
+
+        from backend.modules.inference.enrichment_cache import cached_embedding
+
+        embedding = await cached_embedding(
+            tenant_id=raw_article.tenant_id,
+            title=raw_article.title,
+            body=body,
+            model=str(embed_model),
+            factory=_embed,
+        )
         freshness_score = self.scorer._freshness_score(raw_article.published_at)
         # Apply tier weight multiplier to trust_score for tier-aware credibility
         tier_weight = TIER_CREDIBILITY_WEIGHTS.get(source.source_tier, 1.0)
@@ -85,6 +95,58 @@ class ClusterPipelineMixin:
         )
         return await self.repo.create_normalized_article(article)
 
+    async def normalize_article_from_prepared(
+        self,
+        *,
+        raw_article: RawArticle,
+        source: Source,
+        embedding: list[float],
+    ) -> NormalizedArticle:
+        """Persist normalization using a precomputed embedding (LLM already finished)."""
+        existing = await self.repo.get_normalized_by_raw_article(raw_article.id)
+        if existing:
+            return existing
+        body = raw_article.body or raw_article.summary or raw_article.title
+        keywords = self.scorer._extract_keywords(f"{raw_article.title} {body}")
+        topic_tags = keywords[:4]
+        entities = [token.title() for token in topic_tags[:3]]
+        language = raw_article.language or self.scorer._infer_language(body)
+        freshness_score = self.scorer._freshness_score(raw_article.published_at)
+        tier_weight = TIER_CREDIBILITY_WEIGHTS.get(source.source_tier, 1.0)
+        credibility_score = min(float(source.trust_score) * tier_weight, 1.0)
+        worthiness_score = round(
+            (freshness_score * 0.4) + (credibility_score * 0.4) + min(len(keywords), 8) / 20, 4
+        )
+        article = NormalizedArticle(
+            tenant_id=raw_article.tenant_id,
+            raw_article_id=raw_article.id,
+            title=raw_article.title,
+            summary=raw_article.summary,
+            body=body,
+            canonical_url=raw_article.canonical_url,
+            source_name=source.name,
+            language=language,
+            published_at=raw_article.published_at,
+            keywords=keywords,
+            topic_tags=topic_tags,
+            entities=entities,
+            embedding=embedding,
+            freshness_score=freshness_score,
+            credibility_score=credibility_score,
+            worthiness_score=worthiness_score,
+            source_tier=source.source_tier,
+            content_vertical=source.content_vertical,
+            claims=self.scorer._extract_claims(body, raw_article.title),
+            explainability={
+                "keywords": ", ".join(keywords[:5]),
+                "freshness_score": f"{freshness_score:.2f}",
+                "credibility_score": f"{credibility_score:.2f}",
+                "source_tier": source.source_tier,
+                "content_vertical": source.content_vertical,
+            },
+        )
+        return await self.repo.create_normalized_article(article)
+
     async def _find_cluster_match(
         self,
         *,
@@ -109,82 +171,15 @@ class ClusterPipelineMixin:
         return None
 
     async def process_articles(self, *, source: Source, raw_articles: list[RawArticle]) -> list[StoryCluster]:
-        clusters: list[StoryCluster] = []
-        for raw_article in raw_articles:
-            normalized = await self.normalize_article(raw_article, source)
-            cluster = await self._find_cluster_match(
-                tenant_id=raw_article.tenant_id,
-                normalized_article=normalized,
-            )
-            if not cluster:
-                summary = await self.llm.summarize(f"{normalized.title}\n{normalized.body}", max_words=60)
-                cluster = StoryCluster(
-                    tenant_id=raw_article.tenant_id,
-                    slug=slugify(normalized.title)[:255],
-                    headline=normalized.title,
-                    summary=summary,
-                    primary_topic=normalized.topic_tags[0] if normalized.topic_tags else "general",
-                    representative_article_id=normalized.id,
-                    article_count=0,
-                    trend_direction="up",
-                    worthy_for_content=False,
-                    risk_level=self.scorer._risk_level(normalized.keywords).value,
-                    content_vertical=normalized.content_vertical,
-                    embedding=normalized.embedding,
-                    explainability={
-                        "keywords": ", ".join(normalized.topic_tags),
-                        "content_vertical": normalized.content_vertical,
-                    },
-                )
-                cluster = await self.repo.create_cluster(cluster)
-            cluster.article_count += 1
-            await self.repo.add_cluster_article(
-                StoryClusterArticle(
-                    story_cluster_id=cluster.id,
-                    normalized_article_id=normalized.id,
-                    rank=cluster.article_count,
-                    is_primary=cluster.article_count == 1,
-                )
-            )
-            normalized_articles = await self.repo.list_normalized_for_cluster(cluster.id)
-            trend_score, decision = await self.scorer._score_cluster(cluster, normalized_articles)
-            # Risk gate: override decision for unsafe/risky/high-risk-vertical clusters
-            blocked, block_reason = self.scorer._check_risk_gate(cluster, normalized_articles)
-            cluster.worthy_for_content = (decision.decision == "generate") and not blocked
-            cluster.workflow_state = (
-                TrendWorkflowState.QUEUED_FOR_REVIEW.value
-                if cluster.worthy_for_content
-                else TrendWorkflowState.NEW.value
-            )
-            cluster.explainability["score"] = f"{decision.score:.2f}"
-            if blocked:
-                cluster.explainability["blocked"] = block_reason or "risk_gate"
-            await self.repo.create_trend_score(trend_score)
-            candidate = await self._sync_trend_candidate(
-                cluster=cluster,
-                normalized_articles=normalized_articles,
-                trend_score=trend_score,
-                blocked=blocked,
-            )
-            await self.audit.record(
-                tenant_id=cluster.tenant_id,
-                actor_user_id=None,
-                action="trend.candidate_scored",
-                entity_type="trend_candidate",
-                entity_id=str(candidate.id),
-                message="Trend candidate score persisted",
-                payload={
-                    "story_cluster_id": str(cluster.id),
-                    "final_score": trend_score.score,
-                    "cross_source_count": candidate.cross_source_count,
-                    "status": candidate.status,
-                },
-                payload_schema="trend_candidate.score.v1",
-                outcome="scored",
-            )
-            clusters.append(cluster)
-        await self.db.flush()
-        return clusters
+        """
+        Removed in-session clustering path (held DB across Ollama).
+
+        Use ``enrich_raw_articles_outside_db`` after the ingest persist session commits.
+        """
+        raise RuntimeError(
+            "process_articles holds the DB session across LLM I/O; "
+            "use enrich_raw_articles_outside_db after the ingest persist commit"
+        )
 
     async def list_clusters(self, tenant_id: UUID, worthy_only: bool = False) -> list[StoryClusterResponse]:
         clusters = await self.repo.list_clusters(tenant_id=tenant_id, worthy_only=worthy_only)

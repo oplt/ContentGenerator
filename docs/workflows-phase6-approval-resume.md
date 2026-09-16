@@ -26,9 +26,22 @@ Generate → ApprovalNode
 * `resume_token`
 * `workflow_run_id` / `workflow_node_run_id` / `node_id`
 * `on_timeout` (`stop` | `continue`)
-* `channels` (metadata; delivery stays in ApprovalService)
+* `allow_revision`
+* `channels` (drives `ApprovalDeliveryService`)
 
 Engine pre-mints `resume_token` before `may_pause` nodes execute so ApprovalNode can stamp the binding.
+
+Revision cycles must preserve this binding (see [`phase9-approval-policy.md`](phase9-approval-policy.md)).
+
+## Timeout
+
+Approval waits use durable `WorkflowWait` rows (Phase 5). Celery is a fast wake only.
+
+## Policy notes (Phase 9)
+
+* `required=false` → SUCCEEDED / `not_required` (non-blocking)
+* Channels control delivery; not metadata-only
+* Approve resume carries final `content_job_id` + `revision_count`
 
 ## Publish ownership
 

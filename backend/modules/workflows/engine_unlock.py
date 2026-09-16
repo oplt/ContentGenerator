@@ -1,10 +1,11 @@
-"""Unlock / skip cascade for branched workflow graphs (Phase 12)."""
+"""Unlock / skip cascade for branched workflow graphs (Phase 4)."""
 
 from __future__ import annotations
 
 from collections import deque
 from datetime import datetime, timezone
 
+from backend.modules.workflows.engine_node_index import NodeRunIndex
 from backend.modules.workflows.engine_ready import is_ready, predecessors, successors
 from backend.modules.workflows.graph_schema import WorkflowGraph
 from backend.modules.workflows.run_models import WorkflowNodeRun, WorkflowNodeRunStatus
@@ -15,12 +16,14 @@ _SKIPPABLE = {
     WorkflowNodeRunStatus.QUEUED.value,
 }
 
+NodeRuns = NodeRunIndex | dict[str, WorkflowNodeRun]
+
 
 def unlock_downstream(
     source_id: str,
     *,
     graph: WorkflowGraph,
-    node_runs: dict[str, WorkflowNodeRun],
+    node_runs: NodeRuns,
 ) -> list[str]:
     """Legacy helper — unconditional unlock of ready pending successors."""
     return unlock_after_node_success(
@@ -32,7 +35,7 @@ def unlock_after_node_success(
     source_id: str,
     *,
     graph: WorkflowGraph,
-    node_runs: dict[str, WorkflowNodeRun],
+    node_runs: NodeRuns,
     output: dict[str, object] | None = None,
 ) -> list[str]:
     """Unlock successors; when source emits ``branch``, skip non-matching conditional edges."""
@@ -48,7 +51,7 @@ def unlock_after_node_success(
 
     if has_conditional and branch is not None:
         for edge in outs:
-            target = node_runs.get(edge.target)
+            target = _get(node_runs, edge.target)
             if target is None:
                 continue
             if edge.condition is None or edge.condition == branch:
@@ -59,10 +62,13 @@ def unlock_after_node_success(
                     unlocked.append(edge.target)
             elif edge.condition is not None:
                 cascade_skip(edge.target, graph=graph, node_runs=node_runs)
+                unlocked.extend(
+                    _unlock_joins_after_skip(edge.target, graph=graph, node_runs=node_runs)
+                )
         return unlocked
 
     for edge in outs:
-        target = node_runs.get(edge.target)
+        target = _get(node_runs, edge.target)
         if target is None:
             continue
         if target.status != WorkflowNodeRunStatus.PENDING.value:
@@ -77,7 +83,7 @@ def cascade_skip(
     node_id: str,
     *,
     graph: WorkflowGraph,
-    node_runs: dict[str, WorkflowNodeRun],
+    node_runs: NodeRuns,
 ) -> list[str]:
     """Mark node SKIPPED and cascade to descendants whose every predecessor is SKIPPED."""
     skipped: list[str] = []
@@ -85,7 +91,7 @@ def cascade_skip(
     now = datetime.now(timezone.utc)
     while queue:
         current_id = queue.popleft()
-        current = node_runs.get(current_id)
+        current = _get(node_runs, current_id)
         if current is None or current.status not in _SKIPPABLE:
             continue
         current.status = WorkflowNodeRunStatus.SKIPPED.value
@@ -96,20 +102,62 @@ def cascade_skip(
         for edge in successors(graph).get(current_id, []):
             if _all_preds_skipped(edge.target, graph=graph, node_runs=node_runs):
                 queue.append(edge.target)
+            else:
+                # Join nodes (e.g. merge): SKIPPED arm must not block forever when
+                # siblings already SUCCEEDED.
+                target = _get(node_runs, edge.target)
+                if (
+                    target is not None
+                    and target.status == WorkflowNodeRunStatus.PENDING.value
+                    and is_ready(edge.target, graph=graph, node_runs=node_runs)
+                ):
+                    target.status = WorkflowNodeRunStatus.READY.value
     return skipped
+
+
+def _unlock_joins_after_skip(
+    skipped_id: str,
+    *,
+    graph: WorkflowGraph,
+    node_runs: NodeRuns,
+) -> list[str]:
+    unlocked: list[str] = []
+    for edge in successors(graph).get(skipped_id, []):
+        target = _get(node_runs, edge.target)
+        if target is None:
+            continue
+        if target.status != WorkflowNodeRunStatus.PENDING.value:
+            continue
+        if is_ready(edge.target, graph=graph, node_runs=node_runs):
+            target.status = WorkflowNodeRunStatus.READY.value
+            unlocked.append(edge.target)
+    return unlocked
 
 
 def _all_preds_skipped(
     node_id: str,
     *,
     graph: WorkflowGraph,
-    node_runs: dict[str, WorkflowNodeRun],
+    node_runs: NodeRuns,
 ) -> bool:
     preds = predecessors(graph).get(node_id, [])
     if not preds:
         return False
     for edge in preds:
-        source = node_runs.get(edge.source)
-        if source is None or source.status != WorkflowNodeRunStatus.SKIPPED.value:
-            return False
+        if isinstance(node_runs, NodeRunIndex):
+            rows = node_runs.iterations(edge.source, include_placeholder=True)
+            if not rows:
+                return False
+            if any(r.status != WorkflowNodeRunStatus.SKIPPED.value for r in rows):
+                return False
+        else:
+            source = node_runs.get(edge.source)
+            if source is None or source.status != WorkflowNodeRunStatus.SKIPPED.value:
+                return False
     return True
+
+
+def _get(node_runs: NodeRuns, node_id: str) -> WorkflowNodeRun | None:
+    if isinstance(node_runs, NodeRunIndex):
+        return node_runs.get(node_id)
+    return node_runs.get(node_id)

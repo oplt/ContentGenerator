@@ -26,8 +26,13 @@ from backend.workers.task_defs.trending import (
 )
 from backend.workers.task_defs.workflows import (
     advance_workflow_run_task,
+    execute_workflow_node_task,
+    process_workflow_webhook_inbox_task,
+    recover_stale_workflow_node_runs_task,
     resume_workflow_waiting_node_task,
+    run_workflow_retention_task,
     tick_due_automations_task,
+    wake_due_workflow_waits_task,
 )
 
 __all__ = [
@@ -51,5 +56,10 @@ __all__ = [
     "rescore_all_tenants_task",
     "tick_due_automations_task",
     "advance_workflow_run_task",
+    "execute_workflow_node_task",
+    "process_workflow_webhook_inbox_task",
+    "recover_stale_workflow_node_runs_task",
     "resume_workflow_waiting_node_task",
+    "run_workflow_retention_task",
+    "wake_due_workflow_waits_task",
 ]

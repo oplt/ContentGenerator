@@ -219,19 +219,23 @@ def test_build_snapshot_freezes_resolved_config() -> None:
         )
         snap = dict(run.context_snapshot or {})
         assert snap["config_precedence"] == list(PRECEDENCE)
-        assert snap["brand_profile"]["tone"] == "educational"
-        assert snap["resolved_editorial"]["tone"] == "educational"
-        gen = snap["resolved_node_configs"]["generate"]
+        brand_profile = cast(dict[str, object], snap["brand_profile"])
+        resolved_editorial = cast(dict[str, object], snap["resolved_editorial"])
+        resolved_node_configs = cast(dict[str, object], snap["resolved_node_configs"])
+        assert brand_profile["tone"] == "educational"
+        assert resolved_editorial["tone"] == "educational"
+        gen = cast(dict[str, object], resolved_node_configs["generate"])
         assert gen["tone"] == "enthusiastic"
         assert gen["temperature"] == 0.8
         assert gen["max_tokens"] == 220
         assert "api_key" not in gen
         assert "oauth_token" not in str(snap["accounts"])
-        assert snap["providers"]["llm"]
+        providers = cast(dict[str, object], snap["providers"])
+        assert providers["llm"]
         # Historical freeze: mutating brand after start must not change snapshot.
         profile.tone = "changed-later"
         await db.flush()
-        assert snap["resolved_node_configs"]["generate"]["tone"] == "enthusiastic"
+        assert gen["tone"] == "enthusiastic"
         await db.close()
 
     asyncio.run(_run())

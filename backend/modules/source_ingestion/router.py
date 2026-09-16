@@ -30,7 +30,11 @@ async def _enqueue_source_ingestion(
     *, source_id: UUID, membership: TenantUser, db: AsyncSession, correlation_id: str | None
 ) -> IngestionTriggerResponse:
     service = SourceIngestionService(db)
-    fetch_run, created = await service.queue_ingestion(membership.tenant_id, source_id)
+    fetch_run, created = await service.queue_ingestion(
+        membership.tenant_id,
+        source_id,
+        correlation_id=correlation_id,
+    )
     metadata = fetch_run.fetch_metadata or {}
     task_id = metadata.get("celery_task_id")
     task_id = task_id if isinstance(task_id, str) else ""
@@ -61,6 +65,19 @@ async def _enqueue_source_ingestion(
         clusters_updated=0,
         fetch_run_id=fetch_run.id,
         task_id=task_id or None,
+    )
+
+
+def _fetch_run_response(run) -> SourceFetchRunResponse:
+    meta = run.fetch_metadata or {}
+    celery_task_id = meta.get("celery_task_id")
+    correlation_id = meta.get("correlation_id")
+    base = SourceFetchRunResponse.model_validate(run)
+    return base.model_copy(
+        update={
+            "celery_task_id": celery_task_id if isinstance(celery_task_id, str) else None,
+            "correlation_id": correlation_id if isinstance(correlation_id, str) else None,
+        }
     )
 
 
@@ -163,10 +180,7 @@ async def list_fetch_runs(
     db: AsyncSession = Depends(get_db),
 ) -> list[SourceFetchRunResponse]:
     service = SourceIngestionService(db)
-    return [
-        SourceFetchRunResponse.model_validate(run)
-        for run in await service.list_fetch_runs(membership.tenant_id)
-    ]
+    return [_fetch_run_response(run) for run in await service.list_fetch_runs(membership.tenant_id)]
 
 
 @router.get("/fetch-runs/{fetch_run_id}", response_model=SourceFetchRunResponse)
@@ -182,7 +196,7 @@ async def get_fetch_run(
     )
     if run is None:
         raise HTTPException(status_code=404, detail="Ingestion run not found")
-    return SourceFetchRunResponse.model_validate(run)
+    return _fetch_run_response(run)
 
 
 @router.get("/catalog", response_model=list[CatalogEntryResponse])

@@ -66,6 +66,9 @@ class PublishNowRequest(BaseModel):
     content_job_id: UUID
     platforms: list[str] | None = None
     social_account_ids: list[UUID] | None = None
+    # Workflow/server path only — durable ContentVariant ids from PlatformTransform.
+    # Never accept raw provider_payload from clients.
+    content_variant_ids: list[UUID] | None = None
     scheduled_for: datetime | None = None
     dry_run: bool = True
     idempotency_key: str | None = Field(default=None, min_length=8)
@@ -74,6 +77,7 @@ class PublishNowRequest(BaseModel):
 class PublishingJobResponse(ORMModel):
     id: UUID
     content_job_id: UUID
+    content_variant_id: UUID | None = None
     social_account_id: UUID | None
     approval_request_id: UUID | None
     platform: str

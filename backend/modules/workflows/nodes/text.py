@@ -36,13 +36,19 @@ class GenerateTextOutput(BaseModel):
 
 
 class GenerateTextNode(WorkflowNode[GenerateTextConfig, GenerateTextInput, GenerateTextOutput]):
-    """Wraps existing LLM provider — does not own prompt/provider selection policy."""
+    """Low-level LLM adapter — raw AI text, not a ContentJob editorial artifact.
+
+    For brand/risk/persistence policies use ``generate_canonical_content`` instead.
+    """
 
     type = "generate_text"
     version = 1
     category = "ai_content"
     display_name = "Generate Text"
-    description = "Generate text via the configured inference provider."
+    description = (
+        "Raw LLM text generation (reusable AI op). "
+        "Does not create a ContentJob — use Generate Canonical Content for editorial artifacts."
+    )
     ConfigSchema = GenerateTextConfig
     InputSchema = GenerateTextInput
     OutputSchema = GenerateTextOutput

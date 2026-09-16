@@ -25,10 +25,15 @@ class AutomationSchedulerRepository:
     async def claim_due_automations(
         self, *, now: datetime | None = None, limit: int = 50
     ) -> list[Automation]:
-        """SELECT due schedule automations … FOR UPDATE SKIP LOCKED."""
+        """Lock due schedule automations with ``FOR UPDATE SKIP LOCKED``.
+
+        Holds row locks until the caller commits/rolls back so concurrent ticks
+        cannot process the same automation twice. Occurrence UNIQUE remains the
+        second idempotency boundary for a given scheduled slot.
+        """
         as_of = now or datetime.now(timezone.utc)
-        subq = (
-            select(Automation.id)
+        stmt = (
+            select(Automation)
             .where(
                 Automation.enabled.is_(True),
                 Automation.trigger_type == AutomationTriggerType.SCHEDULE.value,
@@ -40,13 +45,8 @@ class AutomationSchedulerRepository:
             .limit(limit)
             .with_for_update(skip_locked=True)
         )
-        result = await self.db.execute(subq)
-        ids = [row[0] for row in result.fetchall()]
-        if not ids:
-            return []
-        rows = await self.db.execute(select(Automation).where(Automation.id.in_(ids)))
-        by_id = {row.id: row for row in rows.scalars().all()}
-        return [by_id[i] for i in ids if i in by_id]
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def claim_occurrence(
         self,

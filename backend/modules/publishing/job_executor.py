@@ -96,6 +96,30 @@ def _risk_label_from_content_job(content_job: Any) -> str:
     return str(risk_review.get("label") or grounding.get("risk_label") or "low")
 
 
+async def _resolve_publish_assets(
+    svc: _PublishJobDeps,
+    *,
+    tenant_id: UUID,
+    job: PublishingJob,
+    assets: list[Any],
+) -> list[Any]:
+    """Prefer durable ContentVariant snapshot over generation-time TEXT_VARIANT assets."""
+    from backend.modules.content_generation.variant_store import (
+        ContentVariantStore,
+        assets_from_variant_snapshot,
+        snapshot_from_provider_payload,
+    )
+
+    snapshot = snapshot_from_provider_payload(job.provider_payload)
+    if snapshot is None and getattr(job, "content_variant_id", None):
+        snapshot = await ContentVariantStore(svc.db).get_snapshot(
+            tenant_id, job.content_variant_id
+        )
+    if snapshot is None:
+        return assets
+    return assets_from_variant_snapshot(snapshot, media_assets=assets)
+
+
 def _record_video_duration_metrics(job: PublishingJob, assets: list[Any]) -> None:
     for asset in assets:
         if asset.asset_type != "video":
@@ -209,6 +233,7 @@ async def publish_job(
         )
 
     assets = await svc.content_repo.list_assets(content_job.id)
+    assets = await _resolve_publish_assets(svc, tenant_id=tenant_id, job=job, assets=assets)
     token_row = await svc.repo.get_token_for_account(social_account.id) if social_account.id else None
     access_token = _resolve_access_token(token_row)
     use_stub = social_account.account_metadata.get("mode") == "stub"

@@ -52,6 +52,8 @@ METRIC_DB_SLOW_QUERY = "cg.db.slow_query.total"
 METRIC_HTTP_429 = "cg.http.429.total"
 METRIC_SEMAPHORE_WAIT = "cg.provider.semaphore_wait_ms"
 METRIC_INGESTION = "cg.ingestion.articles.total"
+METRIC_INGESTION_STAGE = "cg.ingestion.stage.duration_ms"
+METRIC_LLM_CALL = "cg.llm.call.duration_ms"
 METRIC_PUBLISH_CLAIM = "cg.publish.claim.total"
 METRIC_GENERATION_STAGE = "cg.content.stage.duration_ms"
 
@@ -75,6 +77,7 @@ ALLOWED_ATTR_KEYS = frozenset(
         "route",
         "method",
         "stage",
+        "model",
     }
 )
 

@@ -87,12 +87,12 @@ def _eval(value: Any, operator: str, compare_to: Any) -> bool:
     if operator == "truthy":
         return bool(value)
     if operator == "eq":
-        return value == compare_to
+        return bool(value == compare_to)
     if operator == "neq":
-        return value != compare_to
+        return bool(value != compare_to)
     try:
-        left = float(value)  # type: ignore[arg-type]
-        right = float(compare_to)  # type: ignore[arg-type]
+        left = float(value)
+        right = float(compare_to)
     except (TypeError, ValueError):
         return False
     if operator == "gt":

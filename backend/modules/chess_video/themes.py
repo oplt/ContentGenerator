@@ -83,7 +83,7 @@ def get_board_theme(name: str | None = None) -> BoardTheme:
     key = (name or DEFAULT_BOARD_THEME).strip().lower()
     if key not in BOARD_THEMES:
         raise ValueError(f"Unknown board theme: {name}")
-    return BOARD_THEMES[key]  # type: ignore[index]
+    return BOARD_THEMES[key]
 
 
 def list_board_themes() -> list[BoardTheme]:

@@ -19,7 +19,6 @@ from backend.modules.workflows.nodes.base import NodeResultStatus, WorkflowNodeN
 from backend.modules.workflows.nodes.chess import GenerateChessVideoNode
 from backend.modules.workflows.nodes.fact_review import FactReviewNode
 from backend.modules.workflows.nodes.image import GenerateImageNode
-from backend.modules.workflows.nodes.research import ResearchSourcesNode
 from backend.modules.workflows.nodes.text import GenerateScriptNode, SummarizeNode
 from backend.modules.workflows.nodes.video import GenerateVideoNode
 from backend.modules.workflows.registry import build_default_registry, reset_default_registry
@@ -264,7 +263,9 @@ def test_generate_chess_video_create_and_enqueue() -> None:
 
 
 def test_remaining_control_stub_still_raises() -> None:
-    node = ResearchSourcesNode()
+    from backend.modules.workflows.nodes.triggers import ScheduleTriggerNode
+
+    node = ScheduleTriggerNode()
     ctx = build_node_context(tenant_id=uuid.uuid4())
 
     async def _run() -> None:

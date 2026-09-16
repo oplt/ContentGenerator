@@ -9,6 +9,7 @@ from backend.core.config import settings
 OWNER_CONTENT_STRATEGY = "content_strategy"
 OWNER_IDENTITY = "identity"
 OWNER_INGESTION = "ingestion"
+OWNER_ENRICHMENT = "enrichment"
 OWNER_AUTH_TOKEN = "auth_token"
 OWNER_ROBOTS = "robots"
 OWNER_OAUTH = "oauth"

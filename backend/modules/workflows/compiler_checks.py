@@ -226,3 +226,60 @@ def _any_compatible(outputs: list[NodePort], inputs: list[NodePort]) -> bool:
     return any(
         types_compatible(out.data_type, inp.data_type) for out in outputs for inp in inputs
     )
+
+
+def validate_input_bindings(
+    graph: WorkflowGraph,
+    resolved: dict[str, WorkflowNode[Any, Any, Any]],
+) -> list[WorkflowCompileError]:
+    """Validate declarative input_bindings (enforced for all versions when present)."""
+    errors: list[WorkflowCompileError] = []
+    node_ids = {node.id for node in graph.nodes}
+    for node in graph.nodes:
+        impl = resolved.get(node.id)
+        port_names = {p.name for p in (impl.input_ports if impl else [])}
+        for target_port, binding in (node.input_bindings or {}).items():
+            if port_names and target_port not in port_names:
+                errors.append(
+                    WorkflowCompileError(
+                        code="unknown_binding_target",
+                        message=(
+                            f"input binding target '{target_port}' is not an input port "
+                            f"on '{node.id}'"
+                        ),
+                        node_id=node.id,
+                        node_type=node.type,
+                    )
+                )
+            if binding.source == "node":
+                if not binding.node_id:
+                    errors.append(
+                        WorkflowCompileError(
+                            code="invalid_binding",
+                            message=f"binding '{target_port}' missing node_id",
+                            node_id=node.id,
+                            node_type=node.type,
+                        )
+                    )
+                elif binding.node_id not in node_ids:
+                    errors.append(
+                        WorkflowCompileError(
+                            code="invalid_binding",
+                            message=(
+                                f"binding '{target_port}' references unknown node "
+                                f"'{binding.node_id}'"
+                            ),
+                            node_id=node.id,
+                            node_type=node.type,
+                        )
+                    )
+            if binding.source == "constant" and binding.value is None and not binding.path:
+                errors.append(
+                    WorkflowCompileError(
+                        code="invalid_binding",
+                        message=f"constant binding '{target_port}' requires value",
+                        node_id=node.id,
+                        node_type=node.type,
+                    )
+                )
+    return errors

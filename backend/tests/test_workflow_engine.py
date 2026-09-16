@@ -30,6 +30,7 @@ from backend.modules.workflows.run_models import (
     WorkflowNodeRunStatus,
     WorkflowRun,
     WorkflowRunStatus,
+    WorkflowWait,
 )
 
 
@@ -106,6 +107,7 @@ async def _async_session() -> AsyncSession:
                         TaskExecution.__table__,
                         WorkflowRun.__table__,
                         WorkflowNodeRun.__table__,
+                        WorkflowWait.__table__,
                     ],
                 ),
             )
@@ -216,11 +218,7 @@ def test_engine_pauses_on_approval_waiting() -> None:
     async def _run() -> None:
         db = await _async_session()
         tenant, version = await _seed_published(db, _full_slice_graph())
-        account_id = uuid.uuid4()
-        ctx = CompileContext(
-            social_account_ids=[account_id],
-            account_capabilities={str(account_id): ["llm", "publish"]},
-        )
+        ctx = CompileContext(require_publish_targets=False)
 
         async def _waiting_execute(context, inputs, config):  # type: ignore[no-untyped-def]
             _ = (context, inputs, config)
@@ -230,6 +228,7 @@ def test_engine_pauses_on_approval_waiting() -> None:
                     "approval_request_id": str(uuid.uuid4()),
                     "status": "pending",
                     "channels": [],
+                    "content_job_id": str(uuid.uuid4()),
                 },
                 waiting_reason="approval_pending",
             )
@@ -243,6 +242,7 @@ def test_engine_pauses_on_approval_waiting() -> None:
                 "backend.modules.workflows.nodes.approval.ApprovalNode.execute",
                 new=AsyncMock(side_effect=_waiting_execute),
             ),
+            patch("backend.modules.workflows.wait_persist.schedule_fast_wake"),
         ):
             engine = WorkflowEngine(db)
             run = await engine.start_run(

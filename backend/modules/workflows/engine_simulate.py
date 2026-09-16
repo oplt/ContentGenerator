@@ -42,12 +42,19 @@ async def auto_simulate_approvals(
         )
         if waiting is None or not waiting.resume_token:
             return run
+        prior = dict(waiting.output_json or {})
         run = await resume_waiting_node(
             engine,
             tenant_id,
             resume_token=waiting.resume_token,
             outcome="approved",
-            decision={"simulated": True, "source": "dry_run"},
+            decision={
+                "simulated": True,
+                "source": "dry_run",
+                "content_job_id": prior.get("content_job_id"),
+                "approval_request_id": prior.get("approval_request_id"),
+                "revision_count": prior.get("revision_count", 0),
+            },
             advance=True,
         )
     return run

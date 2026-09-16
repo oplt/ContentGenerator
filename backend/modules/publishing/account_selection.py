@@ -62,13 +62,20 @@ def build_publish_idempotency_key(
     dry_run: bool,
     intent: str = "publish",
     client_key: str | None = None,
+    content_variant_id: UUID | None = None,
 ) -> str:
-    """Tenant/content/account/schedule/intent idempotency (account never omitted)."""
+    """One account + one logical variant + one publishing intent → deterministic key."""
     if client_key:
+        if content_variant_id is not None:
+            return f"{client_key}:{social_account_id}:{content_variant_id}"
         return f"{client_key}:{social_account_id}"
     schedule_token = scheduled_for.isoformat() if scheduled_for else "immediate"
     mode = "dry" if dry_run else "live"
-    return f"{content_job_id}:{social_account_id}:{schedule_token}:{intent}:{mode}"
+    parts = [str(content_job_id), str(social_account_id)]
+    if content_variant_id is not None:
+        parts.append(str(content_variant_id))
+    parts.extend([schedule_token, intent, mode])
+    return ":".join(parts)
 
 
 def unique_platforms(accounts: list[SocialAccount]) -> list[str]:

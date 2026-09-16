@@ -7,6 +7,7 @@ import {
   listWorkflowVersions,
   type DryRunOptions,
   type NodeTestResult,
+  type WorkflowCompileError,
   type WorkflowGraph,
   type WorkflowGraphNode,
 } from "../api/workflows";
@@ -24,6 +25,7 @@ import {
   WorkflowEditorActions,
   WorkflowStepConfigPanel,
 } from "../features/workflows/WorkflowEditorPanels";
+import { WorkflowValidationPanel } from "../features/workflows/WorkflowValidationPanel";
 import { WorkflowCanvas } from "../features/workflows/WorkflowCanvas";
 import { WorkflowNodePalette } from "../features/workflows/WorkflowNodePalette";
 import { useWorkflowEditorActions } from "../features/workflows/useWorkflowEditorActions";
@@ -34,6 +36,7 @@ import {
   readLayout,
   withLayout,
 } from "../features/workflows/canvasGraph";
+import { defaultConfigFromSchema } from "../features/workflows/schemaFields";
 
 const DEFAULT_DRY_RUN: DryRunOptions = {
   dry_run: true,
@@ -47,7 +50,7 @@ export default function WorkflowEditorPage() {
   const { selectedIds, setSelectedIds } = useAccountSelection(tenantId);
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
-  const [compileErrors, setCompileErrors] = useState<string[]>([]);
+  const [compileErrors, setCompileErrors] = useState<WorkflowCompileError[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [dryRunOptions, setDryRunOptions] = useState<DryRunOptions>(DEFAULT_DRY_RUN);
   const [testInputs, setTestInputs] = useState("{}");
@@ -69,7 +72,7 @@ export default function WorkflowEditorPage() {
     queryKey: queryKeys.workflowNodes(tenantId ?? "none"),
     queryFn: ({ signal }) => listWorkflowNodes({ signal }),
     enabled,
-    ...queryPolicy.moderate,
+    ...queryPolicy.static,
   });
   const accounts = useQuery({
     queryKey: queryKeys.socialAccounts(tenantId ?? "none"),
@@ -81,15 +84,26 @@ export default function WorkflowEditorPage() {
   const latest = versions.data?.[0] ?? null;
   useEffect(() => {
     if (latest && !graph) {
+      // Seed local editable state once after the remote version arrives.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGraph(structuredClone(latest.graph_json) as WorkflowGraph);
       setSelectedStepId(latest.graph_json.nodes[0]?.id ?? null);
     }
   }, [latest, graph]);
 
   const selected = graph?.nodes.find((node) => node.id === selectedStepId) ?? null;
+  const selectedDefinition =
+    catalog.data?.find((item) => item.type === selected?.type) ?? null;
   const displayNames = useMemo(
     () => Object.fromEntries((catalog.data ?? []).map((n) => [n.type, n.display_name])),
     [catalog.data],
+  );
+  const invalidNodeIds = useMemo(
+    () =>
+      compileErrors
+        .map((error) => error.node_id)
+        .filter((id): id is string => Boolean(id)),
+    [compileErrors],
   );
   const compileContext = {
     social_account_ids: selectedIds,
@@ -127,7 +141,7 @@ export default function WorkflowEditorPage() {
       id,
       type: nodeType,
       version: def?.version ?? 1,
-      config: {},
+      config: defaultConfigFromSchema(def?.config_schema),
     };
     const layout = { ...readLayout(graph), [id]: defaultPosition(graph.nodes.length) };
     setGraph(withLayout({ ...graph, nodes: [...graph.nodes, node] }, layout));
@@ -170,7 +184,7 @@ export default function WorkflowEditorPage() {
           <div>
             <h1 className="text-2xl font-semibold">{definition.data.name}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Visual canvas + dry-run / node test (Phase 15).
+              Port-based canvas + schema-driven node config (Phase 14).
             </p>
           </div>
           <WorkflowEditorActions
@@ -206,6 +220,8 @@ export default function WorkflowEditorPage() {
             <WorkflowCanvas
               graph={graph}
               displayNames={displayNames}
+              catalog={catalog.data ?? []}
+              invalidNodeIds={invalidNodeIds}
               selectedNodeId={selectedStepId}
               onGraphChange={setGraph}
               onSelectNode={setSelectedStepId}
@@ -222,6 +238,7 @@ export default function WorkflowEditorPage() {
           <h2 className="text-sm font-semibold">Node config</h2>
           <WorkflowStepConfigPanel
             selected={selected}
+            definition={selectedDefinition}
             onConfigChange={updateSelectedConfig}
             testInputs={testInputs}
             onTestInputsChange={setTestInputs}
@@ -234,15 +251,7 @@ export default function WorkflowEditorPage() {
 
       <Card className="p-4">
         <h2 className="text-sm font-semibold">Validation</h2>
-        {compileErrors.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">No validation errors.</p>
-        ) : (
-          <div className="mt-2 space-y-1 text-sm text-destructive">
-            {compileErrors.map((error) => (
-              <p key={error}>{error}</p>
-            ))}
-          </div>
-        )}
+        <WorkflowValidationPanel errors={compileErrors} />
       </Card>
     </div>
   );

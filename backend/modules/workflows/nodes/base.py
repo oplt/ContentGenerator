@@ -32,7 +32,15 @@ class NodePort(BaseModel):
 class RetryPolicyDefaults(BaseModel):
     max_attempts: int = Field(default=3, ge=1)
     backoff_seconds: float = Field(default=2.0, ge=0.0)
-    retry_on: list[str] = Field(default_factory=lambda: ["transient"])
+    max_backoff_seconds: float = Field(default=300.0, ge=0.0)
+    retry_on: list[str] = Field(
+        default_factory=lambda: [
+            "transient",
+            "rate_limited",
+            "timeout",
+            "provider_unavailable",
+        ]
+    )
 
 
 class NodeResult(BaseModel):
@@ -73,6 +81,14 @@ class WorkflowNodeNotImplementedError(RuntimeError):
     """Raised by stub nodes that are registered but not wired yet."""
 
 
+class NodeImplementationStatus(str, Enum):
+    """Explicit executability — do not infer from class names."""
+
+    STABLE = "stable"
+    BETA = "beta"
+    UNAVAILABLE = "unavailable"
+
+
 class WorkflowNode(ABC, Generic[ConfigT, InputT, OutputT]):
     """Typed workflow node. Implementations wrap domain services — no business logic forks."""
 
@@ -81,6 +97,7 @@ class WorkflowNode(ABC, Generic[ConfigT, InputT, OutputT]):
     category: ClassVar[str]
     display_name: ClassVar[str]
     description: ClassVar[str] = ""
+    implementation_status: ClassVar[NodeImplementationStatus] = NodeImplementationStatus.STABLE
     ConfigSchema: ClassVar[Type[BaseModel]] = EmptyModel
     InputSchema: ClassVar[Type[BaseModel]] = EmptyModel
     OutputSchema: ClassVar[Type[BaseModel]] = EmptyModel
@@ -90,6 +107,10 @@ class WorkflowNode(ABC, Generic[ConfigT, InputT, OutputT]):
     is_asynchronous: ClassVar[bool] = True
     may_pause: ClassVar[bool] = False
     retry_policy: ClassVar[RetryPolicyDefaults] = RetryPolicyDefaults()
+
+    @classmethod
+    def is_executable(cls) -> bool:
+        return cls.implementation_status != NodeImplementationStatus.UNAVAILABLE
 
     def validate_config(self, config: dict[str, Any] | BaseModel) -> BaseModel:
         if isinstance(config, self.ConfigSchema):
@@ -126,7 +147,7 @@ def make_stub_node(
     may_pause: bool = False,
     required_capabilities: list[str] | None = None,
 ) -> Type[WorkflowNode[EmptyModel, EmptyModel, EmptyModel]]:
-    """Factory for registered-but-unwired nodes (later phases)."""
+    """Factory for registered-but-unwired nodes (implementation_status=unavailable)."""
 
     caps = list(required_capabilities or [])
     node_version = version
@@ -143,6 +164,7 @@ def make_stub_node(
         description = node_description
         may_pause = node_may_pause
         required_capabilities = caps
+        implementation_status = NodeImplementationStatus.UNAVAILABLE
 
         async def execute(
             self,

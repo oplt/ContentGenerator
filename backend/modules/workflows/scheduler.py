@@ -54,15 +54,57 @@ class AutomationScheduler:
             after=after,
         )
 
-    async def ensure_next_run_at(self, automation: Automation) -> Automation:
-        """Set next_run_at when enabling a schedule automation."""
-        if automation.trigger_type != AutomationTriggerType.SCHEDULE.value:
+    async def sync_schedule_state(
+        self,
+        automation: Automation,
+        *,
+        now: datetime | None = None,
+        force_recompute: bool = True,
+    ) -> Automation:
+        """Deterministically sync ``next_run_at`` to enabled/trigger/tz state.
+
+        Rules:
+        * disabled → ``next_run_at = None``
+        * manual/webhook (non-schedule) → ``next_run_at = None``
+        * schedule + enabled → recompute from ``now`` when forced or unset
+
+        Recompute always uses ``after=now`` so re-enable / tz / config changes
+        never fire an obsolete historical slot left in the past.
+        """
+        as_of = now or datetime.now(timezone.utc)
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+
+        new_next: datetime | None
+        if not automation.enabled:
+            new_next = None
+        elif automation.trigger_type != AutomationTriggerType.SCHEDULE.value:
+            new_next = None
+        elif force_recompute or automation.next_run_at is None:
+            new_next = self.compute_next(automation, after=as_of)
+        else:
             return automation
-        if automation.next_run_at is not None:
+
+        if automation.next_run_at == new_next:
             return automation
-        automation.next_run_at = self.compute_next(automation)
+        # SQLite may round-trip naive UTC; treat equal instants as unchanged.
+        if (
+            automation.next_run_at is not None
+            and new_next is not None
+            and automation.next_run_at.replace(tzinfo=timezone.utc)
+            == new_next.astimezone(timezone.utc)
+        ):
+            return automation
+
+        automation.next_run_at = new_next
         await self.db.flush()
+        # onupdate expires updated_at; refresh so callers can read without lazy IO.
+        await self.db.refresh(automation)
         return automation
+
+    async def ensure_next_run_at(self, automation: Automation) -> Automation:
+        """Back-compat: fill next_run_at only when missing (enabled schedule)."""
+        return await self.sync_schedule_state(automation, force_recompute=False)
 
     async def tick(
         self,
@@ -75,10 +117,19 @@ class AutomationScheduler:
         due = await self.repo.claim_due_automations(now=as_of, limit=limit)
         results: list[TickResult] = []
         for automation in due:
-            results.append(
-                await self._fire_one(
-                    automation, as_of=as_of, enqueue_advance=enqueue_advance
-                )
+            scheduled_for = automation.next_run_at or as_of
+            result = await self._fire_one(
+                automation, as_of=as_of, enqueue_advance=enqueue_advance
+            )
+            results.append(result)
+            lag_ms = max(0.0, (as_of - scheduled_for).total_seconds() * 1000.0)
+            from backend.modules.workflows.observability import record_scheduler_tick_result
+
+            record_scheduler_tick_result(
+                outcome=result.status,
+                lag_ms=lag_ms,
+                automation_id=result.automation_id,
+                workflow_run_id=result.workflow_run_id,
             )
         return results
 

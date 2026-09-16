@@ -7,14 +7,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import cast
 
-import pytest
 from sqlalchemy import Table, event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from backend.db.base import Base
 from backend.modules.audit.models import AuditLog
-from backend.modules.content_strategy.models import Brand
+from backend.modules.content_strategy.models import Brand, BrandSocialAccount
 from backend.modules.identity_access.models import Tenant
 from backend.modules.publishing.models import SocialAccount
 from backend.modules.workflows.automation_schemas import AutomationCreateRequest
@@ -51,6 +50,7 @@ async def _session() -> AsyncSession:
                         Tenant.__table__,
                         Brand.__table__,
                         SocialAccount.__table__,
+                        BrandSocialAccount.__table__,
                         WorkflowDefinition.__table__,
                         WorkflowVersion.__table__,
                         Automation.__table__,
@@ -82,6 +82,15 @@ def test_create_automation_with_targets() -> None:
             settings={},
         )
         db.add(account)
+        await db.flush()
+        db.add(
+            BrandSocialAccount(
+                tenant_id=tenant.id,
+                brand_id=brand.id,
+                social_account_id=account.id,
+                enabled=True,
+            )
+        )
         definition = WorkflowDefinition(
             tenant_id=tenant.id, name="Daily", slug="daily", status="active"
         )

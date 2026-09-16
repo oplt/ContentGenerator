@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import Table, create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from backend.db.base import Base
@@ -15,7 +16,10 @@ from backend.modules.identity_access.models import Tenant
 def _session():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     # Avoid User table: duplicate index definitions break sqlite create_all.
-    Base.metadata.create_all(engine, tables=[Tenant.__table__, ChessVideoJob.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=cast(list[Table], [Tenant.__table__, ChessVideoJob.__table__]),
+    )
     return sessionmaker(engine, expire_on_commit=False)()
 
 

@@ -1,4 +1,4 @@
-"""Automation create/list/update for Phase 13 UI (+ Phase 17 security)."""
+"""Automation create/list/update for Phase 13 UI (+ Phase 6 integrity / Phase 17 security)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.audit.service import AuditService
 from backend.modules.content_strategy.models import Brand
+from backend.modules.workflows.automation_integrity import (
+    authorize_brand_linked_accounts,
+    require_active_brand,
+    require_version_for_definition,
+)
 from backend.modules.workflows.automation_repository import AutomationRepository
 from backend.modules.workflows.automation_schemas import (
     AutomationCreateRequest,
@@ -18,13 +23,11 @@ from backend.modules.workflows.automation_schemas import (
     AutomationUpdateRequest,
     BrandOptionResponse,
 )
-from backend.modules.workflows.models import Automation, AutomationTriggerType
+from backend.modules.workflows.models import Automation
 from backend.modules.workflows.repository import WorkflowRepository
 from backend.modules.workflows.scheduler import AutomationScheduler
-from backend.modules.workflows.security import (
-    authorize_social_account_ids,
-    sanitize_mapping,
-)
+from backend.modules.workflows.security import sanitize_mapping
+from backend.modules.workflows.webhook_trigger_config import normalize_webhook_trigger_config
 
 
 class AutomationService:
@@ -71,16 +74,34 @@ class AutomationService:
         version_id = payload.workflow_version_id or definition.current_version_id
         if version_id is None:
             raise HTTPException(status_code=400, detail="Workflow has no published version")
-        version = await self.workflows.get_version(tenant_id, version_id)
-        if version is None or version.published_at is None:
-            raise HTTPException(status_code=400, detail="Workflow version is not published")
+        await require_version_for_definition(
+            self.db,
+            tenant_id=tenant_id,
+            workflow_definition_id=payload.workflow_definition_id,
+            workflow_version_id=version_id,
+            require_published=True,
+        )
+
         brand_id = payload.brand_id or await self._default_brand_id(tenant_id)
         if brand_id is None:
             raise HTTPException(status_code=400, detail="No brand available for automation")
+        await require_active_brand(self.db, tenant_id=tenant_id, brand_id=brand_id)
 
-        await authorize_social_account_ids(
-            self.db, tenant_id=tenant_id, social_account_ids=list(payload.social_account_ids)
+        await authorize_brand_linked_accounts(
+            self.db,
+            tenant_id=tenant_id,
+            brand_id=brand_id,
+            social_account_ids=list(payload.social_account_ids),
+            allow_unlinked_targets=bool(payload.allow_unlinked_targets),
         )
+        trigger_config = sanitize_mapping(payload.trigger_config)
+        webhook_endpoint_id: str | None = None
+        if payload.trigger_type in {"webhook", "event"}:
+            try:
+                trigger_config = normalize_webhook_trigger_config(trigger_config)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            webhook_endpoint_id = str(trigger_config["endpoint_id"])
         automation = Automation(
             tenant_id=tenant_id,
             workflow_definition_id=payload.workflow_definition_id,
@@ -89,9 +110,10 @@ class AutomationService:
             name=payload.name.strip(),
             enabled=payload.enabled,
             trigger_type=payload.trigger_type,
-            trigger_config=sanitize_mapping(payload.trigger_config),
+            trigger_config=trigger_config,
             timezone=payload.timezone,
             settings=sanitize_mapping(payload.settings),
+            webhook_endpoint_id=webhook_endpoint_id,
         )
         await self.repo.add_automation(automation)
         if payload.social_account_ids:
@@ -100,8 +122,7 @@ class AutomationService:
                 automation_id=automation.id,
                 social_account_ids=list(payload.social_account_ids),
             )
-        if automation.trigger_type == AutomationTriggerType.SCHEDULE.value:
-            await self.scheduler.ensure_next_run_at(automation)
+        await self.scheduler.sync_schedule_state(automation, force_recompute=True)
         await self.audit.record(
             tenant_id=tenant_id,
             actor_user_id=actor_user_id,
@@ -113,6 +134,7 @@ class AutomationService:
                 "enabled": automation.enabled,
                 "target_count": len(payload.social_account_ids),
                 "workflow_definition_id": str(payload.workflow_definition_id),
+                "allow_unlinked_targets": bool(payload.allow_unlinked_targets),
             },
             outcome="success",
         )
@@ -130,29 +152,78 @@ class AutomationService:
         if automation is None:
             raise HTTPException(status_code=404, detail="Automation not found")
         prev_enabled = automation.enabled
+        schedule_dirty = any(
+            (
+                payload.enabled is not None,
+                payload.trigger_type is not None,
+                payload.trigger_config is not None,
+                payload.timezone is not None,
+            )
+        )
         if payload.name is not None:
             automation.name = payload.name.strip()
         if payload.workflow_version_id is not None:
-            version = await self.workflows.get_version(tenant_id, payload.workflow_version_id)
-            if version is None or version.published_at is None:
-                raise HTTPException(status_code=400, detail="Workflow version is not published")
+            await require_version_for_definition(
+                self.db,
+                tenant_id=tenant_id,
+                workflow_definition_id=automation.workflow_definition_id,
+                workflow_version_id=payload.workflow_version_id,
+                require_published=True,
+            )
             automation.workflow_version_id = payload.workflow_version_id
+        if payload.brand_id is not None:
+            await require_active_brand(
+                self.db, tenant_id=tenant_id, brand_id=payload.brand_id
+            )
+            automation.brand_id = payload.brand_id
         if payload.enabled is not None:
             automation.enabled = payload.enabled
         if payload.trigger_type is not None:
             automation.trigger_type = payload.trigger_type
-        if payload.trigger_config is not None:
-            automation.trigger_config = sanitize_mapping(payload.trigger_config)
+        if payload.trigger_config is not None or (
+            payload.trigger_type is not None and payload.trigger_type in {"webhook", "event"}
+        ):
+            raw_cfg = (
+                sanitize_mapping(payload.trigger_config)
+                if payload.trigger_config is not None
+                else dict(automation.trigger_config or {})
+            )
+            if automation.trigger_type in {"webhook", "event"}:
+                try:
+                    raw_cfg = normalize_webhook_trigger_config(
+                        raw_cfg,
+                        existing_endpoint_id=automation.webhook_endpoint_id,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+                automation.webhook_endpoint_id = str(raw_cfg["endpoint_id"])
+            else:
+                automation.webhook_endpoint_id = None
+            automation.trigger_config = raw_cfg
+        elif payload.trigger_type is not None and payload.trigger_type not in {
+            "webhook",
+            "event",
+        }:
+            automation.webhook_endpoint_id = None
         if payload.timezone is not None:
             automation.timezone = payload.timezone
         if payload.settings is not None:
             automation.settings = sanitize_mapping(payload.settings)
-        if payload.social_account_ids is not None:
-            await authorize_social_account_ids(
+        if payload.social_account_ids is not None or payload.brand_id is not None:
+            # Re-validate linkage when brand or targets change.
+            target_ids = (
+                list(payload.social_account_ids)
+                if payload.social_account_ids is not None
+                else [t.social_account_id for t in await self.repo.list_targets(tenant_id, automation.id)]
+            )
+            await authorize_brand_linked_accounts(
                 self.db,
                 tenant_id=tenant_id,
-                social_account_ids=list(payload.social_account_ids),
+                brand_id=automation.brand_id,
+                social_account_ids=target_ids,
+                allow_unlinked_targets=bool(payload.allow_unlinked_targets),
             )
+        if payload.social_account_ids is not None:
             await self.repo.replace_targets(
                 tenant_id=tenant_id,
                 automation_id=automation.id,
@@ -165,14 +236,15 @@ class AutomationService:
                 entity_type="automation",
                 entity_id=str(automation.id),
                 message="Automation targets updated",
-                payload={"target_count": len(payload.social_account_ids)},
+                payload={
+                    "target_count": len(payload.social_account_ids),
+                    "allow_unlinked_targets": bool(payload.allow_unlinked_targets),
+                },
                 outcome="success",
             )
         await self.db.flush()
-        if automation.trigger_type == AutomationTriggerType.SCHEDULE.value:
-            await self.scheduler.ensure_next_run_at(automation)
-        elif not automation.enabled:
-            automation.next_run_at = None
+        if schedule_dirty:
+            await self.scheduler.sync_schedule_state(automation, force_recompute=True)
         if payload.enabled is not None and payload.enabled != prev_enabled:
             await self.audit.record(
                 tenant_id=tenant_id,

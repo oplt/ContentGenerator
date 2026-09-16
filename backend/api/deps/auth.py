@@ -60,6 +60,7 @@ async def get_current_membership(
     db: AsyncSession = Depends(get_db),
 ) -> TenantUser:
     from backend.core.log_context import bind_log_context
+    from backend.core.request_context import set_tenant_id
 
     repo = IdentityRepository(db)
     tenant_id = tenant_id_header or (str(current_user.default_tenant_id) if current_user.default_tenant_id else None)
@@ -69,6 +70,7 @@ async def get_current_membership(
     if not membership:
         raise HTTPException(status_code=403, detail="No access to tenant")
     request.state.tenant_id = str(membership.tenant_id)
+    set_tenant_id(membership.tenant_id)
     bind_log_context(tenant_id=membership.tenant_id)
     return membership
 
@@ -88,6 +90,9 @@ def require_permission(permission_code: str) -> Callable[..., Awaitable[TenantUs
     async def dependency(membership: TenantUser = Depends(get_current_membership)) -> TenantUser:
         if membership.role and permission_code in membership.role.permission_codes:
             return membership
-        raise HTTPException(status_code=403, detail="Missing required permission")
+        raise HTTPException(
+            status_code=403,
+            detail=f"Missing required permission: {permission_code}",
+        )
 
     return dependency

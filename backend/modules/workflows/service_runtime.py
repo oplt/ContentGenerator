@@ -6,8 +6,9 @@ from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
 from backend.modules.workflows.engine import WorkflowEngine
-from backend.modules.workflows.graph_schema import CompileContext
+from backend.modules.workflows.graph_schema import CompileContext, RuntimeClientContext
 from backend.modules.workflows.run_models import WorkflowRun
+from backend.modules.workflows.schemas import NodeTestResponse
 
 if TYPE_CHECKING:
     from backend.modules.workflows.service import WorkflowService
@@ -23,7 +24,7 @@ async def start_run_with_audit(
     automation_id: UUID | None = None,
     brand_id: UUID | None = None,
     correlation_id: str | None = None,
-    compile_context: CompileContext | None = None,
+    compile_context: CompileContext | RuntimeClientContext | None = None,
     trigger_type: str = "manual",
     run_config: dict[str, Any] | None = None,
     advance: bool = True,
@@ -78,20 +79,49 @@ async def resume_run(
     service: WorkflowService,
     tenant_id: UUID,
     *,
-    resume_token: str,
+    resume_token: str | None = None,
+    event_key: str | None = None,
     outcome: str,
     decision: dict[str, Any] | None = None,
     advance: bool = True,
 ) -> WorkflowRun:
-    from backend.modules.workflows.engine_resume import resume_waiting_node
+    from fastapi import HTTPException
 
-    engine = WorkflowEngine(service._db_required(), registry=service.registry)
+    from backend.modules.workflows.engine_resume import resume_waiting_node
+    from backend.modules.workflows.wait_store import resolve_wait_by_event_key
+
+    db = service._db_required()
+    token = resume_token
+    decision_payload = dict(decision or {})
+    if token is None and event_key:
+        wait = await resolve_wait_by_event_key(
+            db,
+            tenant_id=tenant_id,
+            event_key=event_key,
+            payload=decision_payload,
+        )
+        if wait is None:
+            raise HTTPException(status_code=404, detail="Pending wait not found for event_key")
+        token = wait.resume_token
+        outcome = "received"
+        if isinstance(decision_payload.get("event_payload"), dict):
+            decision_payload = {
+                **decision_payload,
+                "event_payload": decision_payload["event_payload"],
+            }
+        elif decision_payload:
+            decision_payload = {"event_payload": decision_payload}
+
+    if not token:
+        raise HTTPException(status_code=422, detail="resume_token or event_key is required")
+
+    engine = WorkflowEngine(db, registry=service.registry)
     return await resume_waiting_node(
         engine,
         tenant_id,
-        resume_token=resume_token,
+        resume_token=token,
         outcome=outcome,
-        decision=decision,
+        decision=decision_payload,
         advance=advance,
     )
 
@@ -107,8 +137,8 @@ async def test_node(
     dry_run: bool = True,
     mock_generation: bool = False,
     brand_id: UUID | None = None,
-    compile_context: CompileContext | None = None,
-):
+    compile_context: CompileContext | RuntimeClientContext | None = None,
+) -> NodeTestResponse:
     from backend.modules.workflows.node_tester import WorkflowNodeTester
 
     return await WorkflowNodeTester(service._db_required(), registry=service.registry).test_node(

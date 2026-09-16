@@ -137,9 +137,22 @@ async def resume_waiting_node(
 
         record_approval_wait(run, node_run, outcome=wait_outcome)
 
+    if node_run.node_type in {"delay", "wait", "approval"}:
+        from backend.modules.workflows.wait_store import mark_wait_resolved_by_resume_token
+
+        await mark_wait_resolved_by_resume_token(
+            engine.db,
+            resume_token=resume_token,
+            outcome=normalized,
+            payload_update={"decision": decision_payload} if decision_payload else None,
+        )
+
     snapshot["node_outputs"] = node_outputs
     run.context_snapshot = snapshot
     finalize_run_status(run, node_runs)
+    from backend.modules.workflows.occurrence_sync import sync_occurrence_for_run
+
+    await sync_occurrence_for_run(engine.db, run)
     await engine.db.flush()
 
     if advance and run.status == WorkflowRunStatus.RUNNING.value:

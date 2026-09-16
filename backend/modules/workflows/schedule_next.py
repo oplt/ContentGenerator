@@ -1,8 +1,8 @@
-"""Compute next_run_at for automation schedules (timezone-aware)."""
+"""Compute next_run_at for automation schedules (timezone-aware, DST-safe)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
@@ -32,6 +32,46 @@ def occurrence_key(scheduled_for: datetime) -> str:
     return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def combine_local_wall_time(
+    tz: ZoneInfo,
+    day: date,
+    hour: int,
+    minute: int,
+) -> datetime:
+    """Map a local wall clock to a timezone-aware datetime.
+
+    DST policy (documented):
+    * **Nonexistent** (spring forward gap, e.g. 02:30 Europe/Brussels):
+      advance minute-by-minute to the first valid local time after the gap.
+    * **Ambiguous** (autumn overlap): prefer ``fold=0`` (the earlier occurrence).
+    """
+    probe = datetime(day.year, day.month, day.day, hour, minute)
+    for _ in range(0, 180):  # up to 3h of gap walking
+        cand = datetime(
+            probe.year,
+            probe.month,
+            probe.day,
+            probe.hour,
+            probe.minute,
+            tzinfo=tz,
+            fold=0,
+        )
+        back = cand.astimezone(timezone.utc).astimezone(tz)
+        if (
+            back.year == probe.year
+            and back.month == probe.month
+            and back.day == probe.day
+            and back.hour == probe.hour
+            and back.minute == probe.minute
+        ):
+            # Ambiguous: fold=0 vs fold=1 differ in UTC — keep fold=0 (earlier).
+            return cand
+        probe += timedelta(minutes=1)
+    raise ValueError(
+        f"unable to resolve local wall time {day.isoformat()} {hour:02d}:{minute:02d} in {tz}"
+    )
+
+
 def compute_next_run_at(
     *,
     trigger_config: dict[str, object] | TriggerConfig,
@@ -59,28 +99,31 @@ def compute_next_run_at(
 
     if isinstance(cfg, DailyTriggerConfig):
         hour, minute = _parse_hhmm(cfg.at)
-        candidate = local_after.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        day = local_after.date()
+        candidate = combine_local_wall_time(tz, day, hour, minute)
         if candidate <= local_after:
-            candidate = candidate + timedelta(days=1)
+            candidate = combine_local_wall_time(tz, day + timedelta(days=1), hour, minute)
         return candidate.astimezone(timezone.utc)
 
     if isinstance(cfg, WeeklyTriggerConfig):
         hour, minute = _parse_hhmm(cfg.at)
         wanted = {_WEEKDAY_INDEX[d] for d in cfg.days}
         for offset in range(0, 8):
-            day = local_after + timedelta(days=offset)
-            candidate = day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            day = (local_after + timedelta(days=offset)).date()
+            candidate = combine_local_wall_time(tz, day, hour, minute)
             if candidate.weekday() in wanted and candidate > local_after:
                 return candidate.astimezone(timezone.utc)
         raise ValueError("unable to compute weekly next_run_at")
 
-    # cron
+    # cron — croniter walks local wall times; normalize tz if naive.
     itr = croniter(cfg.expr, local_after)
     nxt_local = itr.get_next(datetime)
     if not isinstance(nxt_local, datetime):
         raise TypeError("croniter returned non-datetime")
     if nxt_local.tzinfo is None:
-        nxt_local = nxt_local.replace(tzinfo=tz)
+        nxt_local = combine_local_wall_time(
+            tz, nxt_local.date(), nxt_local.hour, nxt_local.minute
+        )
     return nxt_local.astimezone(timezone.utc)
 
 

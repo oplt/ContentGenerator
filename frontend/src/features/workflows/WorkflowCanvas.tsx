@@ -15,7 +15,7 @@ import {
   type OnSelectionChangeParams,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { WorkflowGraph } from "../../api/workflows";
+import type { WorkflowGraph, WorkflowNodeDefinition } from "../../api/workflows";
 import { Button } from "../../components/ui/button";
 import { WorkflowCanvasNode } from "./WorkflowCanvasNode";
 import {
@@ -24,12 +24,16 @@ import {
   graphToFlow,
   type WorkflowNodeData,
 } from "./canvasGraph";
+import { DEFAULT_HANDLE_ID, findPort, portsCompatible } from "./portCompatibility";
 
 const nodeTypes = { workflow: WorkflowCanvasNode };
 
 type Props = {
   graph: WorkflowGraph;
   displayNames: Record<string, string>;
+  catalog?: WorkflowNodeDefinition[];
+  invalidNodeIds?: string[];
+  runStatuses?: Record<string, string | null | undefined>;
   selectedNodeId: string | null;
   onGraphChange: (graph: WorkflowGraph) => void;
   onSelectNode: (nodeId: string | null) => void;
@@ -40,35 +44,60 @@ type Props = {
 function CanvasInner({
   graph,
   displayNames,
+  catalog,
+  invalidNodeIds,
+  runStatuses,
   selectedNodeId,
   onGraphChange,
   onSelectNode,
   onAutoLayout,
   onDuplicate,
 }: Props) {
-  const seed = useMemo(() => graphToFlow(graph, displayNames), [graph, displayNames]);
+  const flowOptions = useMemo(
+    () => ({ displayNames, catalog, invalidNodeIds, runStatuses }),
+    [catalog, displayNames, invalidNodeIds, runStatuses],
+  );
+  const seed = useMemo(() => graphToFlow(graph, flowOptions), [graph, flowOptions]);
   const [nodes, setNodes, onNodesChange] = useNodesState(seed.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(seed.edges);
   const { fitView, getNodes, getEdges } = useReactFlow<Node<WorkflowNodeData>>();
   const skipSync = useRef(false);
   const metaRef = useRef(graph.metadata);
-  metaRef.current = graph.metadata;
+
+  useEffect(() => {
+    metaRef.current = graph.metadata;
+  }, [graph.metadata]);
 
   useEffect(() => {
     if (skipSync.current) {
       skipSync.current = false;
       return;
     }
-    const next = graphToFlow(graph, displayNames);
+    const next = graphToFlow(graph, flowOptions);
     setNodes(next.nodes);
     setEdges(next.edges);
-  }, [graph, displayNames, setNodes, setEdges]);
+  }, [flowOptions, graph, setEdges, setNodes]);
 
   useEffect(() => {
     setNodes((current) =>
       current.map((node) => ({ ...node, selected: node.id === selectedNodeId })),
     );
   }, [selectedNodeId, setNodes]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        if (selectedNodeId) onDuplicate();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onDuplicate, selectedNodeId]);
 
   const pushGraph = useCallback(
     (nextNodes: Node<WorkflowNodeData>[], nextEdges: Edge[]) => {
@@ -78,20 +107,48 @@ function CanvasInner({
     [onGraphChange],
   );
 
+  const isValidConnection = useCallback(
+    (connection: Connection | Edge) => {
+      if (!connection.source || !connection.target) return false;
+      if (connection.source === connection.target) return false;
+      const sourceNode = nodes.find((node) => node.id === connection.source);
+      const targetNode = nodes.find((node) => node.id === connection.target);
+      if (!sourceNode || !targetNode) return false;
+      if (sourceNode.data.unavailable || targetNode.data.unavailable) return false;
+      const sourcePort = findPort(sourceNode.data.outputPorts, connection.sourceHandle);
+      const targetPort = findPort(targetNode.data.inputPorts, connection.targetHandle);
+      return portsCompatible(sourcePort, targetPort);
+    },
+    [nodes],
+  );
+
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (!isValidConnection(connection)) return;
       const source = nodes.find((node) => node.id === connection.source);
       const condition = defaultEdgeCondition(source?.data.type ?? "");
+      const sourcePort =
+        connection.sourceHandle && connection.sourceHandle !== DEFAULT_HANDLE_ID
+          ? connection.sourceHandle
+          : null;
+      const targetPort =
+        connection.targetHandle && connection.targetHandle !== DEFAULT_HANDLE_ID
+          ? connection.targetHandle
+          : null;
       setEdges((current) => {
         const next = addEdge(
-          { ...connection, data: { condition }, label: condition ?? undefined },
+          {
+            ...connection,
+            data: { condition, source_port: sourcePort, target_port: targetPort },
+            label: condition ?? undefined,
+          },
           current,
         );
         pushGraph(nodes, next);
         return next;
       });
     },
-    [nodes, pushGraph, setEdges],
+    [isValidConnection, nodes, pushGraph, setEdges],
   );
 
   const onNodeDragStop = useCallback(() => {
@@ -149,6 +206,7 @@ function CanvasInner({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          isValidConnection={isValidConnection}
           onNodeDragStop={onNodeDragStop}
           onSelectionChange={onSelectionChange}
           onNodesDelete={onNodesDelete}

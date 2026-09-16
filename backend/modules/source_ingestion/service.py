@@ -10,10 +10,8 @@ from backend.core.time_utils import utc_now
 from backend.modules.audit.service import AuditService
 from backend.modules.source_ingestion.adapters import (
     FetchedArticle,
-    get_source_adapter,
 )
 from backend.modules.source_ingestion.models import (
-    CircuitState,
     RawArticle,
     Source,
     SourceFetchRun,
@@ -28,6 +26,7 @@ from backend.modules.source_ingestion.fetch_cache import (
     semantic_duplicate,
 )
 from backend.modules.source_ingestion.scheduling import compute_next_poll_at
+from backend.modules.source_ingestion.source_health import collect_source_health
 from backend.modules.source_ingestion.schemas import (
     IngestionTriggerResponse,
     SourceActionResponse,
@@ -183,55 +182,7 @@ class SourceIngestionService:
         )
 
     async def source_health(self, tenant_id: UUID) -> list[SourceHealthResponse]:
-        from backend.core.config import settings
-        from backend.core.http import map_concurrent
-
-        sources = await self.repo.list_sources(tenant_id)
-
-        async def _check(source: Source) -> SourceHealthResponse:
-            try:
-                connector_health = await get_source_adapter(source).healthcheck()
-                status = connector_health.get("status", "healthy")
-            except Exception:
-                status = "unhealthy"
-            if source.circuit_state == CircuitState.OPEN.value and source.negative_cache_until:
-                status = "degraded"
-            elif not source.active:
-                status = "paused"
-            return SourceHealthResponse(
-                source_id=source.id,
-                status=status,
-                failure_count=source.failure_count,
-                success_count=source.success_count,
-                circuit_state=source.circuit_state,
-                negative_cache_until=source.negative_cache_until,
-                last_success_at=source.last_success_at,
-            )
-
-        outcomes = await map_concurrent(
-            sources,
-            _check,
-            limit=max(1, settings.HTTP_INGESTION_HEALTH_CONCURRENCY),
-            return_exceptions=True,
-        )
-        health_items: list[SourceHealthResponse] = []
-        for index, outcome in enumerate(outcomes):
-            if isinstance(outcome, Exception):
-                source = sources[index]
-                health_items.append(
-                    SourceHealthResponse(
-                        source_id=source.id,
-                        status="unhealthy",
-                        failure_count=source.failure_count,
-                        success_count=source.success_count,
-                        circuit_state=source.circuit_state,
-                        negative_cache_until=source.negative_cache_until,
-                        last_success_at=source.last_success_at,
-                    )
-                )
-            else:
-                health_items.append(outcome)
-        return health_items
+        return await collect_source_health(self.repo, tenant_id)
 
     def _semantic_duplicate(
         self,
@@ -257,22 +208,31 @@ class SourceIngestionService:
 
         return await run_ingestion_workflow(tenant_id=tenant_id, source_id=source_id)
 
-    async def queue_ingestion(self, tenant_id: UUID, source_id: UUID) -> tuple[SourceFetchRun, bool]:
+    async def queue_ingestion(
+        self,
+        tenant_id: UUID,
+        source_id: UUID,
+        *,
+        correlation_id: str | None = None,
+    ) -> tuple[SourceFetchRun, bool]:
         """Create one durable queued run for a manual ingestion request."""
         source = await self.get_source(tenant_id, source_id)
         existing = await self.repo.get_open_fetch_run(tenant_id=tenant_id, source_id=source.id)
         if existing is not None:
             return existing, False
 
+        metadata: dict[str, object] = {
+            "trigger": "manual",
+            "celery_task_id": str(uuid4()),
+        }
+        if correlation_id:
+            metadata["correlation_id"] = correlation_id
         run = await self.repo.create_fetch_run(
             SourceFetchRun(
                 tenant_id=tenant_id,
                 source_id=source.id,
                 status="queued",
-                fetch_metadata={
-                    "trigger": "manual",
-                    "celery_task_id": str(uuid4()),
-                },
+                fetch_metadata=metadata,
             )
         )
         return run, True

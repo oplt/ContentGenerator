@@ -117,7 +117,7 @@ def test_manual_trigger_execute() -> None:
 
 
 def test_stub_node_raises_not_implemented() -> None:
-    node = build_default_registry().get("research_sources")
+    node = build_default_registry().get("schedule_trigger")
     context = build_node_context(tenant_id=uuid.uuid4())
 
     async def _run() -> None:
@@ -125,6 +125,19 @@ def test_stub_node_raises_not_implemented() -> None:
             await node.execute(context, node.validate_inputs({}), node.validate_config({}))
 
     asyncio.run(_run())
+
+
+def test_stub_nodes_are_marked_unavailable() -> None:
+    registry = build_default_registry()
+    schedule = registry.get("schedule_trigger")
+    webhook = registry.get("webhook_trigger")
+    assert schedule.implementation_status.value == "unavailable"
+    assert webhook.implementation_status.value == "stable"
+    assert schedule.is_executable() is False
+    assert webhook.is_executable() is True
+    assert registry.to_definition(schedule).executable is False
+    assert registry.to_definition(webhook).executable is True
+    assert registry.to_definition(registry.get("generate_text")).executable is True
 
 
 def test_implemented_slice_nodes_present() -> None:

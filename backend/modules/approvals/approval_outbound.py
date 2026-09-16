@@ -8,14 +8,11 @@ from fastapi import HTTPException
 
 from backend.core.config import settings
 from backend.modules.approvals.approval_helpers import (
-    build_summary_text,
-    build_telegram_asset_previews,
     create_or_refresh_request,
     risk_payload_for_job,
     telegram_runtime,
 )
 from backend.modules.approvals.models import ApprovalIntent, ApprovalMessage, ApprovalRequest
-from backend.modules.approvals.providers import get_whatsapp_provider
 from backend.modules.story_intelligence.models import TrendWorkflowState
 
 
@@ -25,11 +22,18 @@ async def send_for_approval(
     tenant_id: UUID,
     content_job_id: UUID,
     recipient: str | None,
+    channels: list[str] | None = None,
+    deliver: bool = True,
 ) -> ApprovalRequest:
     runtime_config = await svc.settings_service.resolve_whatsapp_runtime_config(tenant_id)
     resolved_recipient = (recipient or runtime_config.recipient or settings.WHATSAPP_DEFAULT_RECIPIENT).strip()
-    if not resolved_recipient:
+    # in_app-only workflows may omit a messaging recipient.
+    channel_list = [str(c).strip().lower() for c in (channels or ["telegram", "whatsapp"]) if str(c).strip()]
+    messaging = [c for c in channel_list if c not in {"in_app"}]
+    if messaging and not resolved_recipient:
         raise HTTPException(status_code=400, detail="No approval recipient configured for this tenant")
+    if not resolved_recipient:
+        resolved_recipient = "in_app"
 
     content_job = await svc.content_repo.get_job(tenant_id, content_job_id)
     if not content_job:
@@ -37,7 +41,15 @@ async def send_for_approval(
     risk_payload = risk_payload_for_job(content_job)
     if risk_payload["risk_label"] == "blocked":
         raise HTTPException(status_code=422, detail="Risk review blocked this content from operator approval")
-    request = await create_or_refresh_request(svc, 
+
+    # Preserve existing workflow binding across create/refresh (revision path).
+    prior_payload: dict = {}
+    existing = await svc.repo.get_request_for_content_job(content_job_id)
+    if existing is not None and isinstance(existing.response_payload_json, dict):
+        prior_payload = dict(existing.response_payload_json)
+
+    request = await create_or_refresh_request(
+        svc,
         tenant_id=tenant_id,
         content_job_id=content_job_id,
         recipient=resolved_recipient,
@@ -48,57 +60,21 @@ async def send_for_approval(
         buttons_json=["approve", "reject", "revise", "trim", "edit_cta", "publish_gate"],
     )
 
-    telegram_config, telegram = await telegram_runtime(svc, tenant_id)
-    if telegram:
-        headline, platform_previews = await build_telegram_asset_previews(svc, tenant_id, content_job_id)
-        tg_result = await telegram.send_asset_card(
-            headline=headline,
-            platform_previews=platform_previews,
-            approval_request_id=str(request.id),
-            risk_level=str(risk_payload["risk_label"]),
-        )
-        request.provider_request_id = tg_result.get("message_id")
-        request.telegram_message_id = tg_result.get("message_id")
-        request.last_sent_at = datetime.now(timezone.utc)
-        await svc.repo.create_message(
-            ApprovalMessage(
-                approval_request_id=request.id,
-                direction="outbound",
-                channel="telegram",
-                provider_message_id=tg_result.get("message_id"),
-                message_type="asset_card",
-                raw_text=headline,
-                parsed_intent=ApprovalIntent.UNKNOWN.value,
-                intent_confidence=1.0,
-                payload=tg_result,
-            )
-        )
-    else:
-        provider = get_whatsapp_provider(runtime_config)
-        message_text = await build_summary_text(svc, tenant_id, content_job_id, request.id)
-        send_result = await provider.send_message(to=request.recipient, text=message_text)
-        request.channel = "whatsapp"
-        request.provider = runtime_config.provider
-        request.provider_request_id = send_result.get("message_id")
-        request.last_sent_at = datetime.now(timezone.utc)
-        await svc.repo.create_message(
-            ApprovalMessage(
-                approval_request_id=request.id,
-                direction="outbound",
-                channel="whatsapp",
-                provider_message_id=send_result.get("message_id"),
-                message_type="text",
-                raw_text=message_text,
-                parsed_intent=ApprovalIntent.UNKNOWN.value,
-                intent_confidence=1.0,
-                payload=send_result,
-            )
+    if deliver:
+        from backend.modules.workflows.approval_delivery import ApprovalDeliveryService
+
+        await ApprovalDeliveryService().deliver(
+            svc,
+            request,
+            tenant_id=tenant_id,
+            content_job_id=content_job_id,
+            channels=channel_list,
         )
 
-    request.response_payload_json = {
-        **request.response_payload_json,
-        **risk_payload,
-    }
+    merged = {**prior_payload, **dict(request.response_payload_json or {}), **risk_payload}
+    if "workflow" in prior_payload and "workflow" not in merged:
+        merged["workflow"] = prior_payload["workflow"]
+    request.response_payload_json = merged
 
     if content_job:
         plan = await svc.content_service.plan_repo.get_content_plan(tenant_id, content_job.content_plan_id)
@@ -114,7 +90,12 @@ async def send_for_approval(
         entity_type="approval_request",
         entity_id=str(request.id),
         message="Approval request sent",
-        payload={"content_job_id": str(content_job_id), "recipient": request.recipient, "approval_type": "asset"},
+        payload={
+            "content_job_id": str(content_job_id),
+            "recipient": request.recipient,
+            "approval_type": "asset",
+            "channels": channel_list,
+        },
         payload_schema="approval.request.v1",
     )
     await svc.db.flush()
@@ -269,5 +250,4 @@ async def send_publish_for_approval(
     )
     await svc.db.flush()
     return request
-
 

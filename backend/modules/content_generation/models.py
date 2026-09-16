@@ -3,8 +3,9 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -87,6 +88,7 @@ class GeneratedAssetGroupStatus(str, enum.Enum):
 class ContentJob(UUIDPrimaryKeyMixin, TimestampMixin, VersionMixin, Base):
     __tablename__ = "content_jobs"
     __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_content_jobs_tenant_id_id"),
         Index("ix_content_jobs_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_content_jobs_content_plan_id", "content_plan_id"),
         Index("ix_content_jobs_tenant_id_status", "tenant_id", "status"),
@@ -206,3 +208,73 @@ class GeneratedAsset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base)
     asset_metadata: Mapped[dict[str, str]] = mapped_column("metadata", default=dict, nullable=False)
     source_trace: Mapped[dict[str, str]] = mapped_column(default=dict, nullable=False)
     text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ContentVariant(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """Durable account/platform specialization of canonical content (Phase 10).
+
+    Distinct from GeneratedAsset TEXT_VARIANT (generation-time drafts). This row is
+    what PlatformTransform produces and what Publish consumes.
+    """
+
+    __tablename__ = "content_variants"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "content_job_id",
+            "fingerprint",
+            name="uq_content_variants_tenant_job_fingerprint",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_content_variants_tenant_id_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "content_job_id"],
+            ["content_jobs.tenant_id", "content_jobs.id"],
+            name="fk_content_variants_tenant_content_job",
+            ondelete="CASCADE",
+        ),
+        Index("ix_content_variants_tenant_id_content_job_id", "tenant_id", "content_job_id"),
+        Index("ix_content_variants_tenant_id_platform", "tenant_id", "platform"),
+        Index("ix_content_variants_workflow_run_id", "workflow_run_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    content_job_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    workflow_run_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    media_refs: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class ContentVariantTarget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Maps a ContentVariant to one or more SocialAccount targets."""
+
+    __tablename__ = "content_variant_targets"
+    __table_args__ = (
+        UniqueConstraint(
+            "variant_id",
+            "social_account_id",
+            name="uq_content_variant_targets_variant_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "variant_id"],
+            ["content_variants.tenant_id", "content_variants.id"],
+            name="fk_content_variant_targets_tenant_variant",
+            ondelete="CASCADE",
+        ),
+        Index("ix_content_variant_targets_variant_id", "variant_id"),
+        Index("ix_content_variant_targets_social_account_id", "social_account_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    social_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("social_accounts.id", ondelete="CASCADE"), nullable=False
+    )

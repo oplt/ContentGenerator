@@ -2,11 +2,11 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable
 
-import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from backend.core.request_context import clear_request_context, set_correlation_id
 from backend.core.telemetry import bind_correlation_context
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
@@ -29,8 +29,8 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
             request.headers.get(REQUEST_ID_HEADER)
             or request.headers.get(CORRELATION_ID_HEADER)
         )
-        structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(correlation_id=correlation_id)
+        clear_request_context()
+        set_correlation_id(correlation_id)
         bind_correlation_context(correlation_id)
         request.state.correlation_id = correlation_id
         try:
@@ -39,4 +39,5 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
             response.headers[CORRELATION_ID_HEADER] = correlation_id
             return response
         finally:
-            structlog.contextvars.clear_contextvars()
+            # Clear only after inner RequestLogging has written request_complete.
+            clear_request_context()

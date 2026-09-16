@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.workflows.compiler import WorkflowCompileResult, WorkflowCompiler
-from backend.modules.workflows.graph_schema import CompileContext, WorkflowGraph
+from backend.modules.workflows.graph_schema import CompileContext, RuntimeClientContext, WorkflowGraph
 from backend.modules.workflows.models import WorkflowDefinition, WorkflowVersion
 from backend.modules.workflows.nodes.base import WorkflowNodeNotFoundError
 from backend.modules.workflows.registry import WorkflowNodeRegistry, get_default_registry
@@ -19,6 +19,7 @@ from backend.modules.workflows.run_repository import WorkflowRunRepository
 from backend.modules.workflows.schemas import (
     NodeConfigValidateResponse,
     NodeDefinitionResponse,
+    NodeTestResponse,
 )
 from backend.modules.workflows.versioning import WorkflowVersioningService
 
@@ -202,7 +203,7 @@ class WorkflowService:
         automation_id: UUID | None = None,
         brand_id: UUID | None = None,
         correlation_id: str | None = None,
-        compile_context: CompileContext | None = None,
+        compile_context: CompileContext | RuntimeClientContext | None = None,
         trigger_type: str = "manual",
         run_config: dict[str, Any] | None = None,
         advance: bool = True,
@@ -232,7 +233,7 @@ class WorkflowService:
             actor_user_id=actor_user_id,
         )
 
-    async def test_node(self, **kwargs: Any):
+    async def test_node(self, **kwargs: Any) -> NodeTestResponse:
         from backend.modules.workflows import service_runtime
 
         return await service_runtime.test_node(self, **kwargs)

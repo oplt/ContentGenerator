@@ -37,9 +37,11 @@ export function WorkflowStepList({
           >
             {catalog
               .filter((node) => !node.type.endsWith("_trigger"))
+              .filter((node) => node.executable !== false && node.implementation_status !== "unavailable")
               .map((node) => (
                 <option key={node.type} value={node.type}>
                   {node.display_name}
+                  {node.implementation_status === "beta" ? " (beta)" : ""}
                 </option>
               ))}
           </select>

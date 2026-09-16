@@ -25,11 +25,12 @@ def validate_control_flow(
         if node.type == "condition":
             errors.extend(_condition_errors(node_id, node, outgoing.get(node_id, [])))
         elif node.type == "merge":
-            if len(incoming.get(node_id, [])) < 2:
+            n_in = len(incoming.get(node_id, []))
+            if n_in < 1:
                 errors.append(
                     WorkflowCompileError(
-                        code="merge_requires_multiple_inputs",
-                        message=f"merge '{node_id}' requires at least two incoming edges",
+                        code="merge_requires_inputs",
+                        message=f"merge '{node_id}' requires at least one incoming edge",
                         node_id=node_id,
                         node_type="merge",
                     )
@@ -42,7 +43,7 @@ def validate_control_flow(
                         code="fan_out_single_successor",
                         message=(
                             f"fan_out '{node_id}' must have exactly one outgoing edge "
-                            "(data fan-out; parallel graph instances later)"
+                            "(spawns one WorkflowNodeRun per item on that successor)"
                         ),
                         node_id=node_id,
                         node_type="fan_out",
