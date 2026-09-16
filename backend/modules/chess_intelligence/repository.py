@@ -77,8 +77,12 @@ class ChessGameRepository:
         provider: str,
         external_id: str,
     ) -> ChessGame | None:
-        """Canonical catalog hit — callers must not refetch provider PGN when present."""
-        result = await self.db.execute(
+        """Canonical catalog hit — denormalized primary *or* any ChessGameSource row.
+
+        Secondary providers attach provenance without rewriting ``ChessGame.source_*``;
+        lookups must still find the game via ``chess_game_sources``.
+        """
+        primary = await self.db.execute(
             select(ChessGame).where(
                 ChessGame.tenant_id == tenant_id,
                 ChessGame.source_provider == provider,
@@ -86,7 +90,26 @@ class ChessGameRepository:
                 ChessGame.deleted_at.is_(None),
             )
         )
-        return result.scalar_one_or_none()
+        hit = primary.scalar_one_or_none()
+        if hit is not None:
+            return hit
+
+        via_source = await self.db.execute(
+            select(ChessGame)
+            .join(
+                ChessGameSource,
+                ChessGameSource.chess_game_id == ChessGame.id,
+            )
+            .where(
+                ChessGame.tenant_id == tenant_id,
+                ChessGame.deleted_at.is_(None),
+                ChessGameSource.tenant_id == tenant_id,
+                ChessGameSource.provider == provider,
+                ChessGameSource.external_id == external_id,
+            )
+            .limit(1)
+        )
+        return via_source.scalar_one_or_none()
 
     async def add_many(self, games: Sequence[ChessGame]) -> int:
         if not games:
@@ -222,6 +245,53 @@ class ChessPuzzleRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_daily_for_day(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        day_utc: str,
+    ) -> ChessPuzzle | None:
+        """Return catalog puzzle marked as the UTC daily for ``day_utc``, if any.
+
+        Filters in Python after a bounded recent fetch so SQLite test DBs and
+        PostgreSQL JSON columns behave the same (``.contains`` is dialect-specific).
+        """
+        result = await self.db.execute(
+            select(ChessPuzzle)
+            .where(
+                ChessPuzzle.tenant_id == tenant_id,
+                ChessPuzzle.deleted_at.is_(None),
+            )
+            .order_by(ChessPuzzle.retrieved_at.desc().nullslast(), ChessPuzzle.created_at.desc())
+            .limit(100)
+        )
+        for puzzle in result.scalars().all():
+            meta = puzzle.source_metadata or {}
+            if meta.get("daily_utc") == day_utc:
+                return puzzle
+        return None
+
+    async def get_latest_daily(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+    ) -> ChessPuzzle | None:
+        """Most recently retrieved puzzle that was marked as a daily (any day)."""
+        result = await self.db.execute(
+            select(ChessPuzzle)
+            .where(
+                ChessPuzzle.tenant_id == tenant_id,
+                ChessPuzzle.deleted_at.is_(None),
+            )
+            .order_by(ChessPuzzle.retrieved_at.desc().nullslast(), ChessPuzzle.created_at.desc())
+            .limit(100)
+        )
+        for puzzle in result.scalars().all():
+            meta = puzzle.source_metadata or {}
+            if meta.get("daily_utc"):
+                return puzzle
+        return None
 
     async def existing_external_ids(
         self,

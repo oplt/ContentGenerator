@@ -16,20 +16,25 @@ Related: Phase 1 architecture note — [`docs/chess-video-phase1-architecture.md
 ## Architecture
 
 ```text
-PGN/SAN/UCI
-     ↓
-python-chess (parser)
-     ↓
-Normalized Game
-     ↓
-Pillow Frames (one position at a time)
-     ↓
-FFmpeg (single encode)
-     ↓
-MP4 + thumbnail.png
-     ↓
-S3/MinIO (upload_file)
+PGN/SAN/UCI  (paste)     OR     ChessGame.normalized_pgn (catalog id)
+                \                     /
+                 ↓                   ↓
+              python-chess (parser)
+                 ↓
+              Normalized Game
+                 ↓
+              Pillow Frames (one position at a time)
+                 ↓
+              FFmpeg (single encode)
+                 ↓
+              MP4 + thumbnail.png
+                 ↓
+              S3/MinIO (upload_file)
 ```
+
+§22 — `chess_video/` is **downstream only**. It must not call Lichess/Chess.com,
+download PGNs, or run dedupe/ingestion. Catalog selection uses
+`chess_game_id` → local DB PGN. Manual PGN/SAN/UCI remains supported.
 
 ## Supported move formats
 

@@ -43,6 +43,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="Require all listed themes (AND)",
     )
+    p.add_argument(
+        "--openings",
+        nargs="*",
+        default=[],
+        help="Keep puzzles matching any listed opening tag",
+    )
+    p.add_argument("--date-from", default=None, help="DailyDate >= YYYY-MM-DD when present")
+    p.add_argument("--date-to", default=None, help="DailyDate <= YYYY-MM-DD when present")
     p.add_argument("--batch-size", type=int, default=200)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--import-batch-id", default=None)
@@ -65,6 +73,9 @@ async def _run(args: argparse.Namespace) -> int:
         max_rating=args.max_rating,
         min_popularity=args.min_popularity,
         themes=list(args.themes or []),
+        openings=list(args.openings or []),
+        daily_date_from=args.date_from,
+        daily_date_to=args.date_to,
         import_batch_id=args.import_batch_id,
     )
     async with SessionLocal() as db:

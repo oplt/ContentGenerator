@@ -2,6 +2,17 @@
 
 Canonical catalog for games/puzzles. Separate from `chess_video` (render only).
 
+**Hybrid SoT (§32):** external providers/archives → normalize → fingerprint/dedupe →
+**local canonical catalog** → famous/recent/puzzles → optional Stockfish → moments →
+content opportunity → SignalForge workflow → chess video → review/publish.
+Operator diagram + concept table: [`chess.md`](./chess.md#hybrid-architecture-32).
+Operational runbook (bootstrap / sync / daily / inspect / reanalyze):
+[`chess.md`](./chess.md#operational-runbook-33).
+Security / scrape / famous annotation rules:
+[`chess.md`](./chess.md#security--external-service-rules-34).
+Target architecture map (§37):
+[`chess.md`](./chess.md#target-architecture-37) / `target_architecture.py`.
+
 ## Persist vs domain-only
 
 | Concept | Decision | Why |
@@ -79,21 +90,38 @@ Streaming importer (never load whole file):
          → batch dedupe vs DB → commit
 ```
 
-* `importers/pgn_archive.py` — `PgnArchiveImporter`
+* `importers/pgn_archive.py` — `PgnArchiveImporter` (only historical PGN importer)
+* `historical_assets.py` — durable-asset policy (no scheduled full redownload)
 * `repository.py` — fingerprint lookups / batch insert
 * CLI: `python -m backend.scripts.import_chess_pgn --file … --tenant-id … [--provider] [--source-name] [--batch-size] [--dry-run] [--skip-games]`
 
-Idempotent via `game_fingerprint`. Provenance in `source_metadata` (`source_name`, `archive_file`, `game_index`, `import_batch`).
+**Durable local assets:** historical games are bootstrapped once (or on operator/version trigger), then served from the catalog. Re-running the same archive identity is idempotent (`inserted=0`, `linked_source=0`, `skipped_duplicate=N`). Do not schedule daily famous/historical PGN redownload. Famous curation only tags existing rows.
+
+**Import manifesting (§4):** no separate manifest table. Reproducibility lives on `ChessCatalogJob` (`params`/`result` + `import_batch_id`) and `ChessGameSource` metadata. Catalog PGN/puzzle jobs stream `sha256` + size into `archive_manifest` on the job result (and onto source rows for PGN). Raw archives stay on disk/object storage.
+
+**Operational catalog (§18):** do not treat hybrid ingest as “download every game into PostgreSQL.” Prefer selective import (`max_games`, year/player/event/rating/source filters via `operational_catalog.py` + job/CLI params) into the content-ops catalog. Caps: `CHESS_PGN_IMPORT_MAX_GAMES_CAP`, `CHESS_PROVIDER_SYNC_MAX_GAMES_CAP`.
+
+Idempotent via `game_fingerprint`. Provenance in `source_metadata` (`source_name`, `archive_file`, `game_index`, `import_batch`, `ingestion_mode`, optional `archive_sha256`).
 
 ## Phase 5 — Fingerprint + multi-source
 
-Fingerprint (unchanged formula):
+Fingerprint (unchanged formula; §17 sole identity layer):
 
 ```text
 sha256(starting_fen | " ".join(uci_moves) | result)
 ```
 
-Player names excluded on purpose (spelling variance). `normalize_player_name()` exists for catalog matching only.
+Stable across comments, formatting, header order, and annotations after parse.
+Player names and **provider external IDs** are excluded (provenance only — never
+canonical game IDs). `normalize_player_name()` is for catalog matching only.
+
+All game ingress converges on:
+
+```text
+normalize → fingerprint → ChessGameDedupeService → ChessGame + ChessGameSource
+```
+
+Providers must not implement a separate dedupe path.
 
 ```text
 ChessGame (1)
@@ -129,6 +157,32 @@ game_fingerprint (optional exact)
 
 On match: `is_famous`, `famous_title`, `historical_tags`, `source_metadata.famous_catalog_id`.
 
+**§7:** Fame is editorial metadata on the canonical game — not a second PGN and not a `FamousGame` SQL table. `enrich_famous` / `apply_famous_catalog` never call providers. Do not schedule famous historical PGN redownload (beat tokens banned in `historical_assets`).
+
+**§8 concepts (orthogonal):**
+
+| Concept | Mechanism |
+|---------|-----------|
+| Famous | persisted `is_famous` / title / tags |
+| Recent / Notable | **derived** on read (`catalog_concepts.py`) — no `is_notable` column |
+| Content opportunity | existing `compute_content_opportunity` / score table — not a second scorer |
+
+Do not overload `is_famous` for recent discoveries or content suitability.
+
+**§21 — discovery → content opportunity:**
+
+```text
+provider_sync discovery → ChessGame (never is_famous)
+        ↓
+discovery_eligibility (rating / event / player / result gates)
+        ↓
+ChessAnalysisService.enqueue (opt-in; CHESS_DISCOVERY_AUTO_ANALYZE_* or job auto_analyze)
+        ↓
+persist: ChessCriticalMoment + ChessTacticalPattern + ChessContentOpportunityScore
+```
+
+Stockfish stays **off by default**. Cheap eligibility runs before enqueue; analysis persist path already writes opportunity scores — no parallel scorer.
+
 ## Phase 7 — Lichess puzzles
 
 Official site API (public):
@@ -143,15 +197,19 @@ Normalize with `normalize_external_puzzle` — python-chess validates solution (
 
 ## Phase 8 — Bulk Lichess puzzle dataset
 
-Do **not** commit the multi-million-row dump. Download from https://database.lichess.org/#puzzles, then stream:
+§19 — puzzles stay on **`ChessPuzzle`**, separate from historical `ChessGame` storage.
+Do **not** commit the multi-million-row dump. Download from https://database.lichess.org/#puzzles, then stream a filtered/capped subset:
 
 ```text
-.csv / .csv.gz / .csv.zst → decompress → CSV → validate → batch insert
+.csv / .csv.gz / .csv.zst → decompress → CSV → filters → ChessPuzzle only
 ```
 
 * `importers/lichess_puzzles.py` — FEN before opponent move; `Moves[0]` = opponent; store player fen + `Moves[1:]`
+* `puzzle_catalog.py` — rating / themes / popularity / opening / date / source / max records
 * Idempotent on `(provider=lichess_puzzles, external_id=PuzzleId)`
-* CLI filters: `--limit --min-rating --max-rating --themes --min-popularity --batch-size --dry-run`
+* `source_game_*` is provenance only — never auto-creates `ChessGame` rows
+* Cap: `CHESS_PUZZLE_IMPORT_MAX_RECORDS_CAP` (same API scales to larger imports later)
+* CLI: `--limit --min-rating --max-rating --themes --openings --date-from/--date-to --min-popularity --batch-size --dry-run`
 
 ```bash
 cd backend && PYTHONPATH=.. .venv/bin/python -m backend.scripts.import_lichess_puzzles \
@@ -178,30 +236,34 @@ Optional PubAPI adapter for **modern online** games (not primary historical OTB)
 
 Tenant-scoped catalog under `/api/v1/chess` (`content:write`):
 
-| Method | Path |
-|--------|------|
-| GET | `/chess/games` |
-| GET | `/chess/games/famous` |
-| GET | `/chess/games/{id}` |
-| GET | `/chess/games/{id}/moves` |
-| POST | `/chess/games/import` |
-| GET | `/chess/puzzles` |
-| GET | `/chess/puzzles/daily` |
-| GET | `/chess/puzzles/{id}` |
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/chess/games` | |
+| GET | `/chess/games/famous` | |
+| GET | `/chess/games/{id}` | |
+| GET | `/chess/games/{id}/moves` | |
+| POST | `/chess/games/import` | |
+| GET | `/chess/puzzles` | |
+| GET | `/chess/puzzles/daily` | Local catalog only (stale OK; 404 if never synced) |
+| POST | `/chess/puzzles/daily/refresh` | Admin sync: provider → upsert `ChessPuzzle` |
+| GET | `/chess/puzzles/{id}` | |
 
 * Cursor pagination (`limit` ≤ 100, `created_at DESC, id DESC`)
 * Game filters: player / white / black / year / event / result / opening / ECO / famous / provider / ratings / tag
 * Puzzle filters: rating / theme / opening / popularity / provider
 * Search indexes: migration `e5f6a7b8c9d1`
-* Daily puzzle: Lichess provider → upsert → canonical `ChessPuzzleResponse`
+* Daily puzzle: local-first GET with `is_stale` / `freshness` / `daily_utc`; provider sync via `POST /puzzles/daily/refresh` or job `daily_puzzle_sync`
 
 ## Phase 11 — Chess video pipeline bridge
 
-Catalog games reuse the **existing** chess-video stack (no second renderer):
+Catalog games reuse the **existing** chess-video stack (no second renderer).
+§22 — video stays **downstream**; never put provider ingestion in `chess_video/`.
 
 ```text
-ChessGame.normalized_pgn → ChessVideoService.create() → Celery → render/encode
+Chess Intelligence → canonical ChessGame → normalized PGN → ChessVideo pipeline
 ```
+
+Incorrect: `ChessVideoService` → call Lichess → download → dedupe.
 
 | Method | Path |
 |--------|------|
@@ -209,15 +271,18 @@ ChessGame.normalized_pgn → ChessVideoService.create() → Celery → render/en
 | POST | `/chess-videos` with `chess_game_id` (same contract) |
 
 * `ChessVideoCreateRequest` accepts `source_text` **or** `chess_game_id`
-* Defaults title/subtitle from famous title / players when unset
+* Catalog resolve loads local `normalized_pgn` only (`ChessCatalogQuery`)
+* Manual PGN / SAN / UCI paste workflows preserved
+* Guard: `chess_video/boundary.py` + `test_chess_video_boundary.py`
 * Fingerprinting, cache reuse, retry, storage unchanged
 
 ## Phase 12 — Frontend chess workspace
 
-Feature package (keep `ChessVideoPage` thin):
+Feature package (keep `ChessVideoPage` thin). **§23** — preserve this split; no
+frontend provider APIs (`lichessApi.ts`, `chessHybrid.ts`, …).
 
 ```text
-frontend/src/api/chessData.ts          # catalog API
+frontend/src/api/chessData.ts          # catalog API (SignalForge only)
 frontend/src/api/chessVideos.ts        # render jobs only
 frontend/src/features/chess/           # panels, cards, hooks, board preview
 ```
@@ -225,6 +290,7 @@ frontend/src/features/chess/           # panels, cards, hooks, board preview
 * Catalog surfaces: search / famous / puzzles (Phase 13 splits Games vs Puzzles)
 * `CreateVideoAction` → existing renderer (`/chess/games/{id}/video` or hand-off to Create)
 * Do not grow `ChessVideoPage.tsx` with catalog logic — compose feature workspaces
+* Guard: `frontendSeparation.ts` + `structure.test.ts`
 
 ## Phase 13 — Chess UI structure
 
@@ -350,18 +416,22 @@ Code: `backend/modules/workflows/nodes/chess_*.py` (retrieve/analyze/narrative +
 
 ## Phase 19 — Source provenance
 
-Mandatory trace for every externally sourced game/puzzle:
+Mandatory trace for every externally sourced game/puzzle (§16):
 
 ```text
-provider · external id · source URL · retrieved_at · source_metadata
+provider · external id · source URL · source name · retrieved_at · source_metadata
 import_batch_id · license_note
 ```
 
 | Layer | Storage |
 |-------|---------|
-| Game | `ChessGame.source_*` + `ChessGameSource` rows (multi-provider) |
+| Game | `ChessGame.source_*` (primary sighting only) + `ChessGameSource` rows (multi-provider) |
 | Puzzle | `provider` / `external_id` + `retrieved_at` / `import_batch_id` / `license_note` |
 | Video | `chess_video_jobs.chess_game_id` → catalog → sources → PGN |
+
+Later providers **attach** another `ChessGameSource`; they never overwrite earlier
+`ChessGame.source_*`. Catalog lookup by provider/external ID uses denormalized
+primary fields **or** any linked source row. Same provider+external ID is unique.
 
 | Method | Path |
 |--------|------|
@@ -371,7 +441,7 @@ import_batch_id · license_note
 
 Source evidence (PGN/FEN/solution) is authoritative — narrative/LLM copy must not replace it.
 
-Impl: `licenses.py`, `provenance_service.py`, migration `f1a2b3c4d5e7`. UI: `ProvenancePanel`.
+Impl: `licenses.py`, `dedupe.py` (`SourceRef` + attach), `provenance_service.py`, migration `f1a2b3c4d5e7`. UI: `ProvenancePanel`.
 
 ## Phase 20 — External source rules
 
@@ -436,8 +506,26 @@ All chess persistent models are Alembic-owned. **Do not** use `create_all` for p
 | `f0a1b2c3d4e6` | Content opportunity scores |
 | `f1a2b3c4d5e7` | Puzzle provenance cols + `chess_video_jobs.chess_game_id` FK |
 | `f2a3b4c5d6e8` | Soft-delete-aware fingerprint partial uniques |
+| `f3a4b5c6d7e9` | `chess_catalog_jobs` (one execution) |
+| `f4a5b6c7d8e9` | **§27** `chess_provider_sync_states` (durable feed HWM ≠ job row) |
+| `g5a6b7c8d9e0` | **§27** `analysis_fingerprint` on `chess_analysis_jobs` + active partial unique |
 
 Guarantees: tenant FKs (`ON DELETE CASCADE`), game/job FKs, provider+external_id uniqueness (partial), fingerprint uniqueness where `deleted_at IS NULL`. Head must remain a single linear chain for existing deployments (`alembic upgrade head`).
+
+**§27 rules:** do not recreate existing chess tables; sync state stays a separate model;
+analysis caching is the smallest extension to `ChessAnalysisJob` (fingerprint column +
+indexes). Migrations include upgrade/downgrade, indexes/constraints, and safe backfill
+(`legacy:` fingerprints for existing analysis rows). Inventory: `schema_changes.py`.
+
+**§28 concurrency / idempotency:** fingerprint + source uniques, analysis fingerprint
+partial unique, provider sync-state unique key; SAVEPOINT retries on insert races
+(`dedupe`, analysis enqueue, daily puzzle sync). See `idempotency.py`.
+
+**§29 failure semantics:** remote/engine/archive failures must not erase or hide
+local catalog rows. Lichess outage → search local only; daily provider down →
+stale persisted puzzle; sync fail → HWM unchanged; Stockfish down → analysis
+job `FAILED`, game remains; malformed archive PGN → track + continue. Contract:
+`failure_semantics.py`.
 
 ## Phase 24 — Async jobs
 
@@ -454,12 +542,30 @@ Long-running chess work runs on Celery with persisted progress (not HTTP request
 
 Catalog jobs: table `chess_catalog_jobs` (migration `f3a4b5c6d7e9`), worker `run_chess_catalog_job_task` (ingestion queue, `acks_late`, dedupe-idempotent). Progress + `result` counters flush after each import batch.
 
+**Job vs sync-state (§5–6):** `ChessCatalogJob` = one execution. `ChessProviderSyncState` (migration `f4a5b6c7d8e9`, tenant-scoped) = durable feed resume point (`high_water_mark`, `cursor`, `lookback_seconds`). Each `provider_sync` run computes a bounded window (`HWM − lookback → now`, intentional overlap), searches within it, dedupes into the catalog, and advances the watermark only after a clean run. Partial failures keep the previous checkpoint; lookback recovers late/missed data.
+
 API:
 
 | Method | Path |
 |--------|------|
 | POST | `/chess/jobs` (202) |
 | GET | `/chess/jobs/{id}` |
+
+## Hybrid testing (§30)
+
+Extend existing chess tests — no second test architecture. Coverage map:
+`test_chess_section30_coverage.py` (scenarios → owning modules).
+
+| Scenario | Owning tests |
+|----------|----------------|
+| Canonical / source dedupe | `test_chess_dedupe`, `test_chess_idempotency` |
+| Archive idempotency | `test_pgn_archive_import` |
+| Incremental + failed sync | `test_chess_provider_sync_state`, `test_chess_failure_semantics` |
+| Local-first reads | `test_chess_local_first`, failure + ingestion tests |
+| Daily puzzle sync / stale | `test_chess_daily_freshness`, `test_chess_ingestion_mode` |
+| Analysis cache / profile / concurrent | `test_chess_analysis_reuse` |
+| Video from catalog | `test_chess_game_video_bridge`, `test_chess_video_boundary` |
+| Regression (manual video, puzzles, famous, opportunity, import) | existing `test_chess_*` suite |
 
 ## Phase 25 — Testing
 
@@ -478,7 +584,7 @@ Backend areas covered (see `test_chess_phase25_coverage.py`):
 | Video handoff | `test_chess_game_video_bridge` |
 | Stockfish scores / critical moments | stockfish + critical_moments |
 
-Frontend focused tests live under `frontend/src/features/chess/*.test.tsx` (search, famous, puzzles, moves, details, video bridge). Page-level smoke remains in `ChessVideoPage.test.tsx`. HTTP is mocked; unit tests do not require internet.
+Frontend focused tests live under `frontend/src/features/chess/*.test.tsx` (search, famous, puzzles, moves, details, video bridge, daily freshness, admin sync, analysis reuse). Coverage map: `section31Coverage.test.ts`. Page-level smoke remains in `ChessVideoPage.test.tsx`. HTTP is mocked via SignalForge `chessData` — unit tests never call Lichess/Chess.com.
 
 ## Phase 26 — Dependency policy
 
@@ -512,7 +618,7 @@ Canonical notes: [`chess-configuration.md`](./chess-configuration.md). Guard: `t
 
 ## Phase 31 — Observability
 
-Structured logs for provider request/latency/errors, import counts (games/puzzle), engine analysis duration/failure, and video handoff. Metrics: `cg.chess.import.total` + `cg.operation.*` / existing `cg.provider.*`.
+Structured logs for provider request/latency/errors, import counts (games/puzzle), engine analysis duration/failure, video handoff, and §20 discovery/persistence counters (`discovered`/`new_games`/`failed`/… + `high_water_mark`). Metrics: `cg.chess.import.total` + `cg.operation.*` / existing `cg.provider.*`. Never log PGNs/tokens.
 
 Canonical notes: [`chess-observability.md`](./chess-observability.md). Guard: `tests/test_chess_observability.py`.
 

@@ -2,9 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { getChessGameProvenance, type ChessGameProvenance } from "../../api/chessData";
 import { useTenantScope } from "../../hooks/useTenantScope";
 import { queryKeys } from "../../lib/queryKeys";
+import { formatDisplayDateTime } from "./sourceFreshness";
 
 export type ProvenancePanelProps = {
   gameId: string;
+  /** When false (famous), avoid fresh/stale wording around retrieval (§24). */
+  showFreshnessLanguage?: boolean;
 };
 
 function SourceRow({
@@ -25,23 +28,30 @@ function SourceRow({
   );
 }
 
-function SourceBlock({ source }: { source: NonNullable<ChessGameProvenance["primary_source"]> }) {
+function SourceBlock({
+  source,
+  retrievedLabel,
+}: {
+  source: NonNullable<ChessGameProvenance["primary_source"]>;
+  retrievedLabel: string;
+}) {
   return (
     <ul className="space-y-1 text-xs">
-      <SourceRow label="Provider" value={source.provider} />
-      <SourceRow label="External id" value={source.external_id} />
+      <SourceRow label="Source" value={source.provider} />
       <SourceRow label="URL" value={source.source_url} />
-      <SourceRow label="Batch" value={source.import_batch_id} />
       <SourceRow label="License" value={source.license_note} />
       <SourceRow
-        label="Retrieved"
-        value={source.retrieved_at ? new Date(source.retrieved_at).toLocaleString() : null}
+        label={retrievedLabel}
+        value={formatDisplayDateTime(source.retrieved_at)}
       />
     </ul>
   );
 }
 
-export function ProvenancePanel({ gameId }: ProvenancePanelProps) {
+export function ProvenancePanel({
+  gameId,
+  showFreshnessLanguage = true,
+}: ProvenancePanelProps) {
   const { tenantId, enabled } = useTenantScope();
   const query = useQuery({
     queryKey: queryKeys.chessGameProvenance(tenantId ?? "none", gameId),
@@ -50,6 +60,7 @@ export function ProvenancePanel({ gameId }: ProvenancePanelProps) {
   });
 
   const data = query.data;
+  const retrievedLabel = showFreshnessLanguage ? "Source retrieved" : "Source recorded";
 
   return (
     <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3 text-sm">
@@ -58,10 +69,12 @@ export function ProvenancePanel({ gameId }: ProvenancePanelProps) {
       {data ? (
         <>
           <p className="text-xs text-muted-foreground">{data.evidence_note}</p>
-          {data.primary_source ? <SourceBlock source={data.primary_source} /> : null}
+          {data.primary_source ? (
+            <SourceBlock source={data.primary_source} retrievedLabel={retrievedLabel} />
+          ) : null}
           {data.sources.length > 1 ? (
             <p className="text-xs text-muted-foreground">
-              {data.sources.length} provider records linked to this game
+              {data.sources.length} sources linked to this game
             </p>
           ) : null}
           <details className="text-xs text-muted-foreground">

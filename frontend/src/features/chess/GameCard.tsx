@@ -67,12 +67,27 @@ export function GameCard({
             <p className="truncate text-sm font-medium text-foreground">{title}</p>
             {game.is_famous ? (
               <Badge variant="warning" className="shrink-0">
-                ★ Famous
+                Famous
+              </Badge>
+            ) : null}
+            {game.is_recent && !game.is_famous ? (
+              <Badge variant="secondary" className="shrink-0">
+                Recent
+              </Badge>
+            ) : null}
+            {game.is_notable ? (
+              <Badge variant="outline" className="shrink-0">
+                Notable
               </Badge>
             ) : null}
           </div>
           <p className="text-xs text-muted-foreground">{gameCardMeta(game)}</p>
           {opening ? <p className="truncate text-xs text-muted-foreground">{opening}</p> : null}
+          {!game.is_famous && game.source_provider ? (
+            <p className="truncate text-xs text-muted-foreground">
+              Source · {game.source_provider}
+            </p>
+          ) : null}
         </div>
       </button>
       {showActions ? (

@@ -29,7 +29,11 @@ async def resolve_create_payload(
     tenant_id: uuid.UUID,
     payload: ChessVideoCreateRequest,
 ) -> tuple[ChessVideoCreateRequest, bool | None]:
-    """Prefer catalog ``chess_game_id`` → ``normalized_pgn``; else use ``source_text``.
+    """Prefer catalog ``chess_game_id`` → local ``normalized_pgn``; else ``source_text``.
+
+    §22 — never call providers here. Historical / recent / famous selection
+    hands a catalog id; this loads PGN from the operational DB only.
+    Manual PGN/SAN/UCI ``source_text`` remains supported.
 
     Returns ``(payload, is_famous)`` where ``is_famous`` is set when resolving a catalog game.
     """

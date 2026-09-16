@@ -1,4 +1,8 @@
-"""Apply famous-game catalog metadata onto tenant ChessGame rows."""
+"""Apply famous-game catalog metadata onto tenant ChessGame rows.
+
+Local curation only — matches YAML entries to existing catalog games.
+Does not download PGN from providers and does not create a parallel FamousGame table.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class FamousCatalogService:
+    """Mark existing ``ChessGame`` rows famous from editorial YAML."""
     def __init__(
         self,
         db: AsyncSession,

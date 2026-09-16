@@ -64,19 +64,30 @@ class RSSSourceAdapter(BaseSourceAdapter):
         diagnostics: dict[str, str],
     ) -> FetchedArticle:
         url = entry.get("link") or self.source.url
+        entry_id = entry.get("id")
+        external_id = str(entry_id).strip() if entry_id not in (None, "") else None
+        # canonical_url must always be a URL (article link). Feed GUIDs/hashes belong in
+        # external_id; aggregator discussion links (e.g. HN item) go to source_item_url.
+        metadata: dict[str, str] = {"source": self.source.name}
+        if external_id and (
+            external_id.startswith("http://") or external_id.startswith("https://")
+        ):
+            if canonicalize_url(external_id) != canonicalize_url(url):
+                metadata["source_item_url"] = external_id
         return FetchedArticle(
             url=url,
-            canonical_url=canonicalize_url(entry.get("id") or url),
+            canonical_url=canonicalize_url(url),
             title=entry.get("title", "Untitled"),
             summary=entry.get("summary"),
             body=body,
             author=entry.get("author"),
             published_at=_parse_rss_date(entry),
-            metadata={"source": self.source.name},
+            metadata=metadata,
             language=entry.get("language"),
             category_tags=list(self.source.category_tags or [self.source.category]),
             region_tags=list(self.source.region_tags or []),
             raw_payload={"entry": dict(entry)},
+            external_id=external_id,
             parser_diagnostics=diagnostics,
         )
 

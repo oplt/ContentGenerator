@@ -9,6 +9,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { useTenantScope } from "../../hooks/useTenantScope";
 import { queryKeys } from "../../lib/queryKeys";
+import { analysisEngineSummary } from "./sourceFreshness";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
@@ -98,8 +99,12 @@ export function AnalyzeGameAction({ gameId, activePly = null }: AnalyzeGameActio
       </div>
       {analysis ? (
         <p className="text-muted-foreground">
-          Status: {analysis.status}
-          {analysis.engine_name ? ` · ${analysis.engine_name}` : ""}
+          {analysisEngineSummary({
+            status: analysis.status,
+            engine_name: analysis.engine_name,
+            engine_version: analysis.engine_version,
+            reused: analysis.reused,
+          })}
           {activePly ? ` · ply ${activePly} eval ${formatEval(plyRow)}` : ""}
           {plyRow?.best_move_san ? ` · best ${plyRow.best_move_san}` : ""}
           {moments.length ? ` · ${moments.length} critical moments` : ""}

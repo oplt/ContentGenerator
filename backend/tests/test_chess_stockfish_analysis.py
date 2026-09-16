@@ -141,24 +141,24 @@ def test_analysis_service_process_job() -> None:
         game = chess_game_from_parsed(
             tenant_id=tenant_id, parsed=parsed, source_provider="manual"
         )
-        outcome = await ChessGameDedupeService(db).upsert_game(
+        upsert = await ChessGameDedupeService(db).upsert_game(
             game=game,
             source=SourceRef(provider="manual", external_id="sf1"),
         )
         await db.commit()
         fake = FakeEngine()
         svc = ChessAnalysisService(db, engine_factory=lambda: fake)
-        job = await svc.enqueue(
+        enqueued = await svc.enqueue(
             tenant_id=tenant_id,
             user_id=None,
-            game_id=outcome.game.id,
+            game_id=upsert.game.id,
         )
         await db.commit()
-        done = await svc.process_job(tenant_id=tenant_id, job_id=job.id)
+        done = await svc.process_job(tenant_id=tenant_id, job_id=enqueued.job.id)
         await db.commit()
         assert done.status == ChessAnalysisJobStatus.COMPLETED.value
         assert done.ply_count == 3
-        resp = await svc.get_job(tenant_id=tenant_id, job_id=job.id)
+        resp = await svc.get_job(tenant_id=tenant_id, job_id=enqueued.job.id)
         assert len(resp.positions) == 3
         assert resp.positions[0].played_move_san
         assert isinstance(resp.critical_moments, list)

@@ -45,6 +45,10 @@ class ChessGame(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
         Index("ix_chess_games_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_chess_games_tenant_id_result", "tenant_id", "result"),
         Index("ix_chess_games_tenant_id_provider", "tenant_id", "source_provider"),
+        Index("ix_chess_games_tenant_id_white_player", "tenant_id", "white_player"),
+        Index("ix_chess_games_tenant_id_black_player", "tenant_id", "black_player"),
+        Index("ix_chess_games_tenant_id_event", "tenant_id", "event"),
+        Index("ix_chess_games_tenant_id_game_date", "tenant_id", "game_date"),
         Index(
             "uq_chess_games_tenant_provider_external",
             "tenant_id",
@@ -97,7 +101,12 @@ class ChessGame(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
 
 class ChessGameSource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """Provenance row: many providers may point at one canonical ChessGame."""
+    """Provenance row: many providers may point at one canonical ChessGame.
+
+    §16 — later discoveries attach additional rows; they must not overwrite or
+    collapse earlier provenance. Denormalized ``ChessGame.source_*`` stays the
+    first/primary sighting only.
+    """
 
     __tablename__ = "chess_game_sources"
     __table_args__ = (
@@ -142,7 +151,12 @@ class ChessGameSource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class ChessPuzzle(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
-    """Canonical chess puzzle (provider-independent)."""
+    """Canonical chess puzzle (provider-independent).
+
+    §19 — separate from historical ``ChessGame`` storage. High-volume dumps are
+    filtered/capped into this table only; ``source_game_*`` is provenance, not a
+    foreign key that auto-imports full games.
+    """
 
     __tablename__ = "chess_puzzles"
     __table_args__ = (
@@ -224,6 +238,22 @@ class ChessAnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "chess_game_id",
             "created_at",
         ),
+        Index(
+            "ix_chess_analysis_jobs_tenant_fingerprint",
+            "tenant_id",
+            "analysis_fingerprint",
+        ),
+        # At most one active (queued/running/completed) job per analysis identity.
+        Index(
+            "uq_chess_analysis_jobs_tenant_fingerprint_active",
+            "tenant_id",
+            "analysis_fingerprint",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('queued', 'running', 'completed')"
+            ),
+            sqlite_where=text("status IN ('queued', 'running', 'completed')"),
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -256,6 +286,8 @@ class ChessAnalysisJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     engine_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     engine_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     analysis_settings: Mapped[dict[str, Any]] = mapped_column(default=dict, nullable=False)
+    # Deterministic reuse key (§12) — not the job UUID.
+    analysis_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     ply_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 class ChessPositionAnalysis(UUIDPrimaryKeyMixin, TimestampMixin, Base):

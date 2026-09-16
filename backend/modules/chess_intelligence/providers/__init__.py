@@ -27,6 +27,13 @@ from backend.modules.chess_intelligence.providers.lichess_masters import (
 from backend.modules.chess_intelligence.providers.lichess_puzzles import (
     LichessPuzzlesProvider,
 )
+from backend.modules.chess_intelligence.providers.registry import (
+    KNOWN_HISTORICAL_PROVIDERS,
+    KNOWN_PUZZLE_PROVIDERS,
+    UnknownChessProviderError,
+    get_historical_game_provider,
+    get_puzzle_provider,
+)
 
 __all__ = [
     "ChessComProvider",
@@ -41,7 +48,12 @@ __all__ = [
     "ExternalChessGameSummary",
     "ExternalChessPuzzle",
     "HistoricalGameProvider",
+    "KNOWN_HISTORICAL_PROVIDERS",
+    "KNOWN_PUZZLE_PROVIDERS",
     "LichessMastersProvider",
     "LichessPuzzlesProvider",
     "PuzzleProvider",
+    "UnknownChessProviderError",
+    "get_historical_game_provider",
+    "get_puzzle_provider",
 ]

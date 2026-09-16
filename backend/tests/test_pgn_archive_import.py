@@ -119,17 +119,78 @@ def test_import_inserts_and_dedupes() -> None:
             assert all(r.source_provider == "pgn_mentor" for r in rows)
             assert all(r.source_metadata.get("source_name") == "test_set" for r in rows)
 
-            # Idempotent re-import (same source_name + game_index)
+            # Idempotent re-import (same source_name + game_index), new batch id
             again = await PgnArchiveImporter(db).run(
                 PgnArchiveImportConfig(
                     tenant_id=tenant_id,
                     file_path=path,
                     provider="pgn_mentor",
                     source_name="test_set",
+                    import_batch_id=str(uuid.uuid4()),
                 )
             )
             assert again.inserted == 0
+            assert again.linked_source == 0
             assert again.skipped_duplicate == 3
+            assert again.existing_or_duplicate == 3
+        finally:
+            path.unlink(missing_ok=True)
+            await db.close()
+
+    asyncio.run(_run())
+
+
+def test_reimport_preserves_normalized_pgn_and_fingerprint() -> None:
+    async def _run() -> None:
+        db = await _session()
+        tenant_id = uuid.uuid4()
+        db.add(Tenant(id=tenant_id, name="T", slug=f"t-{tenant_id.hex[:8]}"))
+        await db.commit()
+        path = Path("/tmp") / f"chess_dur_{tenant_id.hex}.pgn"
+        path.write_text(_GAME_A, encoding="utf-8")
+        try:
+            await PgnArchiveImporter(db).run(
+                PgnArchiveImportConfig(
+                    tenant_id=tenant_id,
+                    file_path=path,
+                    provider="pgn_mentor",
+                    source_name="durable",
+                )
+            )
+            row = (
+                await db.execute(
+                    select(ChessGame).where(
+                        ChessGame.tenant_id == tenant_id,
+                        ChessGame.deleted_at.is_(None),
+                    )
+                )
+            ).scalar_one()
+            fingerprint = row.game_fingerprint
+            pgn = row.normalized_pgn
+            content_hash = row.content_hash
+            game_id = row.id
+
+            await PgnArchiveImporter(db).run(
+                PgnArchiveImportConfig(
+                    tenant_id=tenant_id,
+                    file_path=path,
+                    provider="pgn_mentor",
+                    source_name="durable",
+                    import_batch_id="second-batch",
+                )
+            )
+            again = (
+                await db.execute(select(ChessGame).where(ChessGame.id == game_id))
+            ).scalar_one()
+            assert again.game_fingerprint == fingerprint
+            assert again.normalized_pgn == pgn
+            assert again.content_hash == content_hash
+            sources = (
+                await db.execute(
+                    select(ChessGameSource).where(ChessGameSource.chess_game_id == game_id)
+                )
+            ).scalars().all()
+            assert len(sources) == 1
         finally:
             path.unlink(missing_ok=True)
             await db.close()

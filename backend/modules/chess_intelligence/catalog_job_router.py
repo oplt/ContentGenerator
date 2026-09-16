@@ -1,4 +1,4 @@
-"""Chess catalog async job API — `/api/v1/chess/jobs`."""
+"""Chess catalog async job API — `/api/v1/chess/jobs` (+ sync-state inspect)."""
 
 from __future__ import annotations
 
@@ -12,8 +12,13 @@ from backend.api.deps.db import get_db
 from backend.modules.chess_intelligence.catalog_job_schemas import (
     ChessCatalogJobCreateRequest,
     ChessCatalogJobResponse,
+    ChessProviderSyncStateListResponse,
+    ChessProviderSyncStateResponse,
 )
 from backend.modules.chess_intelligence.catalog_job_service import ChessCatalogJobService
+from backend.modules.chess_intelligence.provider_sync_state import (
+    ChessProviderSyncStateService,
+)
 from backend.modules.identity_access.models import TenantUser
 
 router = APIRouter()
@@ -50,3 +55,17 @@ async def get_catalog_job(
         tenant_id=membership.tenant_id, job_id=job_id
     )
     return ChessCatalogJobResponse.model_validate(job)
+
+
+@router.get("/sync-states", response_model=ChessProviderSyncStateListResponse)
+async def list_provider_sync_states(
+    membership: TenantUser = Depends(require_permission("content:write")),
+    db: AsyncSession = Depends(get_db),
+) -> ChessProviderSyncStateListResponse:
+    """§33 — inspect durable provider sync checkpoints (local DB only)."""
+    rows = await ChessProviderSyncStateService(db).list_for_tenant(
+        tenant_id=membership.tenant_id
+    )
+    return ChessProviderSyncStateListResponse(
+        items=[ChessProviderSyncStateResponse.model_validate(r) for r in rows]
+    )

@@ -1,4 +1,14 @@
-"""Provider-independent retrieval contracts + typed errors."""
+"""Provider-independent retrieval contracts + typed errors.
+
+Conceptual ChessProvider family (§15)::
+
+    HistoricalGameProvider  — remote historical game search/fetch
+    PuzzleProvider          — remote puzzle fetch
+
+Adapters live beside this module (Lichess / Chess.com). Domain code resolves
+them via ``providers.registry`` and must not teach providers about dedupe,
+fame, content opportunity, or video.
+"""
 
 from __future__ import annotations
 

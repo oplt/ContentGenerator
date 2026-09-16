@@ -103,6 +103,20 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
         max_retries=1,
         acks_late=True,  # fingerprint / external_id dedupe makes redelivery safe
     ),
+    "backend.workers.tasks.chess_catalog_daily_puzzle_fanout_task": TaskPolicy(
+        workload="io",
+        soft_time_limit=120,
+        time_limit=180,
+        max_retries=1,
+        acks_late=True,
+    ),
+    "backend.workers.tasks.chess_catalog_provider_sync_fanout_task": TaskPolicy(
+        workload="io",
+        soft_time_limit=120,
+        time_limit=180,
+        max_retries=1,
+        acks_late=True,
+    ),
     "backend.workers.tasks.send_approval_task": TaskPolicy(
         workload="io",
         soft_time_limit=120,

@@ -1,4 +1,19 @@
-"""Deterministic chess game / puzzle fingerprints for deduplication."""
+"""Deterministic chess game / puzzle fingerprints for deduplication (§17).
+
+Canonical game identity is *chess* information only::
+
+    sha256(starting_fen | " ".join(uci_moves) | result)
+
+Harmless PGN differences (comments, formatting, header order, NAGs/annotations)
+must not change the fingerprint after parse. Provider external IDs are provenance,
+never part of the fingerprint — do not treat them as canonical game IDs.
+
+All catalog ingress converges on::
+
+    normalize → fingerprint → ChessGameDedupeService
+
+Providers must not implement their own dedupe layer.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +23,7 @@ import re
 from backend.modules.chess_video.parser import ParsedChessGame
 
 # Fingerprint = starting_fen | uci_moves | result.
-# Player names / event / date intentionally excluded: historical spelling varies;
-# move sequence is the strongest stable identity (Phase 5).
+# Player names / event / date / provider ids intentionally excluded.
 
 
 def compute_game_fingerprint(
@@ -18,7 +32,7 @@ def compute_game_fingerprint(
     uci_moves: list[str],
     result: str | None,
 ) -> str:
-    """Identity hash: starting FEN + UCI sequence + result."""
+    """Identity hash: starting FEN + UCI sequence + result (not provider IDs)."""
     moves = " ".join(m.strip().lower() for m in uci_moves if m and m.strip())
     payload = f"{starting_fen.strip()}|{moves}|{(result or '*').strip()}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

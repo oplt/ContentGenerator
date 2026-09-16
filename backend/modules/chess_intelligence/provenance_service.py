@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.chess_intelligence.catalog_queries import ChessCatalogQuery
 from backend.modules.chess_intelligence.licenses import license_for_provider
+from backend.modules.chess_intelligence.models import ChessGameSource
 from backend.modules.chess_intelligence.provenance_schemas import (
     ChessGameProvenanceResponse,
     ChessPuzzleProvenanceResponse,
@@ -17,6 +18,16 @@ from backend.modules.chess_intelligence.provenance_schemas import (
 )
 from backend.modules.chess_intelligence.repository import ChessGameRepository
 from backend.modules.chess_video.repository import ChessVideoRepository
+
+
+def _source_schema(row: ChessGameSource) -> ChessSourceRecordSchema:
+    """Serialize a source row; fill known license notes when the column is blank."""
+    schema = ChessSourceRecordSchema.model_validate(row)
+    if not schema.license_note:
+        schema = schema.model_copy(
+            update={"license_note": license_for_provider(schema.provider)}
+        )
+    return schema
 
 
 class ChessProvenanceService:
@@ -35,7 +46,7 @@ class ChessProvenanceService:
         rows = await self.games.list_sources_for_game(
             tenant_id=tenant_id, chess_game_id=game_id
         )
-        sources = [ChessSourceRecordSchema.model_validate(r) for r in rows]
+        sources = [_source_schema(r) for r in rows]
         primary = next((s for s in sources if s.is_primary), None)
         if primary is None and sources:
             primary = sources[0]

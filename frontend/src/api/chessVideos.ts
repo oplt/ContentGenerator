@@ -1,3 +1,5 @@
+/** Chess video render jobs API — SignalForge only (§23). No provider clients here. */
+
 import { apiFetch, type ApiFetchOptions } from "./client";
 
 export type ChessVideoStatus =

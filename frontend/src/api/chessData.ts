@@ -1,4 +1,7 @@
-/** Provider-independent chess catalog API (games/puzzle search). */
+/** Provider-independent chess catalog API (games/puzzle/analysis) — SignalForge only (§23).
+
+Do not add `lichessApi.ts` / `chessHybrid.ts` / similar. Providers stay backend-only.
+*/
 
 import { apiFetch, type ApiFetchOptions } from "./client";
 import type { ChessVideoCreateRequest, ChessVideoJob } from "./chessVideos";
@@ -29,6 +32,10 @@ export type ChessGame = {
   is_famous: boolean;
   famous_title?: string | null;
   historical_tags: string[];
+  /** Derived: newly played/discovered — not a synonym for famous. */
+  is_recent?: boolean;
+  /** Derived: worth inspecting; orthogonal to famous + content-opportunity score. */
+  is_notable?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -47,8 +54,16 @@ export type ChessPuzzle = {
   themes: string[];
   opening_tags: string[];
   source_game_url?: string | null;
+  retrieved_at?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** Daily puzzle GET/refresh — additive freshness fields (§10). */
+export type ChessDailyPuzzle = ChessPuzzle & {
+  is_stale: boolean;
+  freshness: "fresh" | "stale";
+  daily_utc?: string | null;
 };
 
 export type ChessMove = {
@@ -236,6 +251,8 @@ export type ChessAnalysisJob = {
   engine_name?: string | null;
   engine_version?: string | null;
   analysis_settings: Record<string, unknown>;
+  analysis_fingerprint?: string | null;
+  reused?: boolean;
   ply_count: number;
   created_at: string;
   updated_at: string;
@@ -245,9 +262,38 @@ export type ChessAnalysisJob = {
   content_opportunity?: ChessContentOpportunityScore | null;
 };
 
+export type ChessAnalysisJobSummary = {
+  id: string;
+  tenant_id: string;
+  chess_game_id: string;
+  status: string;
+  depth?: number | null;
+  time_limit_seconds?: number | null;
+  engine_name?: string | null;
+  engine_version?: string | null;
+  analysis_fingerprint?: string | null;
+  analysis_settings: Record<string, unknown>;
+  ply_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChessAnalysisHistory = {
+  items: ChessAnalysisJobSummary[];
+};
+
+export type ChessAnalysisProfile = "latest" | "preferred" | "matching";
+
 export type ChessAnalysisOptions = {
   depth?: number;
   time_limit_seconds?: number;
+  force?: boolean;
+};
+
+export type ChessAnalysisSelectParams = {
+  profile?: ChessAnalysisProfile;
+  depth?: number;
+  analysis_fingerprint?: string;
 };
 
 export function enqueueChessGameAnalysis(
@@ -262,8 +308,16 @@ export function enqueueChessGameAnalysis(
   });
 }
 
-export function getChessGameAnalysis(gameId: string, init?: ApiFetchOptions) {
-  return apiFetch<ChessAnalysisJob>(`/chess/games/${gameId}/analysis`, init);
+export function getChessGameAnalysis(
+  gameId: string,
+  params: ChessAnalysisSelectParams = {},
+  init?: ApiFetchOptions,
+) {
+  return apiFetch<ChessAnalysisJob>(`/chess/games/${gameId}/analysis${toQuery(params)}`, init);
+}
+
+export function listChessGameAnalyses(gameId: string, init?: ApiFetchOptions) {
+  return apiFetch<ChessAnalysisHistory>(`/chess/games/${gameId}/analyses`, init);
 }
 
 export function getChessAnalysisJob(jobId: string, init?: ApiFetchOptions) {
@@ -333,9 +387,89 @@ export function getChessPuzzle(puzzleId: string, init?: ApiFetchOptions) {
 }
 
 export function getDailyChessPuzzle(init?: ApiFetchOptions) {
-  return apiFetch<ChessPuzzle>("/chess/puzzles/daily", {
+  return apiFetch<ChessDailyPuzzle>("/chess/puzzles/daily", {
     ...init,
     method: "GET",
     timeoutMs: init?.timeoutMs ?? 60_000,
   });
+}
+
+/** Administrative refresh — calls provider; not used by normal browse GET. */
+export function refreshDailyChessPuzzle(init?: ApiFetchOptions) {
+  return apiFetch<ChessDailyPuzzle>("/chess/puzzles/daily/refresh", {
+    ...init,
+    method: "POST",
+    timeoutMs: init?.timeoutMs ?? 60_000,
+  });
+}
+
+/** §25 — catalog background jobs (sync/import/enrich). Never used by browse GETs. */
+export type ChessCatalogJobKind =
+  | "pgn_import"
+  | "puzzle_import"
+  | "daily_puzzle_sync"
+  | "enrich_famous"
+  | "extract_critical_moments"
+  | "provider_sync";
+
+export type ChessCatalogJob = {
+  id: string;
+  tenant_id: string;
+  kind: string;
+  status: string;
+  progress: number;
+  params: Record<string, unknown>;
+  result: Record<string, unknown>;
+  error_message?: string | null;
+  celery_task_id?: string | null;
+  import_batch_id?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChessCatalogJobCreateRequest = {
+  kind: ChessCatalogJobKind;
+  params?: Record<string, unknown>;
+  import_batch_id?: string | null;
+};
+
+export function enqueueChessCatalogJob(
+  payload: ChessCatalogJobCreateRequest,
+  init?: ApiFetchOptions,
+) {
+  return apiFetch<ChessCatalogJob>("/chess/jobs", {
+    ...init,
+    method: "POST",
+    body: JSON.stringify({
+      kind: payload.kind,
+      params: payload.params ?? {},
+      import_batch_id: payload.import_batch_id ?? null,
+    }),
+  });
+}
+
+export function getChessCatalogJob(jobId: string, init?: ApiFetchOptions) {
+  return apiFetch<ChessCatalogJob>(`/chess/jobs/${jobId}`, init);
+}
+
+/** §33 — durable provider sync checkpoints (admin inspect; local DB only). */
+export type ChessProviderSyncState = {
+  id: string;
+  tenant_id: string;
+  provider: string;
+  sync_key: string;
+  query_hash: string;
+  cursor?: string | null;
+  high_water_mark?: string | null;
+  lookback_seconds: number;
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+  last_job_id?: string | null;
+  last_error_summary?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function listChessProviderSyncStates(init?: ApiFetchOptions) {
+  return apiFetch<{ items: ChessProviderSyncState[] }>("/chess/sync-states", init);
 }

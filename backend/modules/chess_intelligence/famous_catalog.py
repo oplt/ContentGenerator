@@ -1,5 +1,8 @@
 """Editorial famous-game catalog: load YAML, score matches, apply metadata.
 
+Fame is an editorial classification on canonical ``ChessGame`` rows — not another
+PGN copy and not a separate SQL ``FamousGame`` table (``FamousGameEntry`` is YAML-only).
+
 Phase 20: SignalForge-owned editorial metadata only. Do not scrape proprietary
 annotations/comments from chessgames.com or similar curated sites.
 """

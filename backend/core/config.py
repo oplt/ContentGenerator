@@ -277,10 +277,40 @@ class Settings(SettingsDerivedMixin, BaseSettings):
 
     # Stockfish binary (external executable). Empty → analysis endpoints return 503.
     STOCKFISH_PATH: str = ""
+    # Optional stable label baked into analysis_fingerprint (else binary basename).
+    CHESS_ENGINE_VERSION_LABEL: str = ""
     CHESS_ENGINE_DEPTH: int | None = Field(default=12, ge=1, le=40)
     CHESS_ENGINE_TIME_LIMIT: float | None = Field(default=None, gt=0, le=60)
     CHESS_ENGINE_HASH_MB: int = Field(default=64, ge=1, le=4096)
     CHESS_ENGINE_THREADS: int = Field(default=1, ge=1, le=32)
+
+    # Chess catalog Celery beat (§11) — fans out to ChessCatalogJob; no second scheduler.
+    # Historical/famous bootstrap stay manual. Timezone = Celery app timezone (Europe/Brussels).
+    CHESS_SCHEDULE_DAILY_PUZZLE_ENABLED: bool = True
+    CHESS_SCHEDULE_DAILY_PUZZLE_HOUR: int = Field(default=0, ge=0, le=23)
+    CHESS_SCHEDULE_DAILY_PUZZLE_MINUTE: int = Field(default=20, ge=0, le=59)
+    CHESS_SCHEDULE_PROVIDER_SYNC_ENABLED: bool = False
+    CHESS_SCHEDULE_PROVIDER_SYNC_HOUR: int = Field(default=6, ge=0, le=23)
+    CHESS_SCHEDULE_PROVIDER_SYNC_MINUTE: int = Field(default=30, ge=0, le=59)
+    CHESS_SCHEDULE_PROVIDER_SYNC_PROVIDER: str = "lichess_masters"
+    CHESS_SCHEDULE_PROVIDER_SYNC_MAX_GAMES: int = Field(default=15, ge=1, le=50)
+    # When set (minutes), recent sync runs on this interval instead of once/day (tournament feeds).
+    CHESS_SCHEDULE_PROVIDER_SYNC_EVERY_MINUTES: int | None = Field(
+        default=None, ge=5, le=1440
+    )
+    # §18 — operational catalog caps (Postgres is not a universal chess warehouse).
+    CHESS_PGN_IMPORT_DEFAULT_MAX_GAMES: int | None = Field(default=None, ge=1)
+    CHESS_PGN_IMPORT_MAX_GAMES_CAP: int = Field(default=50_000, ge=1, le=500_000)
+    CHESS_PROVIDER_SYNC_MAX_GAMES_CAP: int = Field(default=50, ge=1, le=200)
+    # §19 — puzzle corpus separate from games; dumps stay filtered/capped.
+    CHESS_PUZZLE_IMPORT_DEFAULT_LIMIT: int | None = Field(default=None, ge=1)
+    CHESS_PUZZLE_IMPORT_MAX_RECORDS_CAP: int = Field(default=100_000, ge=1, le=5_000_000)
+    # §21 — recent discovery → optional Stockfish (off by default; eligibility first).
+    CHESS_DISCOVERY_AUTO_ANALYZE_ENABLED: bool = False
+    CHESS_DISCOVERY_AUTO_ANALYZE_MIN_RATING: int | None = Field(default=2400, ge=0, le=4000)
+    CHESS_DISCOVERY_AUTO_ANALYZE_REQUIRE_NOTABLE_EVENT: bool = False
+    CHESS_DISCOVERY_AUTO_ANALYZE_EVENT_WHITELIST: str = ""
+    CHESS_DISCOVERY_AUTO_ANALYZE_MAX_PER_SYNC: int = Field(default=5, ge=1, le=50)
 
     WHATSAPP_PROVIDER: str = "stub"
     WHATSAPP_ACCESS_TOKEN: str = ""

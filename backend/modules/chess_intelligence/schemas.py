@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -50,6 +50,9 @@ class ChessGameResponse(BaseModel):
     is_famous: bool = False
     famous_title: str | None = None
     historical_tags: list[str] = Field(default_factory=list)
+    # Derived (§8) — not persisted; orthogonal to is_famous / content-opportunity score.
+    is_recent: bool = False
+    is_notable: bool = False
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
@@ -82,6 +85,17 @@ class ChessPuzzleResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
+
+
+class ChessDailyPuzzleResponse(ChessPuzzleResponse):
+    """Daily GET/refresh payload — local catalog + freshness (§10).
+
+    Extra fields are additive; base puzzle fields match ``ChessPuzzleResponse``.
+    """
+
+    is_stale: bool = False
+    freshness: Literal["fresh", "stale"] = "fresh"
+    daily_utc: str | None = None
 
 
 class ChessGamePageResponse(BaseModel):
@@ -152,6 +166,7 @@ class ChessAnalysisRequest(BaseModel):
 
     depth: int | None = Field(default=None, ge=1, le=40)
     time_limit_seconds: float | None = Field(default=None, gt=0, le=60)
+    force: bool = False
 
 
 class ChessPositionAnalysisSchema(BaseModel):
@@ -241,6 +256,8 @@ class ChessAnalysisJobResponse(BaseModel):
     engine_name: str | None = None
     engine_version: str | None = None
     analysis_settings: dict[str, Any] = Field(default_factory=dict)
+    analysis_fingerprint: str | None = None
+    reused: bool = False
     ply_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -248,3 +265,27 @@ class ChessAnalysisJobResponse(BaseModel):
     critical_moments: list[ChessCriticalMomentSchema] = Field(default_factory=list)
     tactical_patterns: list[ChessTacticalPatternSchema] = Field(default_factory=list)
     content_opportunity: ChessContentOpportunityScoreSchema | None = None
+
+
+class ChessAnalysisJobSummary(BaseModel):
+    """History row without ply payload (§14)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    chess_game_id: UUID
+    status: str
+    depth: int | None = None
+    time_limit_seconds: float | None = None
+    engine_name: str | None = None
+    engine_version: str | None = None
+    analysis_fingerprint: str | None = None
+    analysis_settings: dict[str, Any] = Field(default_factory=dict)
+    ply_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChessAnalysisHistoryResponse(BaseModel):
+    items: list[ChessAnalysisJobSummary] = Field(default_factory=list)

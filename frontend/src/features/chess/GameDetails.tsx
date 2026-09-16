@@ -5,6 +5,7 @@ import { AnalyzeGameAction } from "./AnalyzeGameAction";
 import { ChessBoardPreview } from "./ChessBoardPreview";
 import { ContentOpportunityPanel } from "./ContentOpportunityPanel";
 import { CreateVideoAction } from "./CreateVideoAction";
+import { GameCatalogMeta } from "./GameCatalogMeta";
 import { MoveViewer } from "./MoveViewer";
 import { ProvenancePanel } from "./ProvenancePanel";
 import { useChessGameMoves } from "./hooks/useChessGames";
@@ -41,6 +42,9 @@ export function GameDetails({
             .filter(Boolean)
             .join(" · ")}
         </p>
+        <div className="mt-2">
+          <GameCatalogMeta game={game} />
+        </div>
       </div>
       <div className="flex flex-col gap-4 sm:flex-row">
         <ChessBoardPreview fen={fen} size="md" />
@@ -60,7 +64,7 @@ export function GameDetails({
             creating={creating}
           />
           <ContentOpportunityPanel gameId={game.id} />
-          <ProvenancePanel gameId={game.id} />
+          <ProvenancePanel gameId={game.id} showFreshnessLanguage={!game.is_famous} />
           <AnalyzeGameAction gameId={game.id} activePly={activePly} />
         </div>
       </div>

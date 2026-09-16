@@ -115,3 +115,6 @@ def test_observability_doc_exists() -> None:
     assert "chess_provider_request" in text
     assert "cg.chess.import.total" in text
     assert "chess.engine.analyze" in text
+    assert "discovered" in text
+    assert "high_water_mark" in text
+    assert "sanitize_log_payload" in text or "Never** log full PGNs" in text or "Never log" in text

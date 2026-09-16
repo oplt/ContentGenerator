@@ -111,6 +111,8 @@ export const queryKeyFactories = {
       tenantQueryKey(tenantId, "chess-catalog", "content-score", gameId),
     provenance: (tenantId: string, gameId: string) =>
       tenantQueryKey(tenantId, "chess-catalog", "provenance", gameId),
+    catalogJob: (tenantId: string, jobId: string) =>
+      tenantQueryKey(tenantId, "chess-catalog", "job", jobId),
   },
   workflows: {
     definitions: (tenantId: string) => tenantQueryKey(tenantId, "workflows", "definitions"),
@@ -175,6 +177,7 @@ export const queryKeys = {
   chessAnalysisJob: queryKeyFactories.chessCatalog.analysisJob,
   chessContentScore: queryKeyFactories.chessCatalog.contentScore,
   chessGameProvenance: queryKeyFactories.chessCatalog.provenance,
+  chessCatalogJob: queryKeyFactories.chessCatalog.catalogJob,
   workflowDefinitions: queryKeyFactories.workflows.definitions,
   workflowDefinition: queryKeyFactories.workflows.definition,
   workflowVersions: queryKeyFactories.workflows.versions,

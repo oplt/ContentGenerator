@@ -22,8 +22,13 @@ PROVIDER_LICENSE_NOTES: dict[str, str] = {
         "PGN archive import — license depends on the archive operator; "
         "see import batch source_metadata"
     ),
+    "pgn_mentor": (
+        "PGN Mentor / archive import — license depends on the archive operator; "
+        "see import batch source_metadata"
+    ),
     "manual": "Manually imported PGN (operator-supplied)",
     "api_import": "Imported via SignalForge chess catalog API",
+    "famous_catalog": "Editorial famous-game catalog association (local curation)",
 }
 
 

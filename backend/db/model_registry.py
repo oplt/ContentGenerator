@@ -3,6 +3,7 @@ from backend.modules.approvals import models as approvals_models  # noqa: F401
 from backend.modules.audit import models as audit_models  # noqa: F401
 from backend.modules.chess_intelligence import models as chess_intelligence_models  # noqa: F401
 from backend.modules.chess_intelligence import catalog_job_models as chess_catalog_job_models  # noqa: F401
+from backend.modules.chess_intelligence import provider_sync_state as chess_provider_sync_state  # noqa: F401
 from backend.modules.chess_video import models as chess_video_models  # noqa: F401
 from backend.modules.content_generation import models as content_generation_models  # noqa: F401
 from backend.modules.content_strategy import models as content_strategy_models  # noqa: F401

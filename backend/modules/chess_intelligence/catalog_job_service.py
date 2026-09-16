@@ -16,6 +16,7 @@ from backend.modules.chess_intelligence.catalog_job_models import (
     ChessCatalogJobStatus,
 )
 from backend.modules.chess_intelligence.catalog_job_runners import run_catalog_job_body
+from backend.modules.chess_intelligence.ingestion_mode import ensure_job_params_mode
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class ChessCatalogJobService:
         if kind not in _ALLOWED_KINDS:
             raise HTTPException(status_code=422, detail=f"Unknown job kind: {kind}")
         self._validate_params(kind, params)
+        stamped = ensure_job_params_mode(kind, params)
         batch = import_batch_id or str(uuid.uuid4())
         job = ChessCatalogJob(
             tenant_id=tenant_id,
@@ -45,7 +47,7 @@ class ChessCatalogJobService:
             kind=kind,
             status=ChessCatalogJobStatus.QUEUED.value,
             progress=0.0,
-            params=dict(params),
+            params=stamped,
             result={},
             import_batch_id=batch,
         )
@@ -115,11 +117,18 @@ class ChessCatalogJobService:
                     status_code=422, detail="params.analysis_job_id required"
                 )
         if kind == ChessCatalogJobKind.PROVIDER_SYNC.value:
+            from backend.modules.chess_intelligence.providers.registry import (
+                KNOWN_HISTORICAL_PROVIDERS,
+            )
+
             provider = str(params.get("provider") or "").strip()
-            if provider not in {"lichess_masters", "chesscom"}:
+            if provider not in KNOWN_HISTORICAL_PROVIDERS:
                 raise HTTPException(
                     status_code=422,
-                    detail="params.provider must be lichess_masters or chesscom",
+                    detail=(
+                        "params.provider must be one of: "
+                        + ", ".join(sorted(KNOWN_HISTORICAL_PROVIDERS))
+                    ),
                 )
             if provider == "chesscom" and not str(params.get("player") or "").strip():
                 raise HTTPException(

@@ -78,6 +78,31 @@ describe("GameSearchPanel", () => {
     expect(useGames).toHaveBeenCalled();
   });
 
+  it("renders recent search hit distinctly from famous catalog", () => {
+    useGames.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      isSuccess: true,
+      data: {
+        items: [
+          {
+            ...SAMPLE,
+            is_famous: false,
+            is_recent: true,
+            source_provider: "lichess_masters",
+          },
+        ],
+        has_more: false,
+      },
+      refetch: vi.fn(),
+    } as never);
+    renderPanel(<GameSearchPanel onSelect={vi.fn()} />);
+    expect(screen.getByText(/kasparov/i)).toBeInTheDocument();
+    expect(screen.getByText("Recent")).toBeInTheDocument();
+    // Card badge only — filter still says "Famous only".
+    expect(screen.queryByText(/^Famous$/)).not.toBeInTheDocument();
+  });
+
   it("surfaces provider errors with retry", async () => {
     const user = userEvent.setup();
     const refetch = vi.fn();

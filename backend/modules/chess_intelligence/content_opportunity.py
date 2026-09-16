@@ -1,6 +1,9 @@
 """Transparent content-opportunity score from explicit catalog + analysis signals.
 
 No LLM / opaque model. Caps are documented; components always sum to ``score``.
+
+This is the **content opportunity** concept only (§8). It may *use* ``is_famous`` as
+one input component, but it is not a synonym for famous or recent/notable.
 """
 
 from __future__ import annotations

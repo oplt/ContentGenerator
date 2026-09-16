@@ -12,6 +12,7 @@ import { useTenantScope } from "../../hooks/useTenantScope";
 import { queryKeys } from "../../lib/queryKeys";
 import { CHESS_GAMES_TABS, type ChessGamesTab } from "./constants";
 import { FamousGamesPanel } from "./FamousGamesPanel";
+import { CatalogAdminSyncPanel } from "./CatalogAdminSyncPanel";
 import { GameDetails } from "./GameDetails";
 import { GameDetailsDialog } from "./GameDetailsDialog";
 import { GameSearchPanel } from "./GameSearchPanel";
@@ -111,6 +112,7 @@ export function GamesWorkspace({ onUseInCreator, onVideoJobCreated }: GamesWorks
             />
           </TabsContent>
         </Tabs>
+        <CatalogAdminSyncPanel />
       </div>
 
       <Card className="hidden space-y-4 p-4 sm:p-5 xl:block">

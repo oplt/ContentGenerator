@@ -15,6 +15,7 @@ from backend.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 class ChessCatalogJobKind(str, enum.Enum):
     PGN_IMPORT = "pgn_import"
     PUZZLE_IMPORT = "puzzle_import"
+    DAILY_PUZZLE_SYNC = "daily_puzzle_sync"
     ENRICH_FAMOUS = "enrich_famous"
     EXTRACT_CRITICAL_MOMENTS = "extract_critical_moments"
     PROVIDER_SYNC = "provider_sync"

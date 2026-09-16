@@ -66,6 +66,7 @@ REGRESSION_MANIFEST: dict[str, tuple[str, ...]] = {
         "test_chess_catalog_jobs.py",
         "test_chess_tenant_isolation.py",
         "test_chess_phase25_coverage.py",
+        "test_chess_section30_coverage.py",
         "test_chess_dependency_policy.py",
         "test_chess_backend_structure.py",
         "test_chess_configuration.py",

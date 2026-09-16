@@ -21,9 +21,18 @@ from typing import IO, Any, TextIO, cast
 import chess
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.modules.chess_intelligence.ingestion_mode import (
+    ChessIngestionMode,
+    stamp_ingestion_mode,
+)
 from backend.modules.chess_intelligence.models import ChessPuzzle
 from backend.modules.chess_intelligence.normalizer import chess_puzzle_from_fields
 from backend.modules.chess_intelligence.observability import record_puzzle_import_progress
+from backend.modules.chess_intelligence.puzzle_catalog import (
+    PuzzleImportFilters,
+    clamp_puzzle_import_limit,
+    puzzle_passes_filters,
+)
 from backend.modules.chess_intelligence.repository import ChessPuzzleRepository
 from backend.modules.chess_intelligence.source_rules import (
     ChessSourceRuleError,
@@ -56,6 +65,8 @@ class PuzzleImportProgress:
 
 @dataclass
 class LichessPuzzleImportConfig:
+    """Bulk puzzle dump → ``ChessPuzzle`` only (§19; never creates ChessGame rows)."""
+
     tenant_id: uuid.UUID
     file_path: Path
     batch_size: int = 200
@@ -65,8 +76,24 @@ class LichessPuzzleImportConfig:
     max_rating: int | None = None
     min_popularity: int | None = None
     themes: list[str] = field(default_factory=list)  # AND
+    openings: list[str] = field(default_factory=list)  # any-of
+    daily_date_from: str | None = None
+    daily_date_to: str | None = None
+    providers: frozenset[str] | None = None
     import_batch_id: str | None = None
     license_note: str = "Lichess puzzle database — https://database.lichess.org/#puzzles"
+
+    def selective_filters(self) -> PuzzleImportFilters:
+        return PuzzleImportFilters(
+            min_rating=self.min_rating,
+            max_rating=self.max_rating,
+            min_popularity=self.min_popularity,
+            themes=tuple(self.themes),
+            openings=tuple(self.openings),
+            daily_date_from=self.daily_date_from,
+            daily_date_to=self.daily_date_to,
+            providers=self.providers,
+        )
 
 
 def _num(row: dict[str, str], name: str, as_type: type[int] | type[float]) -> int | float | None:
@@ -132,21 +159,18 @@ def row_to_player_puzzle(row: dict[str, str]) -> dict[str, Any]:
 
 
 def _passes_filters(fields: dict[str, Any], config: LichessPuzzleImportConfig) -> bool:
-    rating = fields.get("rating")
-    if config.min_rating is not None and (rating is None or rating < config.min_rating):
-        return False
-    if config.max_rating is not None and (rating is None or rating > config.max_rating):
-        return False
-    popularity = fields.get("popularity")
-    if config.min_popularity is not None and (
-        popularity is None or popularity < config.min_popularity
-    ):
-        return False
-    if config.themes:
-        have = {t.lower() for t in (fields.get("themes") or [])}
-        if not {t.lower() for t in config.themes}.issubset(have):
-            return False
-    return True
+    meta = fields.get("source_metadata") or {}
+    return puzzle_passes_filters(
+        rating=fields.get("rating") if isinstance(fields.get("rating"), int) else None,
+        popularity=(
+            fields.get("popularity") if isinstance(fields.get("popularity"), int) else None
+        ),
+        themes=list(fields.get("themes") or []),
+        opening_tags=list(fields.get("opening_tags") or []),
+        daily_date=meta.get("daily_date") if isinstance(meta, dict) else None,
+        provider=PROVIDER_NAME,
+        filters=config.selective_filters(),
+    )
 
 
 @contextmanager
@@ -207,15 +231,16 @@ class LichessPuzzleDatasetImporter:
         pending_ids: list[str] = []
         selected = 0
         seen: set[str] = set()
+        limit = clamp_puzzle_import_limit(config.limit)
         logger.info(
             "lichess_puzzle_import_start file=%s dry_run=%s limit=%s",
             config.file_path,
             config.dry_run,
-            config.limit,
+            limit,
         )
         with open_puzzle_csv(config.file_path) as stream:
             for row in iter_puzzle_csv_rows(stream):
-                if config.limit is not None and selected >= config.limit:
+                if limit is not None and selected >= limit:
                     break
                 progress.scanned += 1
                 try:
@@ -236,9 +261,14 @@ class LichessPuzzleDatasetImporter:
                     continue
                 seen.add(ext_id)
                 selected += 1
-                meta = dict(fields["source_metadata"])
-                meta["import_batch"] = batch_id
-                meta["license"] = config.license_note
+                meta = stamp_ingestion_mode(
+                    {
+                        **dict(fields["source_metadata"]),
+                        "import_batch": batch_id,
+                        "license": config.license_note,
+                    },
+                    ChessIngestionMode.PUZZLE_SYNC,
+                )
                 pending.append(
                     chess_puzzle_from_fields(
                         tenant_id=config.tenant_id,

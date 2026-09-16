@@ -106,6 +106,7 @@ async def persist_success_body(
                     extraction_confidence=0.75,
                     source_metadata={
                         **article.metadata,
+                        **({"external_id": article.external_id} if article.external_id else {}),
                         "category_tags": ",".join(article.category_tags),
                         "region_tags": ",".join(article.region_tags),
                         "raw_payload_present": "true" if article.raw_payload else "false",

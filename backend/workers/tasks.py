@@ -16,7 +16,10 @@ from backend.workers.task_defs.generation import (
     generate_tts_asset_task,
 )
 from backend.workers.task_defs.chess_analysis import analyze_chess_game_task
-from backend.workers.task_defs.chess_catalog import run_chess_catalog_job_task
+from backend.workers.task_defs.chess_catalog import (
+    chess_catalog_daily_puzzle_fanout_task,
+    chess_catalog_provider_sync_fanout_task,
+    run_chess_catalog_job_task)
 from backend.workers.task_defs.chess_video import generate_chess_video_task
 from backend.workers.task_defs.ingestion import ingest_source_task, poll_sources_task
 from backend.workers.task_defs.publishing import publish_due_jobs_task
@@ -24,8 +27,7 @@ from backend.workers.task_defs.stories import rescore_all_tenants_task, rescore_
 from backend.workers.task_defs.trending import (
     fetch_trending_repos_task,
     send_trending_repos_digest_task,
-    trending_repos_daily_fanout_task,
-)
+    trending_repos_daily_fanout_task)
 from backend.workers.task_defs.workflows import (
     advance_workflow_run_task,
     execute_workflow_node_task,
@@ -47,6 +49,8 @@ __all__ = [
     "generate_chess_video_task",
     "analyze_chess_game_task",
     "run_chess_catalog_job_task",
+    "chess_catalog_daily_puzzle_fanout_task",
+    "chess_catalog_provider_sync_fanout_task",
     "send_approval_task",
     "publish_due_jobs_task",
     "process_webhook_inbox_task",

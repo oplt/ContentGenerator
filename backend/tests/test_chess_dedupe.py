@@ -119,6 +119,9 @@ def test_upsert_links_second_provider_same_fingerprint() -> None:
         assert second.created_game is False
         assert second.created_source is True
         assert second.game.id == first.game.id
+        # §16 — primary denormalized provenance must not be overwritten.
+        assert second.game.source_provider == "lichess_masters"
+        assert second.game.source_external_id == "abc123"
 
         # Same Lichess id again → no new source
         again = await dedupe.upsert_game(
@@ -134,6 +137,27 @@ def test_upsert_links_second_provider_same_fingerprint() -> None:
         assert len(sources) == 2
         providers = {s.provider for s in sources}
         assert providers == {"lichess_masters", "pgn_mentor"}
+        # License filled even when SourceRef omitted it.
+        assert any(s.license_note for s in sources if s.provider == "lichess_masters")
+        # Secondary provider external_id still finds the same canonical game
+        # without rewriting denormalized primary source_*.
+        third = await dedupe.upsert_game(
+            game=chess_game_from_parsed(tenant_id=tenant_id, parsed=parsed),
+            source=SourceRef(
+                provider="manual_curated_catalog",
+                external_id="curated-99",
+                source_url="https://example.test/curated-99",
+            ),
+        )
+        assert third.created_source is True
+        found = await dedupe.repo.get_by_provider_external_id(
+            tenant_id=tenant_id,
+            provider="manual_curated_catalog",
+            external_id="curated-99",
+        )
+        assert found is not None
+        assert found.id == first.game.id
+        assert found.source_provider == "lichess_masters"
         await db.commit()
         await db.close()
 

@@ -42,7 +42,8 @@ describe("GameCard", () => {
     expect(screen.getByText("Fischer vs Spassky")).toBeInTheDocument();
     expect(screen.getByText(/Reykjavik · 1972 · Game 6/)).toBeInTheDocument();
     expect(screen.getByText("Queen's Gambit Declined")).toBeInTheDocument();
-    expect(screen.getByText(/★ Famous/)).toBeInTheDocument();
+    expect(screen.getByText(/Famous/)).toBeInTheDocument();
+    expect(screen.queryByText(/Source ·/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /view game/i }));
     await user.click(screen.getByRole("button", { name: /^analyze$/i }));
@@ -51,5 +52,22 @@ describe("GameCard", () => {
     expect(onView).toHaveBeenCalledWith(SAMPLE);
     expect(onAnalyze).toHaveBeenCalledWith(SAMPLE);
     expect(onCreateVideo).toHaveBeenCalledWith(SAMPLE);
+  });
+
+  it("shows source on non-famous cards without a freshness badge", () => {
+    render(
+      <GameCard
+        game={{
+          ...SAMPLE,
+          is_famous: false,
+          famous_title: null,
+          source_provider: "lichess_masters",
+          is_recent: true,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Source · lichess_masters/)).toBeInTheDocument();
+    expect(screen.getByText(/Recent/)).toBeInTheDocument();
+    expect(screen.queryByText(/Famous/)).not.toBeInTheDocument();
   });
 });

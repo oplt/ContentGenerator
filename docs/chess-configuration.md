@@ -29,6 +29,18 @@ The frontend talks to SignalForge APIs only (`VITE_API_BASE`).
 | `CHESS_ENGINE_TIME_LIMIT` | empty | Optional seconds per position |
 | `CHESS_ENGINE_HASH_MB` | `64` | UCI Hash |
 | `CHESS_ENGINE_THREADS` | `1` | UCI Threads |
+| `CHESS_SCHEDULE_DAILY_PUZZLE_ENABLED` | `true` | Beat: daily puzzle fanout |
+| `CHESS_SCHEDULE_DAILY_PUZZLE_HOUR` / `_MINUTE` | `0` / `20` | UTC-ish Celery TZ crontab |
+| `CHESS_SCHEDULE_PROVIDER_SYNC_ENABLED` | `false` | Beat: recent masters sync |
+| `CHESS_SCHEDULE_PROVIDER_SYNC_HOUR` / `_MINUTE` | `6` / `30` | Daily crontab when interval unset |
+| `CHESS_SCHEDULE_PROVIDER_SYNC_EVERY_MINUTES` | empty | Optional tournament cadence (§26) |
+| `CHESS_SCHEDULE_PROVIDER_SYNC_PROVIDER` | `lichess_masters` | Fanout provider |
+| `CHESS_SCHEDULE_PROVIDER_SYNC_MAX_GAMES` | `15` | Cap per sync run |
+| `CHESS_DISCOVERY_AUTO_ANALYZE_ENABLED` | `false` | §21: enqueue Stockfish after provider_sync eligibility |
+| `CHESS_DISCOVERY_AUTO_ANALYZE_MIN_RATING` | `2400` | Cheap rating gate (max side) |
+| `CHESS_DISCOVERY_AUTO_ANALYZE_REQUIRE_NOTABLE_EVENT` | `false` | Require notable event name |
+| `CHESS_DISCOVERY_AUTO_ANALYZE_EVENT_WHITELIST` | empty | Comma-separated event substrings |
+| `CHESS_DISCOVERY_AUTO_ANALYZE_MAX_PER_SYNC` | `5` | Cap analyses per sync run |
 
 ## Not used (intentionally)
 

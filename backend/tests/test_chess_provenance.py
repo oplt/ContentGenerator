@@ -106,6 +106,9 @@ def test_game_provenance_lists_sources_and_pgn() -> None:
         assert trace.primary_source.license_note
         assert len(trace.sources) == 2
         assert "authoritative" in trace.evidence_note.lower()
+        # §16 — second source keeps own row; primary stays first provider.
+        assert {s.provider for s in trace.sources} == {"lichess_masters", "pgn_archive"}
+        assert all(s.license_note for s in trace.sources)
 
     asyncio.run(_run())
 

@@ -25,6 +25,8 @@ from backend.modules.chess_intelligence.importers import (
     PgnArchiveImportConfig,
     PgnArchiveImporter,
 )
+from backend.modules.chess_intelligence.import_manifest import build_archive_manifest
+from backend.modules.chess_intelligence.operational_catalog import filters_from_params
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -50,6 +52,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Skip first N games in file (resume aid)",
     )
     parser.add_argument("--max-games", type=int, default=None, help="Stop after N scanned games")
+    parser.add_argument("--year-from", type=int, default=None, help="Keep games with year >= N")
+    parser.add_argument("--year-to", type=int, default=None, help="Keep games with year <= N")
+    parser.add_argument("--player", default=None, help="White or black name contains")
+    parser.add_argument("--white", default=None, help="White player name contains")
+    parser.add_argument("--black", default=None, help="Black player name contains")
+    parser.add_argument("--event", default=None, help="Event name contains")
+    parser.add_argument(
+        "--min-rating",
+        type=int,
+        default=None,
+        help="Require either side rating >= N when ratings present",
+    )
     parser.add_argument(
         "--import-batch-id",
         default=None,
@@ -65,9 +79,17 @@ async def _run(args: argparse.Namespace) -> int:
         logging.error("file not found: %s", path)
         return 2
 
+    resolved = path.resolve()
+    manifest = build_archive_manifest(
+        path=resolved,
+        provider=args.provider.strip() or "pgn_archive",
+        source_name=args.source_name.strip() or "archive",
+        import_batch_id=args.import_batch_id,
+    )
+
     config = PgnArchiveImportConfig(
         tenant_id=args.tenant_id,
-        file_path=path.resolve(),
+        file_path=resolved,
         provider=args.provider.strip() or "pgn_archive",
         source_name=args.source_name.strip() or "archive",
         batch_size=max(int(args.batch_size), 1),
@@ -75,6 +97,20 @@ async def _run(args: argparse.Namespace) -> int:
         skip_games=max(int(args.skip_games), 0),
         max_games=args.max_games,
         import_batch_id=args.import_batch_id,
+        archive_sha256=manifest.checksum_sha256,
+        archive_bytes=manifest.size_bytes,
+        archive_uri=manifest.source_uri,
+        filters=filters_from_params(
+            {
+                "year_from": args.year_from,
+                "year_to": args.year_to,
+                "player": args.player,
+                "white": args.white,
+                "black": args.black,
+                "event": args.event,
+                "min_rating": args.min_rating,
+            }
+        ),
     )
 
     async with SessionLocal() as db:
@@ -84,8 +120,10 @@ async def _run(args: argparse.Namespace) -> int:
         "import complete "
         f"scanned={progress.scanned} inserted={progress.inserted} "
         f"linked_source={progress.linked_source} "
-        f"duplicates={progress.skipped_duplicate} errors={progress.skipped_error} "
-        f"commits={progress.batches_committed} dry_run={config.dry_run}"
+        f"duplicates={progress.skipped_duplicate} "
+        f"filtered={progress.skipped_filtered} errors={progress.skipped_error} "
+        f"commits={progress.batches_committed} dry_run={config.dry_run} "
+        f"sha256={manifest.checksum_sha256} bytes={manifest.size_bytes}"
     )
     if progress.error_samples:
         print("error samples:")

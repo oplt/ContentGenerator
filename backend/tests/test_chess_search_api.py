@@ -223,3 +223,4 @@ def test_router_mounted() -> None:
     assert "/api/v1/chess/games" in paths
     assert "/api/v1/chess/games/famous" in paths
     assert "/api/v1/chess/puzzles/daily" in paths
+    assert "/api/v1/chess/puzzles/daily/refresh" in paths

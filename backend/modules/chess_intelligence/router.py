@@ -16,9 +16,11 @@ from backend.modules.chess_intelligence.catalog_queries import (
 )
 from backend.modules.chess_intelligence.schemas import (
     AnnotatedChessMoveSchema,
+    ChessAnalysisHistoryResponse,
     ChessAnalysisJobResponse,
     ChessAnalysisRequest,
     ChessContentOpportunityScoreSchema,
+    ChessDailyPuzzleResponse,
     ChessGameImportRequest,
     ChessGameImportResponse,
     ChessGamePageResponse,
@@ -178,32 +180,59 @@ async def enqueue_game_analysis(
     membership: TenantUser = Depends(require_permission("content:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ChessAnalysisJobResponse:
-    """Queue Stockfish analysis (Celery). Does not run the engine in-request."""
+    """Queue Stockfish analysis (Celery), reusing matching fingerprint when present (§12)."""
     svc = ChessAnalysisService(db)
-    job = await svc.enqueue(
+    outcome = await svc.enqueue(
         tenant_id=membership.tenant_id,
         user_id=membership.user_id,
         game_id=game_id,
         payload=payload or ChessAnalysisRequest(),
     )
     await db.commit()
-    await db.refresh(job)
-    svc.enqueue_celery(tenant_id=membership.tenant_id, job_id=job.id)
-    return ChessAnalysisService._to_response(job, [])
+    await db.refresh(outcome.job)
+    if outcome.should_dispatch:
+        svc.enqueue_celery(tenant_id=membership.tenant_id, job_id=outcome.job.id)
+    return ChessAnalysisService._to_response(
+        outcome.job, [], reused=outcome.reused
+    )
 
 
 @router.get("/games/{game_id}/analysis", response_model=ChessAnalysisJobResponse)
-async def get_latest_game_analysis(
+async def get_game_analysis(
     game_id: UUID,
+    profile: str = Query(
+        default="latest",
+        pattern="^(latest|preferred|matching)$",
+        description="latest | preferred (deepest completed) | matching",
+    ),
+    depth: int | None = Query(default=None, ge=1, le=40),
+    analysis_fingerprint: str | None = Query(default=None, max_length=64),
     membership: TenantUser = Depends(require_permission("content:write")),
     db: AsyncSession = Depends(get_db),
 ) -> ChessAnalysisJobResponse:
-    result = await ChessAnalysisService(db).latest_for_game(
-        tenant_id=membership.tenant_id, game_id=game_id
+    """Select one historical analysis profile without recomputing (§14)."""
+    result = await ChessAnalysisService(db).select_for_game(
+        tenant_id=membership.tenant_id,
+        game_id=game_id,
+        profile=profile,  # type: ignore[arg-type]
+        depth=depth,
+        analysis_fingerprint=analysis_fingerprint,
     )
     if result is None:
         raise HTTPException(status_code=404, detail="No analysis for this game")
     return result
+
+
+@router.get("/games/{game_id}/analyses", response_model=ChessAnalysisHistoryResponse)
+async def list_game_analyses(
+    game_id: UUID,
+    membership: TenantUser = Depends(require_permission("content:write")),
+    db: AsyncSession = Depends(get_db),
+) -> ChessAnalysisHistoryResponse:
+    """List all Stockfish runs for a game (multi-profile history)."""
+    return await ChessAnalysisService(db).list_for_game(
+        tenant_id=membership.tenant_id, game_id=game_id
+    )
 
 
 @router.get("/games/{game_id}/content-score", response_model=ChessContentOpportunityScoreSchema)
@@ -258,12 +287,22 @@ async def list_puzzles(
     )
 
 
-@router.get("/puzzles/daily", response_model=ChessPuzzleResponse)
+@router.get("/puzzles/daily", response_model=ChessDailyPuzzleResponse)
 async def get_daily_puzzle(
     membership: TenantUser = Depends(require_permission("content:write")),
     db: AsyncSession = Depends(get_db),
-) -> ChessPuzzleResponse:
-    result = await ChessCatalogService(db).get_daily_puzzle(tenant_id=membership.tenant_id)
+) -> ChessDailyPuzzleResponse:
+    """Local-first read — never calls Lichess (§9 / §10)."""
+    return await ChessCatalogService(db).get_daily_puzzle(tenant_id=membership.tenant_id)
+
+
+@router.post("/puzzles/daily/refresh", response_model=ChessDailyPuzzleResponse)
+async def refresh_daily_puzzle(
+    membership: TenantUser = Depends(require_permission("content:write")),
+    db: AsyncSession = Depends(get_db),
+) -> ChessDailyPuzzleResponse:
+    """Administrative refresh: fetch provider daily → upsert local catalog."""
+    result = await ChessCatalogService(db).sync_daily_puzzle(tenant_id=membership.tenant_id)
     await db.commit()
     return result
 

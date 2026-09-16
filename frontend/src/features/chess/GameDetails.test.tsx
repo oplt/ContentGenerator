@@ -29,6 +29,7 @@ const GAME: ChessGame = {
   event: "Match",
   year: 2020,
   result: "1-0",
+  source_provider: "pgn_archive",
   starting_fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
   normalized_pgn: "1. e4 e5",
   move_count: 2,
@@ -65,6 +66,8 @@ describe("GameDetails", () => {
 
     render(<GameDetails game={GAME} onUseInCreator={onUseInCreator} />);
     expect(screen.getByText("Sample Duel")).toBeInTheDocument();
+    expect(screen.getByText("Game date")).toBeInTheDocument();
+    expect(screen.getByText(/Famous catalog entry/i)).toBeInTheDocument();
     expect(screen.getByText("e4")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /e4/i }));
     await user.click(screen.getByRole("button", { name: /use in create/i }));

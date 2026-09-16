@@ -8,6 +8,7 @@ from celery.schedules import crontab
 
 from backend.core.config import settings
 import backend.workers.signals as _celery_signals  # noqa: F401  # side-effect handlers
+from backend.modules.chess_intelligence.catalog_schedule import build_chess_catalog_beat_schedule
 from backend.workers.task_policy import WORKER_QUEUE_GROUPS
 
 
@@ -50,6 +51,12 @@ celery_app.conf.update(
         "backend.workers.tasks.generate_chess_video_task": {"queue": settings.CELERY_QUEUE_VIDEO},
         "backend.workers.tasks.analyze_chess_game_task": {"queue": settings.CELERY_QUEUE_VIDEO},
         "backend.workers.tasks.run_chess_catalog_job_task": {
+            "queue": settings.CELERY_QUEUE_INGESTION
+        },
+        "backend.workers.tasks.chess_catalog_daily_puzzle_fanout_task": {
+            "queue": settings.CELERY_QUEUE_INGESTION
+        },
+        "backend.workers.tasks.chess_catalog_provider_sync_fanout_task": {
             "queue": settings.CELERY_QUEUE_INGESTION
         },
         "backend.workers.tasks.send_approval_task": {"queue": settings.CELERY_QUEUE_APPROVALS},
@@ -129,5 +136,14 @@ celery_app.conf.update(
             "task": "backend.workers.tasks.trending_repos_daily_fanout_task",
             "schedule": crontab(hour=12, minute=5),
         },
+        **build_chess_catalog_beat_schedule(
+            daily_puzzle_enabled=settings.CHESS_SCHEDULE_DAILY_PUZZLE_ENABLED,
+            daily_puzzle_hour=settings.CHESS_SCHEDULE_DAILY_PUZZLE_HOUR,
+            daily_puzzle_minute=settings.CHESS_SCHEDULE_DAILY_PUZZLE_MINUTE,
+            provider_sync_enabled=settings.CHESS_SCHEDULE_PROVIDER_SYNC_ENABLED,
+            provider_sync_hour=settings.CHESS_SCHEDULE_PROVIDER_SYNC_HOUR,
+            provider_sync_minute=settings.CHESS_SCHEDULE_PROVIDER_SYNC_MINUTE,
+            provider_sync_every_minutes=settings.CHESS_SCHEDULE_PROVIDER_SYNC_EVERY_MINUTES,
+        ),
     },
 )
