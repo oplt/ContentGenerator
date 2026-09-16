@@ -12,6 +12,8 @@ from backend.core.domain_metrics_store import (
     METRIC_GENERATION_STAGE,
     METRIC_HTTP_429,
     METRIC_INGESTION,
+    METRIC_OPERATION_DURATION,
+    METRIC_OPERATION_TOTAL,
     METRIC_PUBLISH_CLAIM,
     METRIC_REQUEST_DURATION,
     METRIC_REQUEST_TOTAL,
@@ -75,3 +77,65 @@ class ObservabilityMetricsMixin:
     ) -> None:
         attrs = {"stage": stage, "outcome": outcome}
         self._observe(METRIC_GENERATION_STAGE, duration_ms, attrs)
+
+    def record_workflow_run(
+        self,
+        *,
+        outcome: str,
+        duration_ms: float,
+        error_class: str | None = None,
+    ) -> None:
+        attrs = {"operation": "workflow.run", "outcome": outcome}
+        if error_class:
+            attrs["error_class"] = error_class
+        self._inc(METRIC_OPERATION_TOTAL, attrs)
+        if duration_ms > 0:
+            self._observe(METRIC_OPERATION_DURATION, duration_ms, attrs)
+
+    def record_workflow_node(
+        self,
+        *,
+        node_type: str,
+        outcome: str,
+        duration_ms: float,
+        event: str | None = None,
+    ) -> None:
+        attrs = {
+            "operation": "workflow.node",
+            "outcome": outcome,
+            "stage": node_type,
+        }
+        if event:
+            attrs["event"] = event
+        self._inc(METRIC_OPERATION_TOTAL, attrs)
+        self._observe(METRIC_OPERATION_DURATION, duration_ms, attrs)
+
+    def record_workflow_approval_wait(self, *, duration_ms: float, outcome: str) -> None:
+        attrs = {"operation": "workflow.approval_wait", "outcome": outcome}
+        self._inc(METRIC_OPERATION_TOTAL, attrs)
+        self._observe(METRIC_OPERATION_DURATION, duration_ms, attrs)
+
+    def record_workflow_media(
+        self,
+        *,
+        node_type: str,
+        outcome: str,
+        duration_ms: float,
+    ) -> None:
+        attrs = {
+            "operation": "workflow.media",
+            "outcome": outcome,
+            "stage": node_type,
+        }
+        self._inc(METRIC_OPERATION_TOTAL, attrs)
+        self._observe(METRIC_OPERATION_DURATION, duration_ms, attrs)
+
+    def record_workflow_publish_failure(self, *, platform: str = "unknown") -> None:
+        self._inc(
+            METRIC_OPERATION_TOTAL,
+            {
+                "operation": "workflow.publish",
+                "outcome": "failure",
+                "platform": platform,
+            },
+        )

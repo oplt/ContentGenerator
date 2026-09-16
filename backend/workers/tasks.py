@@ -24,6 +24,11 @@ from backend.workers.task_defs.trending import (
     send_trending_repos_digest_task,
     trending_repos_daily_fanout_task,
 )
+from backend.workers.task_defs.workflows import (
+    advance_workflow_run_task,
+    resume_workflow_waiting_node_task,
+    tick_due_automations_task,
+)
 
 __all__ = [
     "send_email_task",
@@ -44,4 +49,7 @@ __all__ = [
     "send_trending_repos_digest_task",
     "trending_repos_daily_fanout_task",
     "rescore_all_tenants_task",
+    "tick_due_automations_task",
+    "advance_workflow_run_task",
+    "resume_workflow_waiting_node_task",
 ]

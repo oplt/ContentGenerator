@@ -76,6 +76,7 @@ class SocialAccount(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Versio
             "account_external_id",
             name="uq_social_accounts_tenant_id_platform_account_external_id",
         ),
+        UniqueConstraint("tenant_id", "id", name="uq_social_accounts_tenant_id_id"),
         Index("ix_social_accounts_tenant_id_platform", "tenant_id", "platform"),
         Index(
             "ix_social_accounts_tenant_id_platform_status",

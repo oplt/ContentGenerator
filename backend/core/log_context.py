@@ -18,6 +18,14 @@ _CONTEXT_KEYS = frozenset(
         "provider",
         "stage",
         "duration_ms",
+        "workflow_run_id",
+        "workflow_definition_id",
+        "workflow_version_id",
+        "automation_id",
+        "brand_id",
+        "node_id",
+        "node_type",
+        "attempt",
     }
 )
 

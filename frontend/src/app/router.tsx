@@ -32,6 +32,11 @@ const AccountSecurityPage = React.lazy(() => import("../pages/AccountSecurityPag
 const ResetPasswordPage = React.lazy(() => import("../pages/ResetPasswordPage"));
 const TrendingReposPage = React.lazy(() => import("../pages/TrendingReposPage"));
 const ChessVideoPage = React.lazy(() => import("../pages/ChessVideoPage"));
+const WorkflowsPage = React.lazy(() => import("../pages/WorkflowsPage"));
+const WorkflowEditorPage = React.lazy(() => import("../pages/WorkflowEditorPage"));
+const AutomationsPage = React.lazy(() => import("../pages/AutomationsPage"));
+const WorkflowRunsPage = React.lazy(() => import("../pages/WorkflowRunsPage"));
+const WorkflowRunDetailPage = React.lazy(() => import("../pages/WorkflowRunDetailPage"));
 
 function ProtectedApp() {
   const { isReady, isAuthenticated, currentUser } = useAuth();
@@ -191,6 +196,31 @@ export function AppRouter() {
           <Route path="chess-video" element={
             <React.Suspense fallback={<LoadingState label="Loading chess video..." />}>
               <ChessVideoPage />
+            </React.Suspense>
+          } />
+          <Route path="workflows" element={
+            <React.Suspense fallback={<LoadingState label="Loading workflows..." />}>
+              <WorkflowsPage />
+            </React.Suspense>
+          } />
+          <Route path="workflows/:definitionId" element={
+            <React.Suspense fallback={<LoadingState label="Loading workflow editor..." />}>
+              <WorkflowEditorPage />
+            </React.Suspense>
+          } />
+          <Route path="automations" element={
+            <React.Suspense fallback={<LoadingState label="Loading automations..." />}>
+              <AutomationsPage />
+            </React.Suspense>
+          } />
+          <Route path="runs" element={
+            <React.Suspense fallback={<LoadingState label="Loading runs..." />}>
+              <WorkflowRunsPage />
+            </React.Suspense>
+          } />
+          <Route path="runs/:runId" element={
+            <React.Suspense fallback={<LoadingState label="Loading run..." />}>
+              <WorkflowRunDetailPage />
             </React.Suspense>
           } />
           <Route element={<SettingsRoute />}>

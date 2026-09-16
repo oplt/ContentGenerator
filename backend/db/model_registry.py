@@ -11,3 +11,4 @@ from backend.modules.publishing import models as publishing_models  # noqa: F401
 from backend.modules.source_ingestion import models as source_models  # noqa: F401
 from backend.modules.story_intelligence import models as story_models  # noqa: F401
 from backend.modules.trending_repos import models as trending_repos_models  # noqa: F401
+from backend.modules.workflows import models as workflows_models  # noqa: F401

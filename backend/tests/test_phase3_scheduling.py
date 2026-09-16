@@ -12,6 +12,10 @@ def test_maintenance_schedules_are_staggered_and_expiring() -> None:
     schedules = celery_app.conf.beat_schedule
 
     assert schedules["publish-due-jobs-every-minute"]["options"] == {"expires": 240}
+    assert schedules["tick-due-automations-every-minute"]["options"] == {
+        "countdown": 5,
+        "expires": 240,
+    }
     assert schedules["poll-sources-every-5-min"]["options"] == {"countdown": 10, "expires": 240}
     assert schedules["rescore-all-tenants-every-30-min"]["options"] == {
         "countdown": 20,

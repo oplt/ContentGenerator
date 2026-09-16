@@ -176,6 +176,11 @@ async def _apply_approve(svc: Any, request: ApprovalRequest) -> None:
     if not request.content_job_id:
         return
     await record_preference(svc, request.tenant_id, request.content_job_id, "approve")
+    # Workflow-bound approvals: PublishNode owns publishing (avoid double publish).
+    from backend.modules.workflows.approval_binding import get_workflow_binding
+
+    if get_workflow_binding(request) is not None:
+        return
     payload = request.response_payload_json or {}
     scheduled_for_value = payload.get("scheduled_for")
     if request.approval_type == "publish":
@@ -239,11 +244,32 @@ async def apply_intent(
     """Shared intent dispatch used by both WhatsApp and Telegram handlers."""
     if intent == ApprovalIntent.APPROVE.value:
         await _apply_approve(svc, request)
-        return
-    if intent == ApprovalIntent.REVISE.value and feedback:
+    elif intent == ApprovalIntent.REVISE.value and feedback:
         await _apply_revise(svc, request, feedback)
-        return
-    if intent == ApprovalIntent.REJECT.value:
+    elif intent == ApprovalIntent.REJECT.value:
         await _apply_reject(svc, request)
+    else:
+        return
+
+    await svc.audit.record(
+        tenant_id=request.tenant_id,
+        actor_user_id=None,
+        action="approvals.decision",
+        entity_type="approval_request",
+        entity_id=str(request.id),
+        message=f"Approval decision applied: {intent}",
+        payload={
+            "intent": intent,
+            "content_job_id": str(request.content_job_id) if request.content_job_id else None,
+            "has_feedback": bool(feedback),
+        },
+        outcome="success",
+        payload_schema="approval.decision.v1",
+    )
+
+    # Durable workflow resume — no-op when request is not workflow-bound.
+    from backend.modules.workflows.approval_binding import maybe_resume_workflow_from_approval
+
+    await maybe_resume_workflow_from_approval(svc.db, request)
 
 

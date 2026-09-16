@@ -26,7 +26,11 @@ REGRESSION_MANIFEST: dict[str, tuple[str, ...]] = {
     "analytics_batching": ("test_analytics_sync_batching.py",),
     "api_contracts_parity": ("test_route_parity.py", "test_app_smoke.py"),
     "dormant_registration": ("test_dormant_modules.py",),
-    "domain_metrics": ("test_domain_metrics.py", "test_phase15_observability.py"),
+    "domain_metrics": (
+        "test_domain_metrics.py",
+        "test_phase15_observability.py",
+        "test_workflow_observability.py",
+    ),
     "rollout_gates": ("test_rollout_gates.py",),
     "migration_drift": ("test_migration_drift.py",),
     "worker_recovery": ("test_worker_recovery.py",),
@@ -39,6 +43,14 @@ REGRESSION_MANIFEST: dict[str, tuple[str, ...]] = {
     "line_budget": ("test_file_line_budget.py",),
     "worker_capacity": ("test_phase14_worker_capacity.py",),
     "architecture_enforcement": ("test_phase16_architecture_guards.py",),
+    "workflow_automation": (
+        "test_workflow_engine.py",
+        "test_workflow_graph_compiler.py",
+        "test_workflow_scheduler.py",
+        "test_workflow_approval_resume.py",
+        "test_workflow_security.py",
+        "test_workflow_strategy.py",
+    ),
 }
 
 
@@ -62,5 +74,6 @@ def test_manifest_covers_acceptance_themes() -> None:
         "architecture_enforcement",
         "query_precision",
         "line_budget",
+        "workflow_automation",
     ):
         assert required in themes

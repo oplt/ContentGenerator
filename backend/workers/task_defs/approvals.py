@@ -54,11 +54,15 @@ def process_webhook_inbox_task(*, inbox_id: str) -> dict[str, int]:
 def expire_stale_approvals_task() -> int:
     async def operation(db):
         from backend.modules.approvals.models import ApprovalStatus
+        from backend.modules.workflows.approval_binding import (
+            maybe_resume_workflow_from_approval,
+        )
 
         repo = ApprovalService(db).repo
         expired = await repo.list_expired_pending_requests()
         for request in expired:
             request.status = ApprovalStatus.EXPIRED.value
+            await maybe_resume_workflow_from_approval(db, request)
         return len(expired)
 
     return run_async_task(

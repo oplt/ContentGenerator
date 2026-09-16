@@ -32,6 +32,7 @@ AI systems can ingest, rank, summarize, draft, and prepare content, while operat
 - Webhook and messaging integrations
 - Queue-driven asynchronous processing
 - Chess match video generation (PGN/SAN/UCI → 2D MP4; see [`docs/chess-video.md`](docs/chess-video.md))
+- Multi-brand workflow automations (reusable DAGs → brands → accounts; see [`docs/workflows.md`](docs/workflows.md))
 
 > Status: active development platform with production-oriented architecture and semi-autonomous publishing workflows.
 
@@ -104,7 +105,22 @@ flowchart LR
     API --> UI
 ```
 
-The backend is organized as a modular monolith with domain-based modules for ingestion, trend intelligence, editorial workflows, content generation, approvals, publishing, analytics, and platform administration.
+The backend is organized as a modular monolith with domain-based modules for ingestion, trend intelligence, editorial workflows, content generation, approvals, publishing, analytics, platform administration, and **reusable workflow automations** (versioned DAGs orchestrating those domains).
+
+Workflow automation overview:
+
+```mermaid
+flowchart TB
+  Brand[Brand] --> Auto[Automation]
+  Def[WorkflowDefinition] --> Ver[WorkflowVersion]
+  Ver --> Auto
+  Auto --> Targets[Social account targets]
+  Ver --> Run[WorkflowRun]
+  Run --> Nodes[Node runs]
+  Nodes --> Domains[LLM / media / approval / publish]
+```
+
+See [`docs/workflows.md`](docs/workflows.md) for the full model.
 
 ---
 
@@ -162,6 +178,15 @@ The backend is organized as a modular monolith with domain-based modules for ing
 - Retry and cancel workflows
 - Connected-account validation
 - Published-post tracking
+- Workflow-bound approvals that pause runs without holding workers
+
+## Workflow automations
+
+- Versioned workflow definitions (DAG-as-data)
+- Brand + multi-account automations and schedules
+- Visual + step editors (`@xyflow/react`)
+- Dry-run / single-node testing
+- Durable run monitor with resume
 
 ## Analytics and Optimization
 
@@ -422,6 +447,7 @@ Main route groups:
 | Content Generation | `/content/*` |
 | Editorial Briefs | `/briefs/*` |
 | Approvals | `/approvals/*` |
+| Workflows & automations | `/workflows/*` |
 | Publishing | `/publishing/*` |
 | Analytics | `/analytics/*` |
 | Settings | `/settings/*` |
@@ -440,6 +466,10 @@ Main route groups:
 | `/dashboard/briefs` | Editorial workflows |
 | `/dashboard/content` | Generated content |
 | `/dashboard/approvals` | Approval queue |
+| `/dashboard/workflows` | Workflow definitions |
+| `/dashboard/workflows/:id` | Workflow editor (steps + canvas) |
+| `/dashboard/automations` | Automations (brand / schedule / targets) |
+| `/dashboard/runs` | Workflow run monitor |
 | `/dashboard/publishing` | Publishing workflows |
 | `/dashboard/analytics` | Analytics overview |
 | `/dashboard/settings` | Tenant settings |
@@ -473,6 +503,22 @@ Approve workflow
 Queue publishing
 ```
 
+## Multi-brand workflow automation
+
+```text
+Publish WorkflowVersion
+    ->
+Create Automation (brand + schedule + account targets)
+    ->
+Scheduler or manual trigger → WorkflowRun
+    ->
+Nodes (generate / media / approval / platform_transform / publish dry-run)
+    ->
+Inspect run detail; resume WAITING approvals
+```
+
+Docs: [`docs/workflows.md`](docs/workflows.md), [`docs/automations.md`](docs/automations.md).
+
 ## Run Local AI with Ollama
 
 ```bash
@@ -502,6 +548,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 - Telegram and WhatsApp integrations
 - Dry-run publishing support
 - Multi-user operational dashboards
+- Multi-brand reusable workflow automations (definitions, scheduler, canvas, dry-run)
 
 ---
 
@@ -514,6 +561,26 @@ OLLAMA_BASE_URL=http://localhost:11434
 - Better long-term feedback loops
 - CI/CD automation
 - Production deployment hardening
+- Optional Temporal evaluation **only if** long-wait / complex compensation needs exceed the Postgres + Celery engine
+
+---
+
+# Documentation
+
+| Topic | Doc |
+|-------|-----|
+| Workflow architecture | [`docs/workflows.md`](docs/workflows.md) |
+| Nodes + lifecycle | [`docs/workflow-nodes.md`](docs/workflow-nodes.md) |
+| Engine / versioning / debug | [`docs/workflow-engine.md`](docs/workflow-engine.md) |
+| Automations + scheduler | [`docs/automations.md`](docs/automations.md) |
+| Social accounts + providers | [`docs/social-accounts.md`](docs/social-accounts.md) |
+| Approvals + resume | [`docs/approvals.md`](docs/approvals.md) |
+| Extending workflows | [`docs/workflow-development.md`](docs/workflow-development.md) |
+| Testing strategy | [`docs/workflows-phase18-testing.md`](docs/workflows-phase18-testing.md) |
+| Chess video | [`docs/chess-video.md`](docs/chess-video.md) |
+| Metrics | [`docs/observability/metrics.md`](docs/observability/metrics.md) |
+
+Phase-by-phase workflow notes: `docs/workflows-phase*.md`.
 
 ---
 
@@ -531,11 +598,24 @@ npm run build
 npm run e2e
 ```
 
+Workflow UI subset:
+
+```bash
+npm test -- --run src/api/workflows.test.ts src/features/workflows src/pages/Workflow*.test.tsx src/pages/AutomationsPage.test.tsx
+npx playwright test e2e/workflows.spec.ts --project=chromium
+```
+
 ## Backend
 
 ```bash
 cd backend
 pytest
+```
+
+Workflow suite:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_workflow_*.py -q
 ```
 
 Top-level checks:
@@ -555,6 +635,7 @@ make check
 - Restrict CORS origins in deployed environments
 - Validate Telegram and WhatsApp webhook security
 - Review logging configuration for sensitive content exposure
+- Workflow graphs must never store OAuth tokens — use `social_account_id` only ([`docs/workflows-phase17-security.md`](docs/workflows-phase17-security.md))
 
 ---
 

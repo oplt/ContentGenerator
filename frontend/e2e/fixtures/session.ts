@@ -5,7 +5,7 @@ export const DEMO_SESSION_USER = {
     full_name: "Demo User",
     is_verified: true,
     is_admin: true,
-    mfa_enabled: false,
+    mfa_enabled: true,
     default_tenant_id: "tenant-1",
     memberships: [
       {

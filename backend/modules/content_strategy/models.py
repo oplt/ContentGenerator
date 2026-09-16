@@ -4,7 +4,16 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin, VersionMixin
@@ -29,6 +38,8 @@ class Brand(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     __tablename__ = "brands"
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_brands_tenant_id_name"),
+        # Enables composite FKs that keep child rows on the same tenant as the brand.
+        UniqueConstraint("tenant_id", "id", name="uq_brands_tenant_id_id"),
         Index("ix_brands_tenant_id_niche", "tenant_id", "niche"),
         Index("ix_brands_tenant_id_enabled", "tenant_id", "deleted_at", postgresql_where=(SoftDeleteMixin.deleted_at.is_(None))),
     )
@@ -95,6 +106,56 @@ class BrandSourcePolicy(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Ba
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     priority: Mapped[int] = mapped_column(nullable=False, default=100)
     policy_metadata: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+
+
+class BrandSocialAccount(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
+    """Many-to-many binding between a brand/scope and a publishable social account."""
+
+    __tablename__ = "brand_social_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "brand_id",
+            "social_account_id",
+            name="uq_brand_social_accounts_tenant_brand_account",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "brand_id"],
+            ["brands.tenant_id", "brands.id"],
+            name="fk_brand_social_accounts_tenant_brand",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "social_account_id"],
+            ["social_accounts.tenant_id", "social_accounts.id"],
+            name="fk_brand_social_accounts_tenant_social_account",
+            ondelete="CASCADE",
+        ),
+        Index("ix_brand_social_accounts_tenant_id_brand_id", "tenant_id", "brand_id"),
+        Index(
+            "ix_brand_social_accounts_tenant_id_social_account_id",
+            "tenant_id",
+            "social_account_id",
+        ),
+        Index(
+            "ix_brand_social_accounts_tenant_id_enabled",
+            "tenant_id",
+            "enabled",
+            postgresql_where=(SoftDeleteMixin.deleted_at.is_(None)),
+        ),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    brand_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    social_account_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    default_content_format: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    generation_overrides: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    publishing_policy: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    platform_policy: Mapped[dict[str, object]] = mapped_column(default=dict, nullable=False)
+    link_metadata: Mapped[dict[str, object]] = mapped_column("metadata", default=dict, nullable=False)
 
 
 class ContentPlan(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, VersionMixin, Base):

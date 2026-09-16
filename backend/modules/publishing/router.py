@@ -89,7 +89,9 @@ async def upsert_social_account(
     db: AsyncSession = Depends(get_db),
 ) -> SocialAccountResponse:
     service = PublishingService(db)
-    account = await service.upsert_social_account(membership.tenant_id, payload)
+    account = await service.upsert_social_account(
+        membership.tenant_id, payload, actor_user_id=membership.user_id
+    )
     return SocialAccountResponse(
         id=account.id,
         platform=str(account.platform),

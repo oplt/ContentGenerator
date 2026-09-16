@@ -59,9 +59,9 @@ class PublishingService:
         return await self.repo.list_connected_accounts(tenant_id)
 
     async def upsert_social_account(
-        self, tenant_id: UUID, payload: SocialAccountUpsertRequest
+        self, tenant_id: UUID, payload: SocialAccountUpsertRequest, *, actor_user_id: UUID | None = None
     ) -> SocialAccount:
-        return await _upsert_social_account(self, tenant_id, payload)
+        return await _upsert_social_account(self, tenant_id, payload, actor_user_id=actor_user_id)
 
     async def validate_connected_account(
         self,

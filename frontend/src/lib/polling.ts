@@ -108,3 +108,20 @@ export function briefsNeedPolling(
 export function contentJobNeedsPolling(job: { status: string } | undefined): boolean {
   return isActiveStatus(job?.status, TERMINAL_CONTENT_JOB_STATUSES);
 }
+
+const ACTIVE_WORKFLOW_RUN_STATUSES = new Set(["queued", "running", "waiting"]);
+
+export function workflowRunNeedsPolling(
+  detail: { run: { status: string } } | undefined,
+): boolean {
+  const status = detail?.run.status?.toLowerCase();
+  return Boolean(status && ACTIVE_WORKFLOW_RUN_STATUSES.has(status));
+}
+
+export function workflowRunsNeedPolling(
+  runs: Array<{ status: string }> | undefined,
+): boolean {
+  return (runs ?? []).some((run) =>
+    ACTIVE_WORKFLOW_RUN_STATUSES.has(String(run.status).toLowerCase()),
+  );
+}

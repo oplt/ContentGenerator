@@ -16,6 +16,7 @@ describe("queryKeyFactories", () => {
         "stories",
         "trending",
         "users",
+        "workflows",
       ].sort()
     );
   });

@@ -17,6 +17,8 @@ from backend.modules.settings.router import router as settings_router
 from backend.modules.source_ingestion.router import router as source_router
 from backend.modules.story_intelligence.router import router as story_router
 from backend.modules.users.router import router as users_router
+from backend.modules.workflows.router import router as workflows_router
+from backend.modules.workflows.automation_router import router as workflow_automations_router
 from backend.api.websocket import websocket_manager
 
 api_router = APIRouter(prefix="/api/v1")
@@ -38,6 +40,10 @@ api_router.include_router(settings_router, prefix="/settings", tags=["settings"]
 api_router.include_router(audit_router, prefix="/audit", tags=["audit"])
 api_router.include_router(trending_repos_router, prefix="/trending-repos", tags=["trending-repos"])
 api_router.include_router(chess_video_router, prefix="/chess-videos", tags=["chess-videos"])
+api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
+api_router.include_router(
+    workflow_automations_router, prefix="/workflows", tags=["workflows"]
+)
 api_router.include_router(media_router, prefix="/media", tags=["media"])
 api_router.include_router(health_router)
 

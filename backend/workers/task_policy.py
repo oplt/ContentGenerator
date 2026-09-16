@@ -168,6 +168,29 @@ TASK_POLICIES: Final[dict[str, TaskPolicy]] = {
         max_retries=2,
         acks_late=True,
     ),
+    "backend.workers.tasks.tick_due_automations_task": TaskPolicy(
+        workload="io",
+        soft_time_limit=60,
+        time_limit=90,
+        max_retries=0,
+        acks_late=True,
+        retry_backoff=False,
+        retry_jitter=False,
+    ),
+    "backend.workers.tasks.advance_workflow_run_task": TaskPolicy(
+        workload="llm",
+        soft_time_limit=600,
+        time_limit=720,
+        max_retries=2,
+        acks_late=True,
+    ),
+    "backend.workers.tasks.resume_workflow_waiting_node_task": TaskPolicy(
+        workload="llm",
+        soft_time_limit=600,
+        time_limit=720,
+        max_retries=2,
+        acks_late=True,
+    ),
 }
 
 

@@ -10,7 +10,7 @@ from backend.modules.chess_video.renderer import RENDERER_VERSION
 from backend.modules.chess_video.themes import DEFAULT_BOARD_THEME
 
 BOARD_THEME = DEFAULT_BOARD_THEME
-PIECE_THEME = "noto_unicode_v1"
+PIECE_THEME = "noto_unicode_v2_solid"
 
 
 def compute_render_fingerprint(

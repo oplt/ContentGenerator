@@ -9,8 +9,8 @@ export async function mockSignedOutDashboard(page: Page): Promise<MockApiContext
 
 export async function signInAsDemo(page: Page): Promise<void> {
   await page.goto("/");
-  await page.getByPlaceholder("Email").fill("demo@example.com");
-  await page.getByPlaceholder("Password").fill("password1234");
+  await page.getByLabel("Email", { exact: true }).fill("demo@example.com");
+  await page.getByLabel("Password", { exact: true }).fill("password1234");
   await page.getByRole("button", { name: "Sign In" }).click();
   await expect(page).toHaveURL(/dashboard$/);
 }

@@ -91,6 +91,22 @@ export const queryKeyFactories = {
     job: (tenantId: string, jobId: string) =>
       tenantQueryKey(tenantId, "chess-videos", "job", jobId),
   },
+  workflows: {
+    definitions: (tenantId: string) => tenantQueryKey(tenantId, "workflows", "definitions"),
+    definition: (tenantId: string, definitionId: string) =>
+      tenantQueryKey(tenantId, "workflows", "definitions", definitionId),
+    versions: (tenantId: string, definitionId: string) =>
+      tenantQueryKey(tenantId, "workflows", "versions", definitionId),
+    nodes: (tenantId: string) => tenantQueryKey(tenantId, "workflows", "nodes"),
+    runs: (tenantId: string, status?: string) =>
+      status
+        ? tenantQueryKey(tenantId, "workflows", "runs", status)
+        : tenantQueryKey(tenantId, "workflows", "runs"),
+    run: (tenantId: string, runId: string) =>
+      tenantQueryKey(tenantId, "workflows", "runs", "detail", runId),
+    automations: (tenantId: string) => tenantQueryKey(tenantId, "workflows", "automations"),
+    brands: (tenantId: string) => tenantQueryKey(tenantId, "workflows", "brands"),
+  },
   health: {
     ready: globalQueryKeys.healthReady,
   },
@@ -128,4 +144,12 @@ export const queryKeys = {
   trendingRepos: queryKeyFactories.trending.repos,
   chessVideos: queryKeyFactories.chessVideos.all,
   chessVideoJob: queryKeyFactories.chessVideos.job,
+  workflowDefinitions: queryKeyFactories.workflows.definitions,
+  workflowDefinition: queryKeyFactories.workflows.definition,
+  workflowVersions: queryKeyFactories.workflows.versions,
+  workflowNodes: queryKeyFactories.workflows.nodes,
+  workflowRuns: queryKeyFactories.workflows.runs,
+  workflowRun: queryKeyFactories.workflows.run,
+  workflowAutomations: queryKeyFactories.workflows.automations,
+  workflowBrands: queryKeyFactories.workflows.brands,
 } as const;

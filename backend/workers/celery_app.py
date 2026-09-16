@@ -59,6 +59,11 @@ celery_app.conf.update(
         "backend.workers.tasks.fetch_trending_repos_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
         "backend.workers.tasks.send_trending_repos_digest_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
         "backend.workers.tasks.trending_repos_daily_fanout_task": {"queue": settings.CELERY_QUEUE_ENRICHMENT},
+        "backend.workers.tasks.tick_due_automations_task": {"queue": settings.CELERY_QUEUE_GENERATION},
+        "backend.workers.tasks.advance_workflow_run_task": {"queue": settings.CELERY_QUEUE_GENERATION},
+        "backend.workers.tasks.resume_workflow_waiting_node_task": {
+            "queue": settings.CELERY_QUEUE_GENERATION
+        },
     },
     beat_schedule={
         "poll-sources-every-5-min": {
@@ -80,6 +85,11 @@ celery_app.conf.update(
             "task": "backend.workers.tasks.publish_due_jobs_task",
             "schedule": crontab(minute="*"),
             "options": {"expires": 240},
+        },
+        "tick-due-automations-every-minute": {
+            "task": "backend.workers.tasks.tick_due_automations_task",
+            "schedule": crontab(minute="*"),
+            "options": {"countdown": 5, "expires": 240},
         },
         "trending-repos-daily-8am": {
             "task": "backend.workers.tasks.trending_repos_daily_fanout_task",

@@ -12,6 +12,10 @@ from backend.modules.publishing.models import (
     SocialAccount,
     SocialAccountToken,
 )
+from backend.modules.publishing.platform_capabilities import (
+    capabilities_to_flag_dict,
+    flags_to_capabilities,
+)
 from backend.modules.publishing.providers import AuthValidationResult, get_provider
 from backend.modules.publishing.schemas import (
     ConnectedAccountValidationResponse,
@@ -19,7 +23,13 @@ from backend.modules.publishing.schemas import (
 )
 
 
-async def upsert_social_account(svc, tenant_id: UUID, payload: SocialAccountUpsertRequest) -> SocialAccount:
+async def upsert_social_account(
+    svc,
+    tenant_id: UUID,
+    payload: SocialAccountUpsertRequest,
+    *,
+    actor_user_id: UUID | None = None,
+) -> SocialAccount:
     """Upsert canonical SocialAccount and dual-write ConnectedAccount projection."""
     auth_type = "stub" if payload.use_stub else "oauth"
     existing: SocialAccount | None = None
@@ -52,7 +62,9 @@ async def upsert_social_account(svc, tenant_id: UUID, payload: SocialAccountUpse
         access_token=payload.access_token or "",
         account_external_id=payload.account_external_id or "",
     )
-    capability_flags = provider.capabilities()
+    capability_flags = capabilities_to_flag_dict(
+        flags_to_capabilities(provider.capabilities(), platform=payload.platform)
+    )
     account_mode: dict[str, object] = {**payload.metadata, "mode": "stub" if payload.use_stub else "real"}
 
     if existing:
@@ -140,6 +152,23 @@ async def upsert_social_account(svc, tenant_id: UUID, payload: SocialAccountUpse
 
     validation = await provider.validate_auth(social_account=account)
     account.status = validation.account_status
+    await svc.audit.record(
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action="publishing.account_upserted",
+        entity_type="social_account",
+        entity_id=str(account.id),
+        message="Social account upserted",
+        payload={
+            "platform": account.platform,
+            "auth_type": account.auth_type,
+            "credentials_updated": bool(
+                payload.access_token or payload.access_token_secret_ref
+            ),
+        },
+        outcome="success",
+        payload_schema="publishing.account_upsert.v1",
+    )
     return account
 
 

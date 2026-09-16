@@ -41,6 +41,7 @@ dependencies = [
     "sentry-sdk[fastapi]>=2.19.2",
     "chess>=1.11.1",
     "Pillow>=11.0.0",
+    "croniter>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -135,3 +136,7 @@ disable_error_code = [
 [[tool.mypy.overrides]]
 module = ["backend.core.logging", "backend.core.cache"]
 disable_error_code = ["attr-defined", "unused-ignore"]
+
+[[tool.mypy.overrides]]
+module = ["croniter", "croniter.*"]
+ignore_missing_imports = true
